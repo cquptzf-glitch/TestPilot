@@ -142,6 +142,31 @@ class UIADriver:
         except Exception as e:
             raise AppError(f"附加窗口失败: title_re={title_re!r} ({e})") from e
 
+    def attach_handle(self, handle: int, timeout_s: float = 10) -> Rect:
+        """按 HWND 精确附加，解决多个窗口标题相同导致的歧义。"""
+        try:
+            from pywinauto import Desktop
+            wanted = int(handle)
+            native = Desktop(backend="win32")
+            deadline = time.monotonic() + timeout_s
+            while True:
+                matches = [w for w in native.windows(visible_only=True)
+                           if int(getattr(w, "handle", 0) or 0) == wanted]
+                if matches:
+                    self._app = None
+                    self._native_top = matches[0]
+                    self._top = self._desktop.window(handle=wanted)
+                    self._top.wait("visible ready", timeout=max(
+                        0.1, deadline - time.monotonic()))
+                    return self._rect_of(self._top)
+                if time.monotonic() >= deadline:
+                    raise AppError(f"被测窗口句柄不存在或不可见: {wanted}")
+                time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+        except AppError:
+            raise
+        except Exception as e:
+            raise AppError(f"按句柄附加窗口失败: handle={handle!r} ({e})") from e
+
     def _find_window(self, title_re: str | None, timeout_s: float, process=None):
         """Resolve a native HWND before querying its UIA subtree.
 
