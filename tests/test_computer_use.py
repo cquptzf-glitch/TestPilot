@@ -171,9 +171,10 @@ def test_duplicate_accessible_names_get_lower_selector_score():
     state = session.observe()
     buttons = [item for item in state["elements"] if item["name"] == "确认"]
     assert len(buttons) == 2
-    assert all(item["selector_quality"] == "medium" for item in buttons)
-    assert all(item["selector_score"] >= 0.65 for item in buttons)
+    assert all(item["selector_quality"] == "low" for item in buttons)
+    assert all(item["selector_score"] < 0.65 for item in buttons)
     assert all("局部 index" in item["selector_reason"] for item in buttons)
+    assert "ancestors" not in buttons[0]["selector"]
     assert "index" not in buttons[0]["selector"]
     assert buttons[1]["selector"]["index"] == 1
 
