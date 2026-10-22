@@ -133,6 +133,12 @@ export function AutomationPage() {
       if (refresh) await observeNow();
     });
 
+  const removeHistoryStep = (index: number) =>
+    run('正在移除探索步骤…', async () => {
+      await call('automation.removeStep', { index });
+      setDraft(null);
+    });
+
   const generateDraft = () => run('正在生成 DSL 草稿…', async () => {
     const out = await call<AutomationDraft>('automation.draft', {
       caseId: caseId.trim() || 'TC-EXPLORE',
@@ -302,6 +308,8 @@ export function AutomationPage() {
             <span>{s.index}</span><code>{s.tool}</code><span>{s.ms} ms</span>
             <span className="muted">{s.driver || '—'}</span>
             <span>{s.ok ? '成功' : s.error || '失败'}</span>
+            <button className="btn ghost small" disabled={!!busy}
+                    onClick={() => void removeHistoryStep(s.index)}>移除</button>
           </div>)}
           {!history?.steps.length && <div className="automation-empty">暂无操作记录。</div>}
         </div>
