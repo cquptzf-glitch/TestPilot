@@ -8,7 +8,7 @@
 from testpilot.core.dsl import DriverMode, OnFailure
 
 PROMPT_VERSIONS = {
-    "parse_case": "parse_case_v3",
+    "parse_case": "parse_case_v4",
     "ground": "ground_v3",      # v2: 消除裁剪区域绝对坐标歧义（bbox 一律相对本图）
     "verify_vision": "verify_vision_v1",
     "judge": "judge_v2",
@@ -26,6 +26,9 @@ _ACTION_ACTIONS = "\n".join(
         "ui.select      下拉/列表/页签选择；target 必填，value 为选项文本",
         "ui.toggle      确定性勾选复选框；target 必填，value 为 true 或 false",
         "ui.keypress    在目标控件发送键序列；target 必填，value 如 {F2}、{ENTER}",
+        "ui.right_click 在目标控件执行右键/上下文菜单；target 必填",
+        "ui.scroll      在目标控件上滚动；target 必填，args: {direction: up|down|left|right, amount: 1..20}",
+        "ui.drag        从目标控件中心相对拖拽；target 必填，args: {dx, dy, duration_ms}",
         "表格单元格定位：target.primary 使用表格定位字段并指定 row、column（0 起）",
         "ui.wait        等待控件出现/消失；target 必填，args: {state: exists|gone}",
         "vision.click   纯视觉点击（自绘控件）；target.primary.type=visual",
