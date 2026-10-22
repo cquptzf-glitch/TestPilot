@@ -13,7 +13,7 @@ from testpilot.explore.toolbox import ToolBox, ToolError
 DSL_TOOLS = (
     "app.launch", "app.attach", "app.wait_ready", "app.close",
     "ui.locate", "ui.click", "ui.input", "ui.set_value", "ui.select",
-    "ui.toggle", "ui.keypress", "ui.scroll", "ui.drag",
+    "ui.toggle", "ui.keypress", "ui.right_click", "ui.scroll", "ui.drag",
     "assert.ui", "assert.state", "assert.vision",
     "device.scene", "device.call",
 )
@@ -259,7 +259,8 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
                 "source_text": "[探索] 关闭被测程序"}
 
     if tool in ("ui.locate", "ui.click", "ui.input", "ui.set_value",
-                "ui.select", "ui.toggle", "ui.keypress", "ui.scroll", "ui.drag"):
+                "ui.select", "ui.toggle", "ui.keypress", "ui.right_click",
+                "ui.scroll", "ui.drag"):
         target = _target_of(args, result)
         if target is None:
             return None
@@ -271,6 +272,7 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
             "ui.select": "ui.select",
             "ui.toggle": "ui.toggle",
             "ui.keypress": "ui.keypress",
+            "ui.right_click": "ui.right_click",
             "ui.scroll": "ui.scroll",
             "ui.drag": "ui.drag",
         }[tool]
@@ -458,6 +460,8 @@ def _describe(tool: str, args: dict, result: dict | None = None) -> str:
         return f"设置 {key} 为 {'选中' if args.get('checked') else '未选中'}"
     if tool == "ui.keypress":
         return f"在 {key} 发送按键 {args.get('keys')!r}"
+    if tool == "ui.right_click":
+        return f"在 {key} 执行右键"
     if tool == "ui.scroll":
         return f"在 {key} 向 {args.get('direction')} 滚动 {args.get('amount', 3)} 格"
     if tool == "ui.drag":
