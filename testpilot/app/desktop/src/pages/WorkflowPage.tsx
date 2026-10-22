@@ -9,6 +9,52 @@ function restored<T>(key: string, fallback: T): T {
   try { return JSON.parse(sessionStorage.getItem(key) ?? 'null') ?? fallback; }
   catch { return fallback; }
 }
+interface AppTargetPreset {
+  id: string;
+  name: string;
+  windowTitle: string;
+  exe: string;
+  updatedAt: number;
+}
+
+const TARGET_PRESETS_KEY = 'tp-flow-target-presets-v1';
+const TARGET_PRESET_LIMIT = 12;
+
+function loadTargetPresets(): AppTargetPreset[] {
+  try {
+    const raw = localStorage.getItem(TARGET_PRESETS_KEY);
+    if (!raw) return [];
+    const value = JSON.parse(raw) as unknown;
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter((item): item is AppTargetPreset => !!item && typeof item === 'object'
+        && typeof item.id === 'string' && typeof item.name === 'string'
+        && typeof item.windowTitle === 'string' && typeof item.exe === 'string'
+        && typeof item.updatedAt === 'number')
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, TARGET_PRESET_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function persistTargetPresets(items: AppTargetPreset[]): void {
+  try {
+    localStorage.setItem(
+      TARGET_PRESETS_KEY,
+      JSON.stringify(items.slice(0, TARGET_PRESET_LIMIT)),
+    );
+  } catch {
+    // localStorage 不可用时不阻塞本次测试。
+  }
+}
+
+function presetDefaultName(windowTitle: string, exe: string): string {
+  if (windowTitle.trim()) return windowTitle.trim();
+  const normalized = exe.trim().replace(/\\/g, '/');
+  return normalized.split('/').filter(Boolean).pop() || '被测软件';
+}
+
 function needsAnalysis(c: CaseRow): boolean { return !c.steps?.length || c.sync_status !== 'synced'; }
 function approved(c: CaseRow): boolean { return c.status === 'active' && !needsAnalysis(c); }
 function missingWindow(c: CaseRow): boolean {
@@ -26,6 +72,9 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
   const [pullIds, setPullIds] = useState('');
   const [windowTitle, setWindowTitle] = useState(() => restored('tp-flow-window-title', ''));
   const [exe, setExe] = useState(() => restored('tp-flow-exe', ''));
+  const [targetPresets, setTargetPresets] = useState<AppTargetPreset[]>(loadTargetPresets);
+  const [targetPresetId, setTargetPresetId] = useState('');
+  const [targetPresetName, setTargetPresetName] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [batch, setBatch] = useState<ParseBatchResult | null>(null);
@@ -54,6 +103,49 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
   useEffect(() => {
     if (cases.data) setSelected(ids => ids.filter(id => rows.some(c => c.case_id === id && c.status !== 'rejected')));
   }, [cases.data]);
+
+  const applyTargetPreset = (id: string) => {
+    setTargetPresetId(id);
+    const preset = targetPresets.find((item) => item.id === id);
+    if (!preset) return;
+    setWindowTitle(preset.windowTitle);
+    setExe(preset.exe);
+    setTargetPresetName(preset.name);
+  };
+
+  const saveTargetPreset = () => {
+    const title = windowTitle.trim();
+    const appExe = exe.trim();
+    if (!title && !appExe) {
+      setError('请先填写窗口标题或程序路径，再保存目标预设');
+      return;
+    }
+    const name = targetPresetName.trim() || presetDefaultName(title, appExe);
+    const now = Date.now();
+    const existing = targetPresetId
+      ? targetPresets.find((item) => item.id === targetPresetId)
+      : undefined;
+    const id = existing?.id ?? ('target-' + now.toString(36));
+    const next: AppTargetPreset = {
+      id, name, windowTitle: title, exe: appExe, updatedAt: now,
+    };
+    const items = [next, ...targetPresets.filter((item) => item.id !== id)]
+      .slice(0, TARGET_PRESET_LIMIT);
+    setTargetPresets(items);
+    setTargetPresetId(id);
+    setTargetPresetName(name);
+    persistTargetPresets(items);
+    setError('');
+  };
+
+  const deleteTargetPreset = () => {
+    if (!targetPresetId) return;
+    const items = targetPresets.filter((item) => item.id !== targetPresetId);
+    setTargetPresets(items);
+    persistTargetPresets(items);
+    setTargetPresetId('');
+    setTargetPresetName('');
+  };
 
   const action = async (label: string, fn: () => Promise<void>) => {
     if (gate.current) return;
@@ -150,6 +242,34 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
       </div>
       <details className="flow-target"><summary>设置被测软件（用例未提供窗口时填写）</summary>
         <p className="muted">已打开软件可只填窗口标题；需要启动时填写程序路径。填写后会应用到本次生成的草稿，再由你确认。</p>
+        <div className="flow-target-presets">
+          <label>常用目标
+            <select aria-label="常用被测软件预设" value={targetPresetId}
+                    onChange={(e) => applyTargetPreset(e.target.value)}>
+              <option value="">不使用预设</option>
+              {targetPresets.map((preset) => <option key={preset.id} value={preset.id}>
+                {preset.name}
+              </option>)}
+            </select>
+          </label>
+          <label>预设名称
+            <input value={targetPresetName}
+                   onChange={(e) => setTargetPresetName(e.target.value)}
+                   placeholder="例如：IVD 主控软件" />
+          </label>
+          <div className="flow-target-preset-actions">
+            <button type="button" className="btn" disabled={locked || (!windowTitle.trim() && !exe.trim())}
+                    onClick={saveTargetPreset}>
+              {targetPresetId ? '更新预设' : '保存为预设'}
+            </button>
+            <button type="button" className="btn ghost"
+                    disabled={locked || !targetPresetId}
+                    onClick={deleteTargetPreset}>删除</button>
+          </div>
+        </div>
+        {targetPresets.length > 0 && <p className="hint">
+          最多保留 {TARGET_PRESET_LIMIT} 个常用目标，保存在本机；切换预设会自动填入窗口标题和程序路径。
+        </p>}
         <div className="form-2col"><label>窗口标题<input aria-label="被测窗口标题" value={windowTitle} onChange={e => setWindowTitle(e.target.value)} placeholder="例如：仪器控制软件" /></label>
           <label>程序路径（可选）<input aria-label="被测程序路径" value={exe} onChange={e => setExe(e.target.value)} placeholder="D:\\Software\\Instrument.exe" /></label></div>
       </details>
