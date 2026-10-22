@@ -164,6 +164,11 @@ class FakeDriver:
         self.launched = {"title_re": title_re}
         return (0, 0, 800, 600)
 
+    def attach_handle(self, handle, timeout_s=10):
+        self.calls.append(("attach_handle", int(handle)))
+        self.launched = {"handle": int(handle)}
+        return (0, 0, 800, 600)
+
     def list_windows(self, limit=100):
         return [{"title": "Fake App", "handle": 1, "pid": 123,
                  "rect": [0, 0, 800, 600]}][:limit]
