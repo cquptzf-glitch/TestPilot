@@ -1835,7 +1835,7 @@ details.task-create { margin-bottom: 22px; }
 
 .automation-query {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) 150px auto auto auto;
+  grid-template-columns: minmax(160px, 1fr) 140px auto auto;
   gap: var(--sp-2);
   margin-bottom: var(--sp-3);
 }
@@ -1878,11 +1878,48 @@ details.task-create { margin-bottom: 22px; }
   min-height: 46px;
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: var(--sp-1);
   border: 0;
   border-bottom: 1px solid var(--c-border);
   background: transparent;
   color: var(--c-text);
+  text-align: left;
+}
+
+.automation-tree-toggle {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--c-text-faint);
+  cursor: pointer;
+}
+
+.automation-tree-toggle:hover {
+  color: var(--c-accent-text);
+  background: var(--c-accent-soft);
+}
+
+.automation-tree-toggle.placeholder {
+  pointer-events: none;
+}
+
+.automation-element-select {
+  min-width: 0;
+  min-height: 45px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-1);
+  border: 0;
+  background: transparent;
+  color: inherit;
   text-align: left;
 }
 
