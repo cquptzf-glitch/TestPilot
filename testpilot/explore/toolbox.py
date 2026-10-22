@@ -53,6 +53,11 @@ _LOCATE_PROPS = {
     "name": {"type": "string", "description": "UIA accessibleName / 控件文本"},
     "automation_id": {"type": "string"},
     "control_type": {"type": "string", "description": "Button/Edit/Table..."},
+    "ancestors": {
+        "type": "array",
+        "items": {"type": "object"},
+        "description": "UIA 父级作用域链（根到最近父级）",
+    },
     "desc": {"type": "string", "description": "视觉语义描述（vision 驱动）"},
     "template": {"type": "string", "description": "模板图相对路径（template）"},
     "region": {
@@ -643,6 +648,7 @@ class ToolBox:
             "name": loc.name,
             "automation_id": loc.automation_id,
             "control_type": loc.control_type,
+            "ancestors": loc.ancestors,
             "desc": loc.desc,
             "template": loc.template,
             "region": list(loc.region) if loc.region is not None else None,
@@ -697,6 +703,7 @@ class ToolBox:
         loc = Locator(type=ltype, name=args.get("name"),
                       automation_id=args.get("automation_id"),
                       control_type=args.get("control_type"),
+                      ancestors=list(args.get("ancestors") or []),
                       desc=args.get("desc"), template=args.get("template"),
                       region=parsed_region,
                       index=int(args.get("index", 0) or 0))
@@ -706,8 +713,8 @@ class ToolBox:
 def _stable_meta(data: dict | None) -> dict:
     data = data or {}
     out = {}
-    for key in ("name", "automation_id", "control_type", "desc", "template",
-                "region", "stable_key", "selector"):
+    for key in ("name", "automation_id", "control_type", "ancestors",
+                "desc", "template", "region", "stable_key", "selector"):
         value = data.get(key)
         if value not in (None, ""):
             out[key] = value
@@ -723,11 +730,15 @@ def _selector_from_meta(data: dict) -> dict | None:
         out = {"type": "uia", "automation_id": data["automation_id"]}
         if data.get("control_type"):
             out["control_type"] = data["control_type"]
+        if data.get("ancestors"):
+            out["ancestors"] = data["ancestors"]
         return out
     if data.get("name"):
         out = {"type": "uia", "name": data["name"]}
         if data.get("control_type"):
             out["control_type"] = data["control_type"]
+        if data.get("ancestors"):
+            out["ancestors"] = data["ancestors"]
         return out
     if data.get("template"):
         out = {"type": "template", "template": data["template"]}
