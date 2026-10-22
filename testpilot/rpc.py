@@ -174,6 +174,7 @@ class RpcService:
             "automation.removeStep": self._automation_remove_step,
             "automation.updateStep": self._automation_update_step,
             "automation.moveStep": self._automation_move_step,
+            "automation.restore": self._automation_restore,
             "automation.reset": self._automation_reset,
 
             "config.describe": self._config_describe,
@@ -208,7 +209,7 @@ class RpcService:
             "dsl.review", "dsl.save", "dsl.accept", "dsl.reject",
             "automation.tools", "automation.invoke", "automation.history",
             "automation.draft", "automation.removeStep", "automation.updateStep",
-            "automation.moveStep", "automation.reset",
+            "automation.moveStep", "automation.restore", "automation.reset",
             "config.describe", "config.apply", "config.reset",
             "config.overrideText",
         })
@@ -699,6 +700,25 @@ class RpcService:
         steps = session.move_step(_to_int(p, "index"), _to_int(p, "toIndex"))
         return {"steps": [step.to_dict() for step in steps],
                 "history_count": len(steps)}
+
+    def _automation_restore(self, p):
+        from testpilot.explore.session import ExplorationSession
+
+        data = p.get("session")
+        if not isinstance(data, dict):
+            raise RpcError(INVALID_PARAMS, "automation.restore 的 session 需为对象")
+        raw_steps = data.get("steps") or []
+        if not isinstance(raw_steps, list):
+            raise RpcError(INVALID_PARAMS, "automation.restore.session.steps 需为数组")
+        if len(raw_steps) > 2000:
+            raise RpcError(INVALID_PARAMS, "探索会话步骤过多（上限 2000）")
+
+        current = self._automation()
+        restored = ExplorationSession.from_dict(data, toolbox=current.toolbox)
+        self._automation_session = restored
+        return {"session": restored.to_dict(),
+                "history_count": len(restored.steps),
+                "snapshot_id": restored.toolbox.computer.snapshot_id}
 
     def _automation_reset(self, p):
         session = self._automation()
