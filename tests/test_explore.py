@@ -107,7 +107,7 @@ def test_app_attach_prefers_window_handle(toolbox):
 def test_assert_state_verifies_and_solidifies(toolbox):
     session = ExplorationSession(toolbox, case_id="TC-STATE")
     out = session.call("assert.state", {
-        "path": "/state/run", "expect": "completed", "op": "equals",
+        "path": "/state/run", "expect": "plet", "op": "contains",
     })
     assert out["matched"] is True
     assert out["actual"] == "completed"
@@ -117,6 +117,7 @@ def test_assert_state_verifies_and_solidifies(toolbox):
     assert step["action"] == "assert.state"
     assert step["args"]["path"] == "/state/run"
     assert step["verify"]["type"] == "state"
+    assert step["verify"]["op"] == "contains"
     DslCase.model_validate(case)
 
     with pytest.raises(ToolError, match="状态断言失败"):
@@ -233,6 +234,48 @@ def test_session_to_case_maps_tools_and_passes_dsl_validation(toolbox):
     assert case["steps"][3]["value"] == "80"
     assert case["steps"][5]["args"]["cmd"] == "set_sample"
     assert "跳过 1 步" in case["notes"]          # device.state 是观测步骤
+
+
+def test_visual_action_solidifies_as_vision_only(toolbox):
+    session = ExplorationSession(toolbox, case_id="TC-VISUAL")
+    out = session.call("ui.click", {
+        "driver": "vision",
+        "key": "btn.export",
+        "desc": "结果页右下角蓝色导出按钮",
+    })
+    assert out["driver"] == "vision"
+
+    case = session.to_case()
+    step = case["steps"][0]
+    assert step["action"] == "vision.click"
+    assert step["driver"] == "vision_only"
+    assert step["target"]["key"] == "btn.export"
+    assert step["target"]["primary"] == {
+        "type": "visual",
+        "desc": "结果页右下角蓝色导出按钮",
+    }
+    DslCase.model_validate(case)
+
+
+def test_explore_history_can_edit_and_reorder(toolbox):
+    session = ExplorationSession(toolbox)
+    session.call("ui.click", {
+        "key": "btn.old", "name": "开始检测", "control_type": "Button",
+    })
+    session.call("device.scene", {"scene_id": "alarm_scene"})
+
+    edited = session.update_step(1, {
+        "key": "btn.start", "name": "开始检测", "control_type": "Button",
+    })
+    assert edited.args["key"] == "btn.start"
+    assert session.to_case()["steps"][0]["target"]["key"] == "btn.start"
+
+    moved = session.move_step(2, 1)
+    assert [item.tool for item in moved] == ["device.scene", "ui.click"]
+    assert [item.index for item in moved] == [1, 2]
+
+    with pytest.raises(ToolError, match="步骤不存在"):
+        session.update_step(99, {})
 
 
 def test_attach_solidifies_as_app_launch(toolbox):
