@@ -161,6 +161,58 @@ def test_automation_restore_recovers_serialized_history(svc):
     assert draft["case"]["steps"][0]["target"]["primary"]["name"] == "开始检测"
 
 
+def test_automation_sessions_are_isolated(svc):
+    service, _, _ = svc
+    service.dispatch("automation.invoke", {
+        "sessionId": "agent-a",
+        "tool": "ui.click",
+        "args": {"name": "开始检测", "control_type": "Button"},
+    })
+    service.dispatch("automation.invoke", {
+        "sessionId": "agent-b",
+        "tool": "device.scene",
+        "args": {"scene_id": "alarm_scene"},
+    })
+
+    a = service.dispatch("automation.history", {"sessionId": "agent-a"})
+    b = service.dispatch("automation.history", {"sessionId": "agent-b"})
+    assert [s["tool"] for s in a["session"]["steps"]] == ["ui.click"]
+    assert [s["tool"] for s in b["session"]["steps"]] == ["device.scene"]
+
+    service.dispatch("automation.draft", {
+        "sessionId": "agent-a", "caseId": "TC-A", "title": "Agent A",
+    })
+    service.dispatch("automation.draft", {
+        "sessionId": "agent-b", "caseId": "TC-B", "title": "Agent B",
+    })
+    assert service.dispatch("automation.history", {
+        "sessionId": "agent-a"})["session"]["case_id"] == "TC-A"
+    assert service.dispatch("automation.history", {
+        "sessionId": "agent-b"})["session"]["case_id"] == "TC-B"
+
+    sessions = service.dispatch("automation.sessions", {})["sessions"]
+    ids = {item["session_id"] for item in sessions}
+    assert {"agent-a", "agent-b"} <= ids
+
+    closed = service.dispatch("automation.closeSession", {"sessionId": "agent-a"})
+    assert closed == {"closed": True, "session_id": "agent-a"}
+    assert service.dispatch("automation.history", {
+        "sessionId": "agent-a"})["session"]["steps"] == []
+    assert len(service.dispatch("automation.history", {
+        "sessionId": "agent-b"})["session"]["steps"]) == 1
+
+
+def test_automation_session_id_validation(svc):
+    service, _, _ = svc
+    with pytest.raises(RpcError) as e:
+        service.dispatch("automation.history", {"sessionId": "bad session id"})
+    assert e.value.code == INVALID_PARAMS
+
+    with pytest.raises(RpcError) as e2:
+        service.dispatch("automation.history", {"sessionId": "x" * 65})
+    assert e2.value.code == INVALID_PARAMS
+
+
 def test_automation_rpc_rejects_ui_actions_while_run_is_active(svc):
     service, orch, _ = svc
     orch._in_run.set()
