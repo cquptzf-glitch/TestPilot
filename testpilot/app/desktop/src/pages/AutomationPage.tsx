@@ -495,6 +495,11 @@ export function AutomationPage() {
               <small>{(item.control_type || 'Unknown')
                 + (item.automation_id ? ' · #' + item.automation_id : '')}</small>
             </span>
+            {item.selector_quality && <span
+              className={'selector-quality ' + item.selector_quality}
+              title={item.selector_reason || '定位稳定性'}>
+              {item.selector_score != null ? Math.round(item.selector_score * 100) : '—'}
+            </span>}
             {item.value && <span className="automation-value">{item.value}</span>}
           </button>)}
           {!elements.length && <div className="automation-empty">
@@ -515,6 +520,11 @@ export function AutomationPage() {
               <code>{JSON.stringify(selected.selector ?? {})}</code>
               <span>{selected.rect?.join(', ')}</span>
             </div>
+            {selected.selector_quality && <div className={'automation-selector-note ' + selected.selector_quality}>
+              <strong>定位稳定性 {selected.selector_score != null
+                ? Math.round(selected.selector_score * 100) + '%' : '—'}</strong>
+              <span>{selected.selector_reason || '暂无稳定性说明'}</span>
+            </div>}
             <input value={actionValue} onChange={(e) => setActionValue(e.target.value)}
                    placeholder="输入 / 选择 / 按键 / 文本断言值" />
             <div className="automation-action-grid">
