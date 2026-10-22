@@ -56,6 +56,7 @@ class RpcService:
         self._case_orchestrator = None
         self._automation_session = None
         self._automation_owner = None
+        self._interaction_lock = threading.Lock()
         self._jobs = CaseJobs(self._dispatch_case_job)
         self._run_reserved = threading.Event()
         self._subs: set = set()
@@ -170,6 +171,7 @@ class RpcService:
             "automation.invoke": self._automation_invoke,
             "automation.history": self._automation_history,
             "automation.draft": self._automation_draft,
+            "automation.removeStep": self._automation_remove_step,
             "automation.reset": self._automation_reset,
 
             "config.describe": self._config_describe,
@@ -203,7 +205,7 @@ class RpcService:
             "kb.envCompat",
             "dsl.review", "dsl.save", "dsl.accept", "dsl.reject",
             "automation.tools", "automation.invoke", "automation.history",
-            "automation.draft", "automation.reset",
+            "automation.draft", "automation.removeStep", "automation.reset",
             "config.describe", "config.apply", "config.reset",
             "config.overrideText",
         })
@@ -350,13 +352,18 @@ class RpcService:
 
     def _task_run(self, p):
         task_id = _to_int(p, "taskId")
-        run_cfg: dict = {}
-        if p.get("mode"):
-            run_cfg["mode"] = p["mode"]
-        if p.get("caseRetry") is not None:      # 单次 run 覆盖任务快照的复跑次数
-            run_cfg["case_retry"] = _to_int(p, "caseRetry")
-        return self._orch.run_task(task_id, run_cfg or None,
-                                   writeback=bool(p.get("writeback", True)))
+        if not self._interaction_lock.acquire(blocking=False):
+            raise RpcError(INVALID_PARAMS, "自动化探索正在操作界面，请稍后再执行测试")
+        try:
+            run_cfg: dict = {}
+            if p.get("mode"):
+                run_cfg["mode"] = p["mode"]
+            if p.get("caseRetry") is not None:      # 单次 run 覆盖任务快照的复跑次数
+                run_cfg["case_retry"] = _to_int(p, "caseRetry")
+            return self._orch.run_task(task_id, run_cfg or None,
+                                       writeback=bool(p.get("writeback", True)))
+        finally:
+            self._interaction_lock.release()
 
     def _task_abort(self, _p):
         stopping = self._orch.abort()
@@ -625,20 +632,24 @@ class RpcService:
 
     def _automation_invoke(self, p):
         self._automation_guard()
-        tool = str(_require(p, "tool"))
-        args = p.get("args") or {}
-        if not isinstance(args, dict):
-            raise RpcError(INVALID_PARAMS, "automation.invoke 的 args 需为对象")
-        session = self._automation()
-        known = {item["name"] for item in session.toolbox.list_tools()}
-        if tool not in known:
-            raise RpcError(INVALID_PARAMS, f"当前环境不可用的自动化工具: {tool}")
+        if not self._interaction_lock.acquire(blocking=False):
+            raise RpcError(INVALID_PARAMS, "测试任务正在执行，自动化探索暂不可操作界面")
         try:
+            tool = str(_require(p, "tool"))
+            args = p.get("args") or {}
+            if not isinstance(args, dict):
+                raise RpcError(INVALID_PARAMS, "automation.invoke 的 args 需为对象")
+            session = self._automation()
+            known = {item["name"] for item in session.toolbox.list_tools()}
+            if tool not in known:
+                raise RpcError(INVALID_PARAMS, f"当前环境不可用的自动化工具: {tool}")
             return {"tool": tool, "result": session.call(tool, args),
                     "history_count": len(session.steps)}
         except TestPilotError:
             # ExplorationSession 已经把失败调用写入 history；保留原业务异常语义。
             raise
+        finally:
+            self._interaction_lock.release()
 
     def _automation_history(self, _p):
         session = self._automation()
@@ -660,6 +671,11 @@ class RpcService:
         case = session.to_case()
         return {"case": case, "text": session.to_draft_text(p.get("format", "json")),
                 "history_count": len(session.steps)}
+
+    def _automation_remove_step(self, p):
+        session = self._automation()
+        removed = session.remove_step(_to_int(p, "index"))
+        return {"removed": removed.to_dict(), "history_count": len(session.steps)}
 
     def _automation_reset(self, p):
         session = self._automation()
