@@ -268,6 +268,14 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
             out["value"] = "true" if bool(args.get("checked")) else "false"
         elif tool == "ui.keypress":
             out["value"] = str(args.get("keys") or "")
+
+        if args.get("verify_diff") or result.get("diff_verified"):
+            threshold = result.get("diff_threshold", args.get("diff_threshold", 0.005))
+            out["verify"] = {
+                "type": "screenshot_diff",
+                "expect": str(threshold),
+                "timeout_ms": int(args.get("timeout_ms", 5000)),
+            }
         return out
 
     if tool == "assert.ui":
