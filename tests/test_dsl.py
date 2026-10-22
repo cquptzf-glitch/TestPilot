@@ -3,7 +3,7 @@ import pytest
 from pydantic import ValidationError
 
 from testpilot.core.dsl import (DriverMode, Locator, LocatorType, OnFailure, Step,
-                               TargetDesc, TestCase, VerifySpec)
+                               TargetDesc, TestCase, VerifySpec, execution_errors)
 
 
 def test_step_defaults_and_source_text():
@@ -59,3 +59,32 @@ def test_driver_mode_values_match_design():
 
 def test_on_failure_values():
     assert {m.value for m in OnFailure} == {"abort", "continue", "retry"}
+
+
+def test_scroll_and_drag_semantic_validation():
+    target = TargetDesc(
+        key="panel.list",
+        primary=Locator(type="uia", automation_id="list"),
+    )
+    assert execution_errors(Step(
+        id="s1", action="ui.scroll", target=target,
+        args={"direction": "down", "amount": 3},
+    )) == []
+    assert execution_errors(Step(
+        id="s2", action="ui.drag", target=target,
+        args={"dx": 80, "dy": 0, "duration_ms": 250},
+    )) == []
+
+    bad_scroll = execution_errors(Step(
+        id="bad1", action="ui.scroll", target=target,
+        args={"direction": "diagonal", "amount": 0},
+    ))
+    assert any("direction" in item for item in bad_scroll)
+    assert any("amount" in item for item in bad_scroll)
+
+    bad_drag = execution_errors(Step(
+        id="bad2", action="ui.drag", target=target,
+        args={"dx": 0, "dy": 0, "duration_ms": -1},
+    ))
+    assert any("dx/dy" in item for item in bad_drag)
+    assert any("duration_ms" in item for item in bad_drag)
