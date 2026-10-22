@@ -76,6 +76,8 @@ def test_automation_rpc_session_history_and_draft(svc):
     service, _, _ = svc
     tools = service.dispatch("automation.tools", {})
     assert any(t["name"] == "ui.click" for t in tools["tools"])
+    assert "uia" in tools["drivers"]
+    assert tools["emulator"] is True
 
     out = service.dispatch("automation.invoke", {
         "tool": "ui.click",
@@ -94,10 +96,23 @@ def test_automation_rpc_session_history_and_draft(svc):
     assert draft["case"]["steps"][0]["action"] == "ui.click"
     assert draft["case"]["steps"][0]["target"]["primary"]["name"] == "开始检测"
 
+    edited = service.dispatch("automation.updateStep", {
+        "index": 1,
+        "args": {"key": "btn.start.v2", "name": "开始检测", "control_type": "Button"},
+    })
+    assert edited["step"]["args"]["key"] == "btn.start.v2"
+
+    service.dispatch("automation.invoke", {
+        "tool": "device.scene",
+        "args": {"scene_id": "normal_sample_a"},
+    })
+    moved = service.dispatch("automation.moveStep", {"index": 2, "toIndex": 1})
+    assert [step["tool"] for step in moved["steps"]] == ["device.scene", "ui.click"]
+
     removed = service.dispatch("automation.removeStep", {"index": 1})
-    assert removed["removed"]["tool"] == "ui.click"
-    assert removed["history_count"] == 0
-    assert service.dispatch("automation.history", {})["session"]["steps"] == []
+    assert removed["removed"]["tool"] == "device.scene"
+    assert removed["history_count"] == 1
+    assert service.dispatch("automation.history", {})["session"]["steps"][0]["index"] == 1
 
     reset = service.dispatch("automation.reset", {"title": "新探索"})
     assert reset["ok"] is True
