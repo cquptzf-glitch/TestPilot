@@ -60,6 +60,7 @@ export const RPC_METHODS = [
   'automation.invoke',
   'automation.history',
   'automation.draft',
+  'automation.removeStep',
   'automation.reset',
   'config.describe',
   'config.apply',
