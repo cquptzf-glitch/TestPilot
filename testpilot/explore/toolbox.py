@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from testpilot.core.contracts import ExecContext
 from testpilot.core.dsl import Locator, LocatorType
-from testpilot.core.errors import TestPilotError
+from testpilot.core.errors import ActionError, TestPilotError
 from testpilot.explore.computer_use import ComputerUseSession
 
 
@@ -58,23 +58,35 @@ _LOCATE_PROPS = {
 }
 
 
-def _locate_schema(action_desc: str, extra: dict | None = None,
-                   required: tuple = ()) -> dict:
+def _locate_schema(extra: dict | None = None, required: tuple = ()) -> dict:
     props = dict(_LOCATE_PROPS)
     props.update(extra or {})
     return {"type": "object", "properties": props, "required": list(required)}
 
 
 TOOL_SPECS: tuple[ToolSpec, ...] = (
-    ToolSpec("app.launch", "启动被测程序并返回窗口矩形", {
+    ToolSpec("app.list", "列出当前桌面可见顶层窗口", {
         "type": "object",
         "properties": {
-            "exe": {"type": "string", "description": "被测程序路径"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+        },
+    }, needs="uia"),
+    ToolSpec("app.launch", "启动被测程序；也允许仅 title_re 附加到已运行窗口", {
+        "type": "object",
+        "properties": {
+            "exe": {"type": "string", "description": "被测程序路径；与 title_re 至少一个"},
             "args": {"type": "array", "items": {"type": "string"}},
             "title_re": {"type": "string", "description": "主窗口标题正则"},
             "timeout_s": {"type": "number"},
         },
-        "required": ["exe"],
+    }, needs="uia"),
+    ToolSpec("app.attach", "按窗口标题正则附加到已运行程序", {
+        "type": "object",
+        "properties": {
+            "title_re": {"type": "string"},
+            "timeout_s": {"type": "number", "default": 10},
+        },
+        "required": ["title_re"],
     }, needs="uia"),
     ToolSpec("app.wait_ready", "等待被测窗口就绪", {
         "type": "object", "properties": {"timeout_ms": {"type": "integer"}},
@@ -112,21 +124,29 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     }, needs="uia"),
 
     ToolSpec("ui.locate", "定位控件（返回矩形、命中驱动与耗时）",
-             _locate_schema("定位"), needs="driver"),
+             _locate_schema(), needs="driver"),
+    ToolSpec("ui.read", "读取控件当前文本/值",
+             _locate_schema(), needs="uia"),
     ToolSpec("ui.click", "定位/解析元素并点击控件",
-             _locate_schema("点击"), needs="driver"),
+             _locate_schema(), needs="driver"),
     ToolSpec("ui.input", "定位/解析元素并输入文本",
-             _locate_schema("输入", {"text": {"type": "string"},
-                                     "clear": {"type": "boolean"}},
+             _locate_schema({"text": {"type": "string"},
+                             "clear": {"type": "boolean"}},
                             required=("text",)), needs="driver"),
     ToolSpec("ui.set_value", "通过 UIA 可访问值写入并写后回读校验",
-             _locate_schema("设值", {
+             _locate_schema({
                  "value": {"type": "string"},
                  "verify_timeout_ms": {"type": "integer", "default": 800},
              }, required=("value",)), needs="uia"),
     ToolSpec("ui.select", "定位/解析元素并选择下拉项",
-             _locate_schema("选择", {"value": {"type": "string"}},
-                            required=("value",)), needs="driver"),
+             _locate_schema({"value": {"type": "string"}},
+                            required=("value",)), needs="uia"),
+    ToolSpec("ui.toggle", "设置复选/开关控件状态并验证最终状态",
+             _locate_schema({"checked": {"type": "boolean"}},
+                            required=("checked",)), needs="uia"),
+    ToolSpec("ui.keypress", "向目标控件发送 pywinauto 键序列",
+             _locate_schema({"keys": {"type": "string"}},
+                            required=("keys",)), needs="uia"),
 
     ToolSpec("device.scene", "加载模拟器场景（前置依赖）", {
         "type": "object", "properties": {"scene_id": {"type": "string"}},
@@ -158,8 +178,6 @@ class ToolBox:
         self.ctx = ctx or ExecContext(run_id=0, case_exec_id=0)
         self.computer = ComputerUseSession(self.drivers, self.ctx)
 
-    # ---------- 对外 ----------
-
     def available(self, spec: ToolSpec) -> bool:
         if spec.needs == "emulator":
             return self.emulator is not None
@@ -170,7 +188,6 @@ class ToolBox:
         return True
 
     def list_tools(self) -> list[dict]:
-        """可用工具清单；依赖未装配的工具不暴露。"""
         return [s.to_dict() for s in TOOL_SPECS if self.available(s)]
 
     def invoke(self, name: str, args: dict | None = None) -> dict:
@@ -186,22 +203,48 @@ class ToolBox:
         return handler(args)
 
     def reset_session(self) -> None:
-        """Agent turn 结束后清理 element_index，避免跨回合使用旧句柄。"""
         self.computer.reset()
 
     # ---------- app.* ----------
 
+    def _app_list(self, args) -> dict:
+        drv = self._driver(args, default="uia")
+        fn = getattr(drv, "list_windows", None)
+        if not callable(fn):
+            raise ToolError("UIA 驱动不支持窗口枚举")
+        windows = fn(int(args.get("limit", 100)))
+        return {"windows": windows, "count": len(windows)}
+
     def _app_launch(self, args) -> dict:
         drv = self._driver(args, default="uia")
-        spec = {"exe": _req(args, "exe")}
+        exe = str(args.get("exe") or "").strip()
+        title_re = str(args.get("title_re") or "").strip()
+        if not exe and not title_re:
+            raise ToolError("app.launch 至少需要 exe 或 title_re")
+        spec = {}
+        if exe:
+            spec["exe"] = exe
         if args.get("args"):
             spec["args"] = [str(a) for a in args["args"]]
-        if args.get("title_re"):
-            spec["title_re"] = str(args["title_re"])
+        if title_re:
+            spec["title_re"] = title_re
         rect = drv.launch(spec, timeout_s=float(args.get("timeout_s", 30)))
         self.ctx.window_rect = tuple(rect) if rect else None
         self.computer.reset()
-        return {"window_rect": list(rect) if rect else None}
+        return {"window_rect": list(rect) if rect else None,
+                "mode": "launch" if exe else "attach"}
+
+    def _app_attach(self, args) -> dict:
+        drv = self._driver(args, default="uia")
+        attach = getattr(drv, "attach", None)
+        if not callable(attach):
+            raise ToolError("UIA 驱动不支持 attach")
+        title_re = str(_req(args, "title_re"))
+        rect = attach(title_re, timeout_s=float(args.get("timeout_s", 10)))
+        self.ctx.window_rect = tuple(rect) if rect else None
+        self.computer.reset()
+        return {"window_rect": list(rect) if rect else None, "mode": "attach",
+                "title_re": title_re}
 
     def _app_wait_ready(self, args) -> dict:
         drv = self._driver(args, default="uia")
@@ -248,13 +291,20 @@ class ToolBox:
                 "confidence": el.confidence, "target": meta,
                 "ms": int((time.monotonic() - t0) * 1000)}
 
+    def _ui_read(self, args) -> dict:
+        drv, el, meta = self._resolve(args, force_driver="uia")
+        read = getattr(drv, "read_text", None)
+        if not callable(read):
+            raise ToolError("UIA 驱动不支持 read_text")
+        value = read(el)
+        return {"rect": list(el.rect), "driver": "uia", "target": meta,
+                "value": value, **_session_ref(args)}
+
     def _ui_click(self, args) -> dict:
         drv, el, meta = self._resolve(args)
         drv.click(el, self.ctx)
         return {"rect": list(el.rect), "driver": drv.manifest.name,
-                "target": meta,
-                "element_index": args.get("element_index"),
-                "snapshot_id": args.get("snapshot_id")}
+                "target": meta, **_session_ref(args)}
 
     def _ui_input(self, args) -> dict:
         drv, el, meta = self._resolve(args)
@@ -264,10 +314,11 @@ class ToolBox:
                 raise ToolError(f"驱动 {drv.manifest.name} 不支持 clear 输入")
             clear(el, self.ctx)
         drv.input_text(el, str(_req(args, "text")), self.ctx)
-        return {"rect": list(el.rect), "driver": drv.manifest.name,
-                "target": meta,
-                "element_index": args.get("element_index"),
-                "snapshot_id": args.get("snapshot_id")}
+        out = {"rect": list(el.rect), "driver": drv.manifest.name,
+               "target": meta, **_session_ref(args)}
+        if drv.manifest.name == "uia":
+            out["read_back"] = _try_read(drv, el)
+        return out
 
     def _ui_set_value(self, args) -> dict:
         drv, el, meta = self._resolve(args, force_driver="uia")
@@ -279,16 +330,35 @@ class ToolBox:
             timeout_ms=int(args.get("verify_timeout_ms", 800)),
         )
         return {"rect": list(el.rect), "driver": "uia", "target": meta,
-                "element_index": args.get("element_index"),
-                "snapshot_id": args.get("snapshot_id"), **out}
+                **_session_ref(args), **out}
 
     def _ui_select(self, args) -> dict:
-        drv, el, meta = self._resolve(args)
+        drv, el, meta = self._resolve(args, force_driver="uia")
         drv.select(el, str(_req(args, "value")), self.ctx)
         return {"rect": list(el.rect), "driver": drv.manifest.name,
-                "target": meta,
-                "element_index": args.get("element_index"),
-                "snapshot_id": args.get("snapshot_id")}
+                "target": meta, "read_back": _try_read(drv, el),
+                **_session_ref(args)}
+
+    def _ui_toggle(self, args) -> dict:
+        drv, el, meta = self._resolve(args, force_driver="uia")
+        toggle = getattr(drv, "toggle", None)
+        if not callable(toggle):
+            raise ToolError("UIA 驱动不支持 toggle")
+        checked = bool(_req_bool(args, "checked"))
+        toggle(el, checked, self.ctx)
+        return {"rect": list(el.rect), "driver": "uia", "target": meta,
+                "checked": checked, "read_back": _try_read(drv, el),
+                **_session_ref(args)}
+
+    def _ui_keypress(self, args) -> dict:
+        drv, el, meta = self._resolve(args, force_driver="uia")
+        keypress = getattr(drv, "keypress", None)
+        if not callable(keypress):
+            raise ToolError("UIA 驱动不支持 keypress")
+        keys = str(_req(args, "keys"))
+        keypress(el, keys, self.ctx)
+        return {"rect": list(el.rect), "driver": "uia", "target": meta,
+                "keys": keys, **_session_ref(args)}
 
     # ---------- device.* / screen.* ----------
 
@@ -328,7 +398,7 @@ class ToolBox:
                 "bytes": len(shot.png),
                 "rect": list(shot.rect) if shot.rect is not None else None}
 
-    # ---------- 内部 ----------
+    # ---------- internal ----------
 
     def _driver(self, args, default: str):
         name = str(args.get("driver") or default)
@@ -411,11 +481,49 @@ class ToolBox:
 def _stable_meta(data: dict | None) -> dict:
     data = data or {}
     out = {}
-    for key in ("name", "automation_id", "control_type", "desc", "template"):
+    for key in ("name", "automation_id", "control_type", "desc", "template",
+                "stable_key", "selector"):
         value = data.get(key)
         if value not in (None, ""):
             out[key] = value
+    if "selector" not in out:
+        selector = _selector_from_meta(out)
+        if selector:
+            out["selector"] = selector
     return out
+
+
+def _selector_from_meta(data: dict) -> dict | None:
+    if data.get("automation_id"):
+        out = {"type": "uia", "automation_id": data["automation_id"]}
+        if data.get("control_type"):
+            out["control_type"] = data["control_type"]
+        return out
+    if data.get("name"):
+        out = {"type": "uia", "name": data["name"]}
+        if data.get("control_type"):
+            out["control_type"] = data["control_type"]
+        return out
+    if data.get("template"):
+        return {"type": "template", "template": data["template"]}
+    if data.get("desc"):
+        return {"type": "visual", "desc": data["desc"]}
+    return None
+
+
+def _session_ref(args: dict) -> dict:
+    return {"element_index": args.get("element_index"),
+            "snapshot_id": args.get("snapshot_id")}
+
+
+def _try_read(drv, el):
+    read = getattr(drv, "read_text", None)
+    if not callable(read):
+        return None
+    try:
+        return read(el)
+    except (ActionError, Exception):
+        return None
 
 
 def _req(args: dict, key: str):
@@ -423,3 +531,9 @@ def _req(args: dict, key: str):
     if value is None or value == "":
         raise ToolError(f"缺少必填参数: {key}")
     return value
+
+
+def _req_bool(args: dict, key: str) -> bool:
+    if key not in args or not isinstance(args[key], bool):
+        raise ToolError(f"参数 {key} 必须是 boolean")
+    return args[key]
