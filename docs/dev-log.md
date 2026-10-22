@@ -1499,3 +1499,32 @@ mss/OpenCV 齐备，仅 VLM 需内网模型）。**TC-9104（7 步）实机全 p
 - SQLite 读写连接拆分（读写分离架构级改造，本轮以"事件循环零触库 + busy_timeout"缓解）。
 - `dpi.capture_space` 非感知进程的保守判定（需真机多缩放环境验证，M3-4 尾项）。
 - 死配置清理（`log.llm_usage` / `vision.vlm` 节 / `uia.app_launch_timeout_s` / `logsys.run_id_`）；devMock 与真实路径的对齐（仅影响 dev 预览）。
+
+
+---
+
+## 第二十三轮：Computer Use 风格自动化会话层增强（2026-10-22）
+
+目标：参考 open-computer-use 的 observation-first / session handle / action read-back 思路，增强 TestPilot 的 Explore/MCP 自动化能力，同时保持 DSL Executor 确定性主链路不变。
+
+已完成：
+- 新增 testpilot/explore/computer_use.py：bounded UIA observation、ui.query、snapshot_id + element_index、旧句柄 fail-closed 校验、screenshot-only 索引失效、set_value 写后回读。
+- ToolBox 新增 ui.observe / ui.query / ui.set_value；ui.click / ui.input / ui.select 支持 element_index + snapshot_id。
+- Explore MCP 默认装配 health 通过的 UIA/Vision 驱动；缺少单个 GUI 依赖时只降级该驱动。
+- MCP screenshot 改为 text + image content block，避免 PNG base64 塞入文本 JSON。
+- 增加 notifications/turn-ended 与 EOF 会话清理，防旧 UI 句柄跨 Agent 回合残留。
+- 新增 tests/test_computer_use.py，覆盖观察、定向查询、索引失效、身份变化拒绝、set_value 假成功、MCP 图片块与 turn-ended。
+- 新增 docs/automation-runtime-ocu-2026-10-22.md，并在 README / handoff 建立入口。
+
+刻意未改：
+- Executor / Router / Verifier / DSL；
+- UIADriver / VisionDriver 公共协议；
+- 数据库 schema；
+- 桌面壳 RPC。
+
+已知阶段性边界：
+- ComputerUseSession 当前通过 UIADriver 的 _top / _rect_of 读取 UIA 树；下一轮应下沉为正式 ObservationDriver 可选协议。
+- element_index 只用于 Explore 会话，尚未自动转换为可持久化稳定 selector。
+- 当前会话环境无法直接 clone GitHub 执行 tools/verify.py；需在 Windows 开发机执行标准验证，并补 Qt Widgets / Qt Quick / 多 DPI / 双屏真实 smoke。
+
+下一步优先级详见 docs/automation-runtime-ocu-2026-10-22.md。
