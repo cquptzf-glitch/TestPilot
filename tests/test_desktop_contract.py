@@ -41,6 +41,15 @@ def _ts_string_array(source: str, name: str) -> list[str]:
     return re.findall(r"'([^']+)'", match.group(1))
 
 
+def test_step_editor_supports_extended_computer_use_actions():
+    source = _read(DESKTOP / "src" / "components" / "StepEditor.tsx")
+    for action in ("ui.right_click", "ui.scroll", "ui.drag"):
+        assert action in source
+    assert 'aria-label="滚动方向"' in source
+    assert 'aria-label="拖拽 X 偏移"' in source
+    assert 'aria-label="拖拽 Y 偏移"' in source
+
+
 def test_frontend_rpc_methods_match_engine():
     decl = set(_ts_string_array(_read(BRIDGE), "RPC_METHODS"))
     engine = set(RpcService(None).methods())
