@@ -177,6 +177,22 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec("ui.keypress", "向目标控件发送 pywinauto 键序列",
              _locate_schema({"keys": {"type": "string"}},
                             required=("keys",)), needs="uia", capability="keypress"),
+    ToolSpec("ui.scroll", "在目标元素上滚动", _locate_schema({
+        "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
+        "amount": {"type": "integer", "minimum": 1, "maximum": 20, "default": 3},
+        "verify_diff": {"type": "boolean", "default": False},
+        "diff_threshold": {"type": "number", "minimum": 0, "maximum": 1,
+                           "default": 0.005},
+    }, required=("direction",)), needs="driver", capability="scroll"),
+    ToolSpec("ui.drag", "从目标元素中心按相对位移拖拽", _locate_schema({
+        "dx": {"type": "integer"},
+        "dy": {"type": "integer"},
+        "duration_ms": {"type": "integer", "minimum": 0, "maximum": 10000,
+                        "default": 300},
+        "verify_diff": {"type": "boolean", "default": False},
+        "diff_threshold": {"type": "number", "minimum": 0, "maximum": 1,
+                           "default": 0.005},
+    }, required=("dx", "dy")), needs="driver", capability="drag"),
 
     ToolSpec("assert.ui", "读取当前控件文本/值并立即校验；成功后可固化为 DSL 断言",
              _locate_schema({
@@ -467,6 +483,37 @@ class ToolBox:
         keypress(el, keys, self.ctx)
         return {"rect": list(el.rect), "driver": "uia", "target": meta,
                 "keys": keys, **_session_ref(args)}
+
+    def _ui_scroll(self, args) -> dict:
+        drv, el, meta = self._resolve(args)
+        direction = str(_req(args, "direction")).lower()
+        if direction not in ("up", "down", "left", "right"):
+            raise ToolError("direction 必须是 up/down/left/right")
+        amount = int(args.get("amount", 3))
+        if not 1 <= amount <= 20:
+            raise ToolError("amount 必须在 1..20")
+        before = self._diff_before(args)
+        drv.scroll(el, direction, amount, self.ctx)
+        return {"rect": list(el.rect), "driver": drv.manifest.name,
+                "target": meta, "direction": direction, "amount": amount,
+                **_session_ref(args),
+                **self._diff_after(args, before, "ui.scroll")}
+
+    def _ui_drag(self, args) -> dict:
+        drv, el, meta = self._resolve(args)
+        dx = int(args.get("dx", 0))
+        dy = int(args.get("dy", 0))
+        duration_ms = int(args.get("duration_ms", 300))
+        if dx == 0 and dy == 0:
+            raise ToolError("拖拽 dx/dy 不能同时为 0")
+        if not 0 <= duration_ms <= 10000:
+            raise ToolError("duration_ms 必须在 0..10000")
+        before = self._diff_before(args)
+        drv.drag(el, dx, dy, duration_ms, self.ctx)
+        return {"rect": list(el.rect), "driver": drv.manifest.name,
+                "target": meta, "dx": dx, "dy": dy,
+                "duration_ms": duration_ms, **_session_ref(args),
+                **self._diff_after(args, before, "ui.drag")}
 
     def _assert_ui(self, args) -> dict:
         drv, el, meta = self._resolve(args, force_driver="uia")
