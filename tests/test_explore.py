@@ -4,6 +4,7 @@
 """
 import io
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -39,7 +40,7 @@ def test_list_tools_is_capability_whitelist(toolbox):
     # 只装配模拟器时，UI/应用工具不暴露（防 agent 调用必然失败的动作）
     emu_only = ToolBox({}, emulator=FakeEmulator())
     assert [t["name"] for t in emu_only.list_tools()] == [
-        "device.scene", "device.call", "device.state"]
+        "device.scene", "device.call", "device.state", "assert.state"]
     assert ToolBox({}).list_tools() == []
 
 
@@ -159,6 +160,32 @@ def test_assert_ui_verifies_and_solidifies(toolbox):
         session.call("assert.ui", {
             "name": "状态栏", "expect": "失败", "op": "equals",
         })
+
+
+def test_assert_vision_verifies_and_solidifies():
+    class VisualVerifier:
+        def verify(self, step, ctx, before, after):
+            assert step.action == "assert.vision"
+            assert step.verify.expect == "显示检测完成弹窗"
+            assert after.png
+            return SimpleNamespace(
+                status="pass", detail="视觉语义匹配", confidence=0.93)
+
+    box = ToolBox({"uia": FakeDriver("uia")}, verifier=VisualVerifier())
+    session = ExplorationSession(box, case_id="TC-VISION")
+    out = session.call("assert.vision", {
+        "expect": "显示检测完成弹窗", "timeout_ms": 2500,
+    })
+    assert out["status"] == "pass"
+    assert out["confidence"] == 0.93
+    assert out["screenshot_bytes"] > 0
+
+    case = session.to_case()
+    step = case["steps"][0]
+    assert step["action"] == "assert.vision"
+    assert step["verify"]["type"] == "vision"
+    assert step["verify"]["expect"] == "显示检测完成弹窗"
+    DslCase.model_validate(case)
 
 
 # ---------- 会话固化 ----------
