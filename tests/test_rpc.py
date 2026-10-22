@@ -38,7 +38,7 @@ def test_methods_table_is_complete_and_sorted(svc):
     names = service.methods()
     assert names == sorted(names)
     for expected in ("case.pull", "suite.create", "task.run", "run.detail",
-                     "kb.confirm", "dsl.review", "shutdown"):
+                     "kb.confirm", "dsl.review", "automation.invoke", "shutdown"):
         assert expected in names
     # 方法表与实现必须一致（防止文档与代码漂移）
     for name in names:
@@ -68,6 +68,47 @@ def test_case_pull_rejects_non_integer_ids(svc):
     with pytest.raises(RpcError) as e:
         service.dispatch("case.pull", {"caseIds": [1, "x"], "parse": False})
     assert e.value.code == INVALID_PARAMS
+
+
+# ---------- 自动化探索 ----------
+
+def test_automation_rpc_session_history_and_draft(svc):
+    service, _, _ = svc
+    tools = service.dispatch("automation.tools", {})
+    assert any(t["name"] == "ui.click" for t in tools["tools"])
+
+    out = service.dispatch("automation.invoke", {
+        "tool": "ui.click",
+        "args": {"key": "btn.start", "name": "开始检测", "control_type": "Button"},
+    })
+    assert out["tool"] == "ui.click"
+    assert out["history_count"] == 1
+
+    history = service.dispatch("automation.history", {})
+    assert history["session"]["steps"][0]["tool"] == "ui.click"
+
+    draft = service.dispatch("automation.draft", {
+        "caseId": "TC-EXP-1", "title": "探索生成",
+    })
+    assert draft["case"]["case_id"] == "TC-EXP-1"
+    assert draft["case"]["steps"][0]["action"] == "ui.click"
+    assert draft["case"]["steps"][0]["target"]["primary"]["name"] == "开始检测"
+
+    reset = service.dispatch("automation.reset", {"title": "新探索"})
+    assert reset["ok"] is True
+    assert service.dispatch("automation.history", {})["session"]["steps"] == []
+
+
+def test_automation_rpc_rejects_ui_actions_while_run_is_active(svc):
+    service, orch, _ = svc
+    orch._in_run.set()
+    try:
+        with pytest.raises(RpcError) as e:
+            service.dispatch("automation.invoke", {
+                "tool": "ui.click", "args": {"name": "开始检测"}})
+        assert e.value.code == INVALID_PARAMS
+    finally:
+        orch._in_run.clear()
 
 
 # ---------- 知识库：用例上下文 / 环境矩阵 ----------
