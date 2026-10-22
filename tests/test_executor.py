@@ -385,6 +385,19 @@ def test_app_launch_without_uia_driver_fails(env):
     assert result.steps[0].error["type"] == "app_error"
 
 
+def test_right_click_action_reaches_driver(env):
+    env.cfg["driver"]["mode"] = "uia_only"
+    env.rebuild()
+    case = make_case("TC-1", steps=[
+        make_step(id="s1", action="ui.right_click"),
+    ])
+    run_id, ce, ctx = _start(env, case)
+    result = env.executor.run_case(case, ctx, None)
+
+    assert result.status == "pass"
+    assert ("right_click", None) in env.drivers["uia"].calls
+
+
 def test_scroll_and_drag_actions_reach_driver(env):
     env.cfg["driver"]["mode"] = "uia_only"
     env.rebuild()
