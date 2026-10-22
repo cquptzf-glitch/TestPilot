@@ -590,6 +590,35 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
       step.args = structuredClone(args as Record<string, unknown>);
       return { step: structuredClone(step), history_count: autoSteps.length };
     }
+    case 'automation.rerunStep': {
+      const index = Number(params.index);
+      const original = autoSteps.find((item) => item.index === index);
+      if (!original) throw new Error('探索步骤不存在');
+      const supplied = params.args;
+      if (supplied != null && (typeof supplied !== 'object' || Array.isArray(supplied)))
+        throw new Error('args 必须是对象');
+      const effective = structuredClone(
+        (supplied ?? original.args) as Record<string, unknown>,
+      );
+      const target = original.result?.target as Record<string, unknown> | undefined;
+      const selector = target?.selector as Record<string, unknown> | undefined;
+      if (effective.element_index != null && selector) {
+        delete effective.element_index;
+        delete effective.snapshot_id;
+        Object.assign(effective, selector);
+        if (!effective.key && target?.stable_key) effective.key = target.stable_key;
+      }
+      const rerun = await rpc('automation.invoke', {
+        tool: original.tool,
+        args: effective,
+      }) as { result: Record<string, unknown>; history_count: number };
+      if (autoSteps.length) autoSteps[autoSteps.length - 1].rerun_of = index;
+      return {
+        rerun_of: index,
+        result: rerun.result,
+        history_count: rerun.history_count,
+      };
+    }
     case 'automation.moveStep': {
       const index = Number(params.index);
       const toIndex = Math.max(1, Math.min(Number(params.toIndex), autoSteps.length));
