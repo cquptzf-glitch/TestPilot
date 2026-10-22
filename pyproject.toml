@@ -1,0 +1,50 @@
+[project]
+name = "testpilot"
+version = "0.1.0"
+description = "TestPilot - AI automated testing platform (Zentao cases -> DSL -> dual-driver execution -> knowledge loop)"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.6",
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+    "websocket-client>=1.7",
+    "mss>=9.0",
+    "opencv-python>=4.9",
+    "numpy>=1.26",
+    "pywinauto>=0.6.8",
+    "pyperclip>=1.8",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.4"]
+rpc = ["websockets>=12.0"]
+
+[project.scripts]
+testpilot = "testpilot.app.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["testpilot*"]
+
+[tool.setuptools.package-data]
+"testpilot.simulation" = ["*.cpp", "CMakeLists.txt"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# 只把"真缺陷"设为门禁：未定义名、未使用导入/变量、语法级问题、异常链与裸断言。
+# 纯风格类（import 排序、现代写法、异常捕获宽度）不入闸——本仓在驱动/适配层
+# 是**故意**用宽捕获做故障隔离（设计 1.3 核心设计原则：失败不得打断执行主干），
+# 与其加几十处 noqa，不如把规则边界写清楚。
+select = ["E4", "E7", "E9", "F", "B006", "B008", "B017", "B018", "B023", "B904"]

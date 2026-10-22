@@ -1,0 +1,180 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { call, caseJob, type ParseBatchResult } from '../bridge';
+import { Badge, Empty, Msg } from '../components/Bits';
+import { msg, navigate, useAsync, useCaseJobBusy } from '../hooks';
+import type { CaseRow } from '../types';
+import { DslReviewPage } from './DslReviewPage';
+
+function restored<T>(key: string, fallback: T): T {
+  try { return JSON.parse(sessionStorage.getItem(key) ?? 'null') ?? fallback; }
+  catch { return fallback; }
+}
+function needsAnalysis(c: CaseRow): boolean { return !c.steps?.length || c.sync_status !== 'synced'; }
+function approved(c: CaseRow): boolean { return c.status === 'active' && !needsAnalysis(c); }
+function missingWindow(c: CaseRow): boolean {
+  const steps = c.steps as { action?: string; args?: { exe?: string; title_re?: string } }[];
+  const firstUI = steps.findIndex(s => s.action?.startsWith('ui.') || ['assert.ui', 'vision.click'].includes(s.action ?? ''));
+  return firstUI >= 0 && !steps.slice(0, firstUI).some(s => s.action === 'app.launch' && (s.args?.exe || s.args?.title_re));
+}
+
+export function WorkflowPage({ selection, running }: { selection?: string; running: number | null }) {
+  const cases = useAsync(() => call<{ cases: CaseRow[] }>('case.list'), []);
+  const rows = cases.data?.cases ?? [];
+  const [selected, setSelected] = useState<string[]>(() => selection?.split(',').filter(Boolean) ?? restored('tp-flow-selection', []));
+  const [phase, setPhase] = useState(1);
+  const [query, setQuery] = useState('');
+  const [pullIds, setPullIds] = useState('');
+  const [windowTitle, setWindowTitle] = useState('');
+  const [exe, setExe] = useState('');
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const [batch, setBatch] = useState<ParseBatchResult | null>(null);
+  const [reviewId, setReviewId] = useState<string>();
+  const [remote, setRemote] = useState(false);
+  const [mode, setMode] = useState('auto');
+  const [task, setTask] = useState<{ id: number; fingerprint: string } | null>(() => restored('tp-flow-task', null));
+  const gate = useRef(false);
+  const background = useCaseJobBusy();
+  const locked = !!busy || background || running !== null;
+  const chosen = selected.map(id => rows.find(c => c.case_id === id)).filter((c): c is CaseRow => !!c);
+  const visible = useMemo(() => rows.filter(c =>
+    (c.case_id + ' ' + c.title).toLowerCase().includes(query.trim().toLowerCase())), [rows, query]);
+  const runnable = chosen.length === selected.length && chosen.length > 0 && chosen.every(approved);
+  const windowMissing = chosen.filter(missingWindow);
+  const fingerprint = JSON.stringify([chosen.map(c => [c.case_id, c.version]), remote, mode]);
+  const reusable = task?.fingerprint === fingerprint ? task : null;
+  useEffect(() => { sessionStorage.setItem('tp-flow-selection', JSON.stringify(selected)); }, [selected]);
+  useEffect(() => { sessionStorage.setItem('tp-flow-task', JSON.stringify(task)); }, [task]);
+  useEffect(() => {
+    if (cases.data) setSelected(ids => ids.filter(id => rows.some(c => c.case_id === id && c.status !== 'rejected')));
+  }, [cases.data]);
+
+  const action = async (label: string, fn: () => Promise<void>) => {
+    if (gate.current) return;
+    gate.current = true; setBusy(label); setError('');
+    try { await fn(); } catch (e) { setError(msg(e)); }
+    finally { gate.current = false; setBusy(''); }
+  };
+  const pull = () => action('正在拉取用例…', async () => {
+    const tokens = pullIds.split(/[,，\s]+/).filter(Boolean);
+    if (!tokens.length || tokens.some(t => !/^\d+$/.test(t) || !Number.isSafeInteger(Number(t)) || Number(t) <= 0))
+      throw new Error('请输入正确的禅道用例 ID，例如 1024,1025');
+    const result = await caseJob<{ cases: { case_id: string }[] }>('case.pull', { caseIds: [...new Set(tokens.map(Number))] });
+    setSelected(prev => [...new Set([...prev, ...result.cases.map(c => c.case_id)])]);
+    setPullIds(''); cases.reload();
+  });
+  const prepare = () => action('正在准备所选用例…', async () => {
+    if (!chosen.length || chosen.length !== selected.length) throw new Error('请先选择用例');
+    if (chosen.length > 500) throw new Error('每批最多选择 500 条用例');
+    let appTarget: Record<string, string> | undefined;
+    if (windowTitle.trim() || exe.trim()) {
+      appTarget = {};
+      if (exe.trim()) appTarget.exe = exe.trim();
+      if (windowTitle.trim()) appTarget.title_re = '.*' + windowTitle.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '.*';
+    }
+    const ids = (appTarget ? chosen : chosen.filter(needsAnalysis)).map(c => c.case_id);
+    setBatch(null);
+    if (ids.length) {
+      const result = await caseJob<ParseBatchResult>('case.parse', { caseIds: ids, appTarget });
+      setBatch(result);
+    }
+    const fresh = (await call<{ cases: CaseRow[] }>('case.list')).cases.filter(c => selected.includes(c.case_id));
+    cases.reload();
+    const pending = fresh.find(c => !approved(c));
+    setReviewId(pending?.case_id);
+    setPhase(pending ? 2 : 3);
+  });
+  const accepted = (cid: string) => {
+    cases.reload();
+    const next = chosen.find(c => c.case_id !== cid && !approved(c));
+    if (next) setReviewId(next.case_id); else { setReviewId(undefined); setPhase(3); }
+  };
+  const execute = () => action(reusable ? '正在执行已有任务…' : '正在创建并执行测试…', async () => {
+    if (!runnable) throw new Error('请先审核所选用例');
+    if (windowMissing.length) throw new Error('部分用例缺少被测软件的启动或附加步骤，请先设置被测窗口并生成 DSL');
+    let current = reusable;
+    if (!current) {
+      const created = await call<{ task_id: number }>('task.create', {
+        name: '测试 · ' + new Date().toLocaleString('zh-CN'), caseIds: selected,
+        driverConfig: { mode }, remote,
+      });
+      current = { id: created.task_id, fingerprint };
+      // 在发起长时间执行前保存任务 ID；失败重试不重复建单。
+      sessionStorage.setItem('tp-flow-task', JSON.stringify(current));
+      setTask(current);
+    }
+    const result = await call<{ run_id: number }>('task.run', { taskId: current.id, writeback: remote });
+    setTask(null); sessionStorage.removeItem('tp-flow-task');
+    navigate('run', { runId: result.run_id });
+  });
+
+  return <div className="main workflow-page">
+    <div className="page-head"><div><h2>开始测试</h2><p className="muted">选用例、确认步骤、执行测试，在这里完成。</p></div>
+      <span className="spacer" /><button className="btn ghost" onClick={() => navigate('overview')}>运行概览</button></div>
+    <ol className="flow-steps" aria-label="测试流程">
+      {['选择用例', '分析与确认', '执行测试'].map((name, i) => <li key={name} className={phase === i + 1 ? 'current' : phase > i + 1 ? 'done' : ''}>
+        <span>{phase > i + 1 ? '✓' : i + 1}</span><strong>{name}</strong></li>)}
+    </ol>
+    {busy && <Msg kind="info">{busy}</Msg>}
+    {error && <Msg kind="error">{error}</Msg>}
+    {cases.error && <Msg kind="error">读取用例失败：{cases.error}<button className="btn" onClick={cases.reload}>重试</button></Msg>}
+
+    {phase === 1 && <section className="panel flow-card">
+      <h3>选择本次要测试的用例</h3>
+      <div className="flow-import"><label htmlFor="flow-pull">从禅道添加用例</label>
+        <div className="hstack"><input id="flow-pull" value={pullIds} placeholder="用例 ID，如 1024,1025" onChange={e => setPullIds(e.target.value)} />
+          <button className="btn" disabled={locked || !pullIds.trim()} onClick={() => void pull()}>拉取并选中</button></div></div>
+      <div className="hstack flow-filter"><input type="search" aria-label="搜索测试用例" placeholder="搜索用例编号或标题" value={query} onChange={e => setQuery(e.target.value)} />
+        <span className="muted">已选 {chosen.length} 条</span>
+        <button className="btn ghost" disabled={locked} onClick={() => setSelected([])}>清空选择</button></div>
+      <div className="flow-case-list">
+        <label className="flow-select-all"><input type="checkbox" aria-label="全选搜索结果" disabled={locked}
+          checked={visible.some(c => c.status !== 'rejected') && visible.filter(c => c.status !== 'rejected').every(c => selected.includes(c.case_id))}
+          onChange={e => { const ids = visible.filter(c => c.status !== 'rejected').map(c => c.case_id);
+            setSelected(prev => e.target.checked ? [...new Set([...prev, ...ids])] : prev.filter(id => !ids.includes(id))); }} />全选搜索结果</label>
+        {visible.map(c => <label key={c.case_id} className={selected.includes(c.case_id) ? 'flow-case selected' : 'flow-case'}>
+          <input type="checkbox" aria-label={'测试 ' + c.case_id} disabled={locked || c.status === 'rejected'} checked={selected.includes(c.case_id)}
+            onChange={e => setSelected(prev => e.target.checked ? [...prev, c.case_id] : prev.filter(id => id !== c.case_id))} />
+          <span className="flow-case-title"><strong>{c.title || c.case_id}</strong><small>{c.case_id} · {c.steps?.length ?? 0} 步</small></span>
+          <Badge status={c.status} /><span className="muted">{c.status === 'rejected' ? '已拒绝，需先修订' : approved(c) ? '可直接执行' : needsAnalysis(c) ? '需要生成 DSL' : '等待确认步骤'}</span>
+        </label>)}
+        {!visible.length && <Empty text={cases.loading ? '正在读取用例…' : '暂无用例，请先输入禅道 ID 拉取；也可到用例库导入 DSL。'} />}
+      </div>
+      <details className="flow-target"><summary>设置被测软件（用例未提供窗口时填写）</summary>
+        <p className="muted">已打开软件可只填窗口标题；需要启动时填写程序路径。填写后会应用到本次生成的草稿，再由你确认。</p>
+        <div className="form-2col"><label>窗口标题<input aria-label="被测窗口标题" value={windowTitle} onChange={e => setWindowTitle(e.target.value)} placeholder="例如：仪器控制软件" /></label>
+          <label>程序路径（可选）<input aria-label="被测程序路径" value={exe} onChange={e => setExe(e.target.value)} placeholder="D:\\Software\\Instrument.exe" /></label></div>
+      </details>
+      <div className="flow-footer"><span className="muted">{chosen.filter(needsAnalysis).length} 条待生成 · {chosen.filter(c => !approved(c) && !needsAnalysis(c)).length} 条待确认 · {chosen.filter(approved).length} 条可执行</span>
+        <button className="btn primary large" disabled={locked || chosen.length === 0 || cases.loading} onClick={() => void prepare()}>
+          {chosen.length > 0 && chosen.every(approved) && !windowTitle && !exe ? '下一步：执行测试 →' : '下一步：分析与确认 →'}</button></div>
+    </section>}
+
+    {phase === 2 && <section className="flow-review">
+      <div className="panel"><h3>核对生成的操作和预期结果</h3>
+        <p className="muted">已确认 {chosen.filter(approved).length} / {chosen.length} 条。逐条确认后即可执行。</p>
+        {batch && batch.failed.length > 0 && <Msg kind="warn">成功生成 {batch.parsed} 条，失败 {batch.failed.length} 条。修正原文后可重试，或返回移除失败用例。</Msg>}
+        <div className="flow-review-tabs">{chosen.map(c => <span className={'chip ' + (reviewId === c.case_id ? 'on' : '')} key={c.case_id}>{approved(c) ? '✓ ' : ''}{c.case_id}</span>)}</div>
+        {batch?.failed.map(f => <p key={f.case_id} className="msg error">{f.case_id}：{f.error}</p>)}
+      </div>
+      {reviewId && <DslReviewPage key={reviewId} embedded caseId={reviewId} onAccepted={accepted} onBack={() => { cases.reload(); setPhase(1); }} />}
+      <div className="flow-footer"><span className="muted">确认当前用例后自动进入下一条。</span>
+        <button className="btn primary" disabled={locked || !runnable} onClick={() => setPhase(3)}>全部已确认，前往执行 →</button></div>
+    </section>}
+
+    {phase === 3 && <section className="panel flow-card">
+      <h3>准备执行 {chosen.length} 条用例</h3><p className="muted">点击开始后会自动创建任务，执行过程中可查看进度或停止，完成后显示测试报告。</p>
+      <ul className="flow-ready-list">{chosen.map(c => <li key={c.case_id}><Badge status={c.status} /><strong>{c.title}</strong><span className="muted">{c.case_id} · v{c.version} · {c.steps.length} 步</span></li>)}</ul>
+      {windowMissing.length > 0 && <Msg kind="warn">{windowMissing.map(c => c.case_id).join('、')} 缺少启动或附加窗口步骤。请返回选择用例，展开“设置被测软件”后重新生成并确认。</Msg>}
+      <details className="flow-target"><summary>可选设置</summary><div className="form-2col">
+        <label>驱动方式<select aria-label="测试驱动方式" value={mode} onChange={e => setMode(e.target.value)} disabled={locked}>
+          <option value="auto">自动选择（推荐）</option><option value="uia_only">控件驱动（Qt / Windows）</option><option value="vision_only">视觉驱动</option>
+        </select></label>
+        <label className="hstack"><input type="checkbox" checked={remote} onChange={e => setRemote(e.target.checked)} disabled={locked} />同步任务及结果到禅道</label>
+      </div><p className="hint">禅道同步需先在设置中配置地址、账号及构建版本。默认在本地执行并保存报告。</p></details>
+      {reusable && <Msg kind="info">已创建任务 #{reusable.id}，再次执行会复用该任务。</Msg>}
+      <div className="flow-footer"><button className="btn" disabled={locked} onClick={() => setPhase(1)}>返回选择用例</button>
+        <button className="btn primary large" disabled={locked || !runnable || !!windowMissing.length || cases.loading} onClick={() => void execute()}>{reusable ? '重试执行已有任务 →' : '开始执行 →'}</button></div>
+    </section>}
+  </div>;
+}

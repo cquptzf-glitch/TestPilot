@@ -1,0 +1,29 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+.cache/
+data/
+# 日志/验证产物目录：内容全忽略，但保留说明文件（目录必须存在）
+logs/*
+!logs/README.md
+node_modules/
+src-tauri/target/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.env
+# Tauri 构建期生成的 schema（capabilities/ 是手写的，保留）
+src-tauri/gen/
+# 打包进壳的 sidecar 二进制（_internal/ 上百 MB）：只保留 README.md ——
+# Tauri 的 resources 通配符要求至少匹配一个入库文件（见 docs/handoff.md D8）
+testpilot/app/desktop/src-tauri/binaries/sidecar/**
+!testpilot/app/desktop/src-tauri/binaries/sidecar/README.md
+# 本机 agent 工具的工作记忆/缓存，不属于仓库内容
+.codebuddy/
+.workbuddy/
+.issuepilot/

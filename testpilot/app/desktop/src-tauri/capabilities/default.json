@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "主窗口默认权限：只开核心 IPC。业务能力全部经壳自定义命令（rpc_call / engine_* / read_*），sidecar 由 Rust 侧启动（不受前端 ACL 约束），因此前端无需任何 shell 权限。",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

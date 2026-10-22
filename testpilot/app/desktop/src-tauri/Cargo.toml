@@ -1,0 +1,32 @@
+[package]
+name = "testpilot-shell"
+version = "0.1.0"
+description = "TestPilot 桌面壳：sidecar 监督 + JSON-RPC 桥 + 静态资源服务"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2.2.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.44.2", features = ["rt-multi-thread", "macros", "time", "sync"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3.7"
+
+[features]
+# 由 tauri 生成的默认特性（custom-protocol 用于生产打包）
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+# 打包耗时 vs 体积的折中：Tauri 依赖树很大（600+ crate），
+# codegen-units=1 + fat LTO 会让首次 release 构建膨胀到 30min+，迭代打包不可接受。
+# thin LTO + 4 个 codegen unit 能拿到大部分体积/性能收益，构建时间降到分钟级。
+codegen-units = 4
+lto = "thin"
+opt-level = "s"
+panic = "abort"
+strip = true

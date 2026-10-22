@@ -1,0 +1,13 @@
+# 前端产物与依赖（构建产物统一进顶层 dist，见 docs/dev-plan-v1.md 工程规范）
+node_modules/
+dist/
+.vite/
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+# sidecar 是构建产物，但占位 README 必须入库（Tauri resources 通配符要求目录非空）
+src-tauri/binaries/*
+!src-tauri/binaries/sidecar/
+src-tauri/binaries/sidecar/*
+!src-tauri/binaries/sidecar/README.md

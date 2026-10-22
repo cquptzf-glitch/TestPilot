@@ -1,0 +1,35 @@
+# sidecar 打包的隐式依赖清单 —— **人读文档，不是权威来源**。
+#
+# 权威来源是 packaging/sidecar.spec 里的 `_REQUIRED` 列表（scripts/build-sidecar.ps1
+# 的 -Onefile 模式内嵌同一份，由 scripts/preflight.ps1 校验一致性）。
+#
+# 为什么不以本文件为准：本机安全软件会把部分文本文件落盘加密，非白名单进程读到的是
+# 密文乱码；清单读坏会让打包**静默丢掉隐式依赖**（现象是"开发能跑、打包跑不起来"）。
+# 因此 spec 侧保留了严格校验 + 退回内联清单的逻辑，本文件仅用于人工查阅。
+#
+# 这些都是"运行时动态导入"，静态分析看不到：
+
+# RPC 服务（壳形态必需）
+websockets
+websockets.legacy
+websockets.legacy.server
+websockets.asyncio
+websockets.asyncio.server
+
+# UIA 驱动（comtypes 会动态生成 COM 包装）
+pywinauto
+pywinauto.uia_element_info
+pywinauto.controls.uiawrapper
+comtypes
+comtypes.gen
+
+# 视觉 / 输入 / 平台
+mss
+cv2
+numpy
+PIL
+PIL.ImageGrab
+pyperclip
+win32api
+win32con
+win32gui

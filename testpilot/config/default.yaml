@@ -1,0 +1,85 @@
+app:
+  name: TestPilot
+  db: ./data/testpilot.db
+  screenshot_root: ./data/shots
+  report_root: ./data/reports
+  test_app_version: ""        # 手工覆盖被测程序版本（留空=尝试从 test_app_exe 探测）
+  test_app_exe: ""            # 被测程序主 exe 路径；填了就自动读文件版本写入 env_snapshot
+
+driver:                     # 全局驱动路由与判定阈值（Verifier/Router/Executor 读取）
+  mode: auto               # auto | uia_first | vision_first | uia_only | vision_only
+  vision_min_confidence: 0.70
+  retry_on_failure: false  # true=定位超时类失败自动重试一次（等价逐步骤 on_failure=retry）
+  case_retry: 0            # 失败用例复跑次数（0=关闭；上限 3）：过滤环境抖动，复跑通过标记为疑似偶发
+
+uia:                        # UIA 驱动自身配置（drivers/uia_driver.py 读取）
+  backend: uia
+  app_launch_timeout_s: 30
+  input_mode: keys         # keys | set_text
+  qt_text_input: value     # value | keys；Qt 默认使用可访问值，避免键盘/输入法转换错误
+  uia_timeout_ms: 3000
+  ready_poll_ms: 200
+  # ready_control: {control_type: StatusBar}   # 可选：就绪判据控件（UIA crit 字典）
+
+vision:                     # 视觉驱动自身配置（drivers/vision_driver.py 读取）
+  grab_backend: mss        # mss | pil
+  template_dir: ./data/templates
+  template_threshold: 0.86
+  vision_min_confidence: 0.70
+  locate_poll_ms: 300      # 模板匹配轮询间隔（VLM 为单次尝试，不受此项影响）
+  learn_from_vlm: true      # VLM 命中后自动沉淀模板（L2->L1，成本闭环 M3-3）
+  vlm:                     # 公司内网部署多模态模型（OpenAI 兼容）
+    bbox_format: xyxy       # 原生边界为 x1,y1,x2,y2；网关统一转换成 x,y,w,h
+    coordinate_space: normalized_1000 # pumen/Qwen 视觉坐标为 0..1000；网关转换成像素
+    model: "pumen-vllm"   # 内网模型名，按公司部署填写
+    api_base: "http://192.168.1.77:8989/v1"
+    api_key_env: ""           # 默认无需密钥；需认证时填写密钥环境变量名
+    timeout_s: 30
+
+emulator:
+  endpoint: "ws://127.0.0.1:9300"
+  connect_timeout_s: 5
+  call_timeout_s: 10
+  protocol_ver: "1.0"
+
+rpc:                       # 壳 <-> 引擎（见设计 2.5 IPC 协议）
+  host: "127.0.0.1"
+  port: 9301
+
+desktop:                   # Rust 壳行为（Tauri 侧读取）
+  sidecar:
+    supervised: true       # 壳监督：崩溃自动重启（指数退避，上限 3 次）
+    restart_max: 3
+    health_interval_s: 10
+
+llm:                        # 公司内网部署模型（OpenAI 兼容对话接口）
+  model: "pumen-vllm"      # 内网模型名，按公司部署填写
+  api_base: "http://192.168.1.77:8989/v1"   # 例: http://llm.internal.example:8000/v1
+  api_key_env: ""           # 默认无需密钥；需认证时填写密钥环境变量名
+  chat_template_kwargs: {enable_thinking: false} # vLLM 结构化任务关闭思考，避免占满输出预算
+  temperature: 0.1
+  max_tokens: 4096
+  timeout_s: 60
+
+zentao:
+  api_version: v1          # 显式 v1；不混用 v2 契约
+  build: ""                # 远端建测试单的真实构建/版本
+  base_url: "https://zentao.example.com"
+  token_env: "ZENTAO_TOKEN"
+  account: ""              # 禅道账号（API Token 缺失时用它换 Token）；留空=回落环境变量 ZENTAO_ACCOUNT
+  password: ""             # 禅道密码（401/403 自动重登用）；留空=回落环境变量 ZENTAO_PASSWORD
+  product_id: 1
+  sync_interval_min: 60
+  create_task: false       # true=建任务时同步在禅道创建（需 base_url/token 可用）
+
+log:
+  level: INFO
+  dir: ./logs
+  per_run_file: true       # 额外落 ./logs/testpilot.log，run 结束抽取为 reports/{run}/run.log
+  llm_usage: true          # 记录每次 LLM 调用 token/耗时
+
+knowledge:
+  fuzzy_top_n: 3
+  similar_top_n: 3         # 报告/RunDetail 的"相似历史对照"条数
+  element_stale_days: 30   # 元素知识超期未命中 -> 降权（prefer_vision）
+  router_fail_streak: 3    # UIA 连续失败 N 次后路由重排（视觉提前）
