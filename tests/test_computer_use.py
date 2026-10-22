@@ -176,6 +176,28 @@ def test_duplicate_accessible_names_get_lower_selector_score():
     assert all("重复" in item["selector_reason"] for item in buttons)
 
 
+def test_duplicate_names_gain_stability_from_parent_scope():
+    left_button = Node("确认", "Button", "")
+    right_button = Node("确认", "Button", "")
+    left = Node("左侧面板", "Pane", "leftPanel", children=[left_button])
+    right = Node("右侧面板", "Pane", "rightPanel", children=[right_button])
+    root = Node("主窗口", "Window", "mainWindow", children=[left, right])
+    session = ComputerUseSession(
+        {"uia": FakeUiaDriver(root)},
+        ExecContext(run_id=0, case_exec_id=0, window_rect=(0, 0, 800, 600)),
+    )
+
+    state = session.observe()
+    buttons = [item for item in state["elements"] if item["name"] == "确认"]
+    assert len(buttons) == 2
+    assert all(item["selector_quality"] == "high" for item in buttons)
+    assert buttons[0]["selector"]["ancestors"][-1] == {
+        "automation_id": "leftPanel", "control_type": "Pane"}
+    assert buttons[1]["selector"]["ancestors"][-1] == {
+        "automation_id": "rightPanel", "control_type": "Pane"}
+    assert all("父级作用域链" in item["selector_reason"] for item in buttons)
+
+
 def test_query_registers_matches_without_screenshot():
     session, _, _, _ = _session()
     result = session.query(text="开始", control_type="Button")
