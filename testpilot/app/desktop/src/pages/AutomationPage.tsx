@@ -104,14 +104,16 @@ export function AutomationPage() {
   const loadWindows = () => run('正在读取桌面窗口…', async () => {
     const out = await invoke<{ windows: AutomationWindow[] }>('app.list', { limit: 200 });
     setWindows(out.windows);
-    if (!selectedWindow && out.windows.length) setSelectedWindow(out.windows[0].title);
+    if (!selectedWindow && out.windows.length) setSelectedWindow(String(out.windows[0].handle));
   });
 
   const attach = () => run('正在附加窗口…', async () => {
-    const title = titlePattern.trim() || selectedWindow.trim();
-    if (!title) throw new Error('请先选择窗口或填写标题正则');
+    const picked = windows.find((item) => String(item.handle) === selectedWindow);
+    const title = titlePattern.trim() || picked?.title?.trim() || '';
+    if (!picked && !title) throw new Error('请先选择窗口或填写标题正则');
     await invoke('app.attach', {
-      title_re: titlePattern.trim() ? titlePattern.trim() : exactTitle(title),
+      handle: picked?.handle,
+      title_re: titlePattern.trim() ? titlePattern.trim() : (title ? exactTitle(title) : undefined),
       timeout_s: 10,
     });
     await observeNow();
@@ -221,7 +223,7 @@ export function AutomationPage() {
         <label>可见窗口
           <select value={selectedWindow} onChange={(e) => setSelectedWindow(e.target.value)}>
             <option value="">请选择窗口</option>
-            {windows.map((w) => <option key={String(w.handle) + '-' + w.title} value={w.title}>
+            {windows.map((w) => <option key={String(w.handle) + '-' + w.title} value={String(w.handle)}>
               {(w.title || '(无标题)') + (w.pid ? ' · PID ' + w.pid : '')}
             </option>)}
           </select>
