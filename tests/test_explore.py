@@ -27,7 +27,8 @@ def test_list_tools_is_capability_whitelist(toolbox):
     names = [t["name"] for t in toolbox.list_tools()]
     assert {"app.list", "app.launch", "app.attach", "ui.click", "ui.input",
             "ui.read", "ui.set_value", "ui.toggle", "ui.keypress", "assert.ui",
-            "device.call", "device.scene", "device.state", "screen.grab"} <= set(names)
+            "device.call", "device.scene", "device.state", "assert.state",
+            "screen.grab"} <= set(names)
     # 每个工具都带头描述与 JSON Schema（MCP tools/list 形态）
     click = next(t for t in toolbox.list_tools() if t["name"] == "ui.click")
     # key 只是给会话记录/固化回 DSL 的可选语义键，定位本身不消费（不应强制 agent 填）
@@ -100,6 +101,27 @@ def test_app_attach_prefers_window_handle(toolbox):
     })
     assert out["handle"] == 123
     assert ("attach_handle", 123) in toolbox.drivers["uia"].calls
+
+
+def test_assert_state_verifies_and_solidifies(toolbox):
+    session = ExplorationSession(toolbox, case_id="TC-STATE")
+    out = session.call("assert.state", {
+        "path": "/state/run", "expect": "completed", "op": "equals",
+    })
+    assert out["matched"] is True
+    assert out["actual"] == "completed"
+
+    case = session.to_case()
+    step = case["steps"][0]
+    assert step["action"] == "assert.state"
+    assert step["args"]["path"] == "/state/run"
+    assert step["verify"]["type"] == "state"
+    DslCase.model_validate(case)
+
+    with pytest.raises(ToolError, match="状态断言失败"):
+        session.call("assert.state", {
+            "path": "/state/run", "expect": "running", "op": "equals",
+        })
 
 
 def test_device_tools_and_screen_grab(toolbox):
