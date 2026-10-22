@@ -39,6 +39,8 @@ export function AutomationPage() {
   const [deviceCmd, setDeviceCmd] = useState('query_state');
   const [deviceArgs, setDeviceArgs] = useState('{"path":"/state/run"}');
   const [deviceResult, setDeviceResult] = useState<Record<string, unknown> | null>(null);
+  const [visionExpect, setVisionExpect] = useState('');
+  const [visionResult, setVisionResult] = useState<Record<string, unknown> | null>(null);
 
   const current = queryResult ?? observation;
   const elements = current?.matches ?? current?.elements ?? [];
@@ -333,6 +335,21 @@ export function AutomationPage() {
                 </div>}
               </div>
             : <div className="automation-preview-empty">{queryResult ? '查询模式不展示旧截图' : '暂无截图'}</div>}
+          <div className="automation-vision-assert">
+            <input value={visionExpect} onChange={(e) => setVisionExpect(e.target.value)}
+                   placeholder="视觉期望，例如：页面显示“检测完成”弹窗" />
+            <button className="btn"
+                    disabled={!!busy || !visionExpect.trim() || !toolNames.includes('assert.vision')}
+                    onClick={() => void run('正在执行视觉断言…', async () => {
+                      const result = await invoke<Record<string, unknown>>('assert.vision', {
+                        expect: visionExpect.trim(), timeout_ms: 10000,
+                      });
+                      setVisionResult(result);
+                    })}>
+              视觉断言并记录
+            </button>
+          </div>
+          {visionResult && <pre className="automation-vision-result">{JSON.stringify(visionResult, null, 2)}</pre>}
         </div>
 
         <div className="panel automation-actions">
