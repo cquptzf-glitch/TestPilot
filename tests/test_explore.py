@@ -126,6 +126,26 @@ def test_assert_state_verifies_and_solidifies(toolbox):
         })
 
 
+def test_save_template_from_visual_region(tmp_path):
+    uia = FakeDriver("uia")
+    vision = FakeDriver("vision")
+    vision.template_dir = tmp_path
+    box = ToolBox({"uia": uia, "vision": vision})
+    out = box.invoke("screen.save_template", {
+        "name": "../开始按钮",
+        "region": [0, 0, 1, 1],
+    })
+    assert out["template"] == "开始按钮.png"
+    assert out["region"] == [0, 0, 1, 1]
+    assert (tmp_path / "开始按钮.png").exists()
+
+    with pytest.raises(ToolError, match="超出截图范围"):
+        box.invoke("screen.save_template", {
+            "name": "bad",
+            "region": [1, 1, 2, 2],
+        })
+
+
 def test_device_tools_and_screen_grab(toolbox):
     emu = toolbox.emulator
     assert toolbox.invoke("device.scene", {"scene_id": "normal_sample_a"})["ok"]
