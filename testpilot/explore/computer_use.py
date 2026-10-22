@@ -292,6 +292,7 @@ class ComputerUseSession:
                 # 单个 provider 的 children 失败不应该让整个快照丢失。
                 continue
 
+        _annotate_selector_quality(elements)
         return {
             "window_rect": list(root_rect) if root_rect else None,
             "window_title": _safe_window_text(top),
@@ -494,3 +495,52 @@ def _safe_window_text(wrapper) -> str:
         return str(wrapper.window_text() or "").strip()
     except Exception:
         return ""
+
+
+
+def _annotate_selector_quality(elements: list[dict]) -> None:
+    """给观察结果打 selector 稳定度分。
+
+    分数不是回归执行门禁，只用于探索期提示：
+    - 唯一 AutomationId 最稳定；
+    - 重复 AutomationId 会显著降分；
+    - 唯一 Name + ControlType 次之；
+    - 无可持久化 selector 则低分。
+    """
+    auto_counts: dict[tuple[str, str], int] = {}
+    name_counts: dict[tuple[str, str], int] = {}
+    for item in elements:
+        control = str(item.get("control_type") or "").strip()
+        auto = str(item.get("automation_id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if auto:
+            key = (auto, control)
+            auto_counts[key] = auto_counts.get(key, 0) + 1
+        if name:
+            key = (name, control)
+            name_counts[key] = name_counts.get(key, 0) + 1
+
+    for item in elements:
+        control = str(item.get("control_type") or "").strip()
+        auto = str(item.get("automation_id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        score = 0.2
+        reason = "缺少 AutomationId / accessibleName"
+        if auto:
+            unique = auto_counts.get((auto, control), 0) == 1
+            score = 0.98 if unique else 0.76
+            reason = "AutomationId 唯一" if unique else "AutomationId 重复"
+        elif name:
+            unique = name_counts.get((name, control), 0) == 1
+            score = 0.82 if unique else 0.56
+            reason = "Name + ControlType 唯一" if unique else "Name + ControlType 重复"
+
+        if score >= 0.85:
+            quality = "high"
+        elif score >= 0.65:
+            quality = "medium"
+        else:
+            quality = "low"
+        item["selector_score"] = round(score, 2)
+        item["selector_quality"] = quality
+        item["selector_reason"] = reason
