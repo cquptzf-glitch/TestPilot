@@ -47,10 +47,10 @@
 | ID | 状态 | 缺口 | 下一步 |
 |---|---|---|---|
 | A-201 | TODO | 截图直接 base64 放 JSON-RPC，4K/高频观察开销大 | 大图改临时 asset 引用；UI 侧按需读取，保留小图 inline。 |
-| A-202 | TODO | Explore 直接依赖 UIADriver 的 _top/_rect_of 私有实现 | 抽出 ObservationDriver/AccessibilityDriver 可选协议。 |
+| A-202 | DONE | ObservationDriver 公共协议 | core 定义可选 ObservationDriver；UIADriver 提供 observation_root/observation_rect，Explore 不再读取 _top/_rect_of 私有字段。 |
 | A-203 | DONE | keypress 常用键预设 | Explore UI 提供 Enter、Tab、Esc、Ctrl+A/C/V/S、F5 快捷填充，并保留高级原文输入。 |
 | A-204 | DONE | UIA 元素树筛选与折叠 | 支持父节点折叠、只看可操作元素、按 action/control type 过滤，并保留层级缩进。 |
-| A-205 | TODO | 截图缺少缩放/拖拽/点击截图反查元素 | 增加 zoom/pan 与坐标命中最近 UIA 元素。 |
+| A-205 | DONE | 截图缩放/平移/反查元素 | 预览支持 50%~250% 缩放、Alt+拖拽平移；UIA 模式点击截图反查最深层元素，Vision 模式拖拽框选区域。 |
 | A-206 | TODO | Workflow 被测程序路径/窗口配置仅 sessionStorage | 增加“最近目标/目标预设”，可按项目复用。 |
 
 ## 环境验证项（当前不阻塞功能开发）
