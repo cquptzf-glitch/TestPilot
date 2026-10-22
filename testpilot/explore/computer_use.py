@@ -499,14 +499,12 @@ def _safe_window_text(wrapper) -> str:
 
 
 def _annotate_selector_quality(elements: list[dict]) -> None:
-    """给观察结果打 selector 稳定度分。
+    """给观察结果打 selector 稳定度分，并为重复控件补父级作用域链。
 
-    分数不是回归执行门禁，只用于探索期提示：
-    - 唯一 AutomationId 最稳定；
-    - 重复 AutomationId 会显著降分；
-    - 唯一 Name + ControlType 次之；
-    - 无可持久化 selector 则低分。
+    评分只用于探索期提示，不是执行门禁。重复控件优先通过 ancestors 缩小作用域；
+    同一父级下仍重复时再写 index，尽量把脆弱的全局 found_index 降到局部范围。
     """
+    by_index = {int(item["element_index"]): item for item in elements}
     auto_counts: dict[tuple[str, str], int] = {}
     name_counts: dict[tuple[str, str], int] = {}
     for item in elements:
@@ -514,26 +512,92 @@ def _annotate_selector_quality(elements: list[dict]) -> None:
         auto = str(item.get("automation_id") or "").strip()
         name = str(item.get("name") or "").strip()
         if auto:
-            key = (auto, control)
-            auto_counts[key] = auto_counts.get(key, 0) + 1
+            auto_counts[(auto, control)] = auto_counts.get((auto, control), 0) + 1
         if name:
-            key = (name, control)
-            name_counts[key] = name_counts.get(key, 0) + 1
+            name_counts[(name, control)] = name_counts.get((name, control), 0) + 1
+
+    def ancestors_of(item: dict) -> list[dict[str, str]]:
+        chain: list[dict[str, str]] = []
+        parent = item.get("parent_index")
+        while parent is not None:
+            node = by_index.get(int(parent))
+            if node is None:
+                break
+            segment = _selector_segment(node)
+            if segment:
+                chain.append(segment)
+            parent = node.get("parent_index")
+        chain.reverse()
+        return chain
+
+    # 对重复 selector 先判断父级链是否能区分。
+    path_signatures: dict[int, tuple] = {}
+    for item in elements:
+        selector = item.get("selector")
+        if not isinstance(selector, dict):
+            continue
+        chain = ancestors_of(item)
+        path_signatures[int(item["element_index"])] = (
+            tuple(tuple(sorted(segment.items())) for segment in chain),
+            tuple(sorted(selector.items())),
+        )
+
+    signature_counts: dict[tuple, int] = {}
+    for signature in path_signatures.values():
+        signature_counts[signature] = signature_counts.get(signature, 0) + 1
+
+    sibling_groups: dict[tuple, list[dict]] = {}
+    for item in elements:
+        selector = item.get("selector")
+        if not isinstance(selector, dict):
+            continue
+        group_key = (
+            item.get("parent_index"),
+            tuple(sorted(selector.items())),
+        )
+        sibling_groups.setdefault(group_key, []).append(item)
 
     for item in elements:
         control = str(item.get("control_type") or "").strip()
         auto = str(item.get("automation_id") or "").strip()
         name = str(item.get("name") or "").strip()
+        selector = item.get("selector")
         score = 0.2
         reason = "缺少 AutomationId / accessibleName"
+
+        duplicate = False
         if auto:
-            unique = auto_counts.get((auto, control), 0) == 1
-            score = 0.98 if unique else 0.76
-            reason = "AutomationId 唯一" if unique else "AutomationId 重复"
+            duplicate = auto_counts.get((auto, control), 0) > 1
+            score = 0.98 if not duplicate else 0.76
+            reason = "AutomationId 唯一" if not duplicate else "AutomationId 重复"
         elif name:
-            unique = name_counts.get((name, control), 0) == 1
-            score = 0.82 if unique else 0.56
-            reason = "Name + ControlType 唯一" if unique else "Name + ControlType 重复"
+            duplicate = name_counts.get((name, control), 0) > 1
+            score = 0.82 if not duplicate else 0.56
+            reason = "Name + ControlType 唯一" if not duplicate else "Name + ControlType 重复"
+
+        if duplicate and isinstance(selector, dict):
+            chain = ancestors_of(item)
+            signature = path_signatures.get(int(item["element_index"]))
+            path_unique = bool(chain and signature and signature_counts.get(signature, 0) == 1)
+            if chain:
+                selector["ancestors"] = chain
+            if path_unique:
+                score = 0.92 if auto else 0.86
+                reason += "；父级作用域链可唯一定位"
+            else:
+                group_key = (item.get("parent_index"),
+                             tuple(sorted({k: v for k, v in selector.items()
+                                           if k not in ("ancestors", "index")}.items())))
+                siblings = sibling_groups.get(group_key, [])
+                if len(siblings) > 1:
+                    local_index = siblings.index(item)
+                    if local_index:
+                        selector["index"] = local_index
+                    score = 0.68 if chain else 0.58
+                    reason += "；同父级仍重复，使用局部 index"
+                elif chain:
+                    score = 0.72
+                    reason += "；已增加父级作用域链"
 
         if score >= 0.85:
             quality = "high"
@@ -544,3 +608,22 @@ def _annotate_selector_quality(elements: list[dict]) -> None:
         item["selector_score"] = round(score, 2)
         item["selector_quality"] = quality
         item["selector_reason"] = reason
+
+
+def _selector_segment(record: dict) -> dict[str, str] | None:
+    """生成父级作用域段；与最终 target selector 使用同一优先级。"""
+    automation_id = str(record.get("automation_id") or "").strip()
+    control_type = str(record.get("control_type") or "").strip()
+    name = str(record.get("name") or "").strip()
+    if automation_id:
+        out = {"automation_id": automation_id}
+        if control_type:
+            out["control_type"] = control_type
+        return out
+    if name:
+        out = {"name": name}
+        if control_type:
+            out["control_type"] = control_type
+        return out
+    return None
+
