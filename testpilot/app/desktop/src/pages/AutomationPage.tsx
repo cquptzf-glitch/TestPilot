@@ -86,7 +86,7 @@ export function AutomationPage() {
     }
   };
 
-  const observeNow = async () => {
+  const observeNow = async (preserveKey?: string) => {
     const out = await invoke<AutomationObservation>('ui.observe', {
       include_ax: true,
       include_screenshot: true,
@@ -95,8 +95,10 @@ export function AutomationPage() {
     });
     setObservation(out);
     setQueryResult(null);
-    setSelectedIndex(null);
-    setLastResult(null);
+    const replacement = preserveKey
+      ? (out.elements ?? []).find((item) => item.stable_key === preserveKey)
+      : undefined;
+    setSelectedIndex(replacement?.element_index ?? null);
   };
 
   const loadWindows = () => run('正在读取桌面窗口…', async () => {
@@ -146,9 +148,10 @@ export function AutomationPage() {
 
   const action = (tool: string, extra: Record<string, unknown> = {}, refresh = true) =>
     run('正在执行 ' + tool + '…', async () => {
+      const keepKey = selected?.stable_key;
       const result = await invoke<Record<string, unknown>>(tool, { ...elementArgs(), ...extra });
+      if (refresh) await observeNow(keepKey);
       setLastResult(result);
-      if (refresh) await observeNow();
     });
 
   const removeHistoryStep = (index: number) =>
@@ -313,6 +316,9 @@ export function AutomationPage() {
               <button className="btn primary" disabled={!selected.actions.includes('click')}
                       onClick={() => void action('ui.click')}>点击</button>
               <button className="btn" onClick={() => void action('ui.read', {}, false)}>读取</button>
+              <button className="btn" onClick={() => void action('assert.ui', {
+                expect: actionValue, op: 'equals',
+              }, false)}>断言文本</button>
               <button className="btn" disabled={!selected.actions.includes('input')}
                       onClick={() => void action('ui.input', { text: actionValue, clear: true })}>输入</button>
               <button className="btn" disabled={!selected.actions.includes('set_value')}
