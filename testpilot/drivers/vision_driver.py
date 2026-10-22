@@ -41,7 +41,7 @@ MANIFEST = DriverManifest(
     kind="interaction",
     name="vision",
     version="1.2.0",
-    capabilities=frozenset({"click", "input", "scroll", "drag", "grab",
+    capabilities=frozenset({"click", "right_click", "input", "scroll", "drag", "grab",
                             "locate_template", "locate_visual"}),
     config_schema={"type": "object", "properties": {
         "grab_backend": {"type": "string", "enum": ["mss", "pil"],
@@ -326,6 +326,21 @@ class VisionDriver:
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, cx, cy, 0, 0)
         except Exception as e:
             raise ActionError(f"视觉点击失败 @({cx},{cy}): {e}") from e
+
+    def right_click(self, el: LocatedElement, ctx: ExecContext) -> None:
+        """在视觉目标中心发送右键。"""
+        ctx.abort.check()
+        x, y, w, h = el.rect
+        if w <= 0 or h <= 0:
+            raise ActionError("视觉目标没有可操作几何区域")
+        try:
+            from testpilot.infra.wininput import right_click_at
+            right_click_at(x + w // 2, y + h // 2, ctx.abort)
+        except Exception as e:
+            from testpilot.core.errors import AbortRequested
+            if isinstance(e, AbortRequested):
+                raise
+            raise ActionError(f"视觉右键失败: {e}") from e
 
     def scroll(self, el: LocatedElement, direction: str, amount: int,
                ctx: ExecContext) -> None:
