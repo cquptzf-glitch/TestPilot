@@ -174,8 +174,8 @@ def test_health_reports_pywinauto_version(uia):
 def test_manifest_is_module_level_and_complete():
     from testpilot.drivers.uia_driver import MANIFEST
     assert MANIFEST.name == "uia"
-    assert {"click", "input", "select", "grab", "wait_ready", "wait_gone",
-            "launch", "close", "read_text"} <= set(MANIFEST.capabilities)
+    assert {"click", "input", "select", "scroll", "drag", "grab", "wait_ready",
+            "wait_gone", "launch", "close", "read_text"} <= set(MANIFEST.capabilities)
     assert MANIFEST.entry == "testpilot.drivers.uia_driver:create"
 
 
@@ -399,6 +399,31 @@ def test_click_failure_is_action_error(uia):
     with pytest.raises(ActionError):
         uia.click(LocatedElement(driver=None, handle=Boom(), rect=(0, 0, 1, 1)),
                   _ctx())
+
+
+def test_scroll_and_drag_delegate_to_wininput(uia, monkeypatch):
+    from testpilot.infra import wininput
+
+    seen = []
+    monkeypatch.setattr(
+        wininput, "scroll_at",
+        lambda x, y, direction, amount, abort=None:
+            seen.append(("scroll", x, y, direction, amount)),
+    )
+    monkeypatch.setattr(
+        wininput, "drag_from",
+        lambda x, y, dx, dy, duration_ms, abort=None:
+            (seen.append(("drag", x, y, dx, dy, duration_ms)) or (x + dx, y + dy)),
+    )
+    el = LocatedElement(driver=None, handle=FakeWindow(),
+                        rect=(10, 20, 100, 30))
+    uia.scroll(el, "down", 3, _ctx())
+    uia.drag(el, 50, -5, 240, _ctx())
+
+    assert seen == [
+        ("scroll", 60, 35, "down", 3),
+        ("drag", 60, 35, 50, -5, 240),
+    ]
 
 
 def test_input_text_keys_mode(uia):
