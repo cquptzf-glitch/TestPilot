@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
 import { call, readAssetDataUrl } from '../bridge';
@@ -86,6 +86,11 @@ export function AutomationPage() {
   const [error, setError] = useState('');
   const [lastResult, setLastResult] = useState<Record<string, unknown> | null>(null);
   const [toolNames, setToolNames] = useState<Set<string>>(new Set());
+  const [previewZoom, setPreviewZoom] = useState(100);
+  const previewScrollRef = useRef<HTMLDivElement | null>(null);
+  const previewPanRef = useRef<{
+    clientX: number; clientY: number; scrollLeft: number; scrollTop: number;
+  } | null>(null);
 
   const [exploreMode, setExploreMode] = useState<ExploreMode>('uia');
   const [visualDesc, setVisualDesc] = useState('');
@@ -597,13 +602,13 @@ export function AutomationPage() {
   };
 
   const startVisualRegion = (event: ReactMouseEvent<HTMLImageElement>) => {
-    if (exploreMode !== 'vision' || queryResult) return;
+    if (event.altKey || exploreMode !== 'vision' || queryResult) return;
     const point = screenshotPoint(event);
     if (point) setVisualRegionStart(point);
   };
 
   const finishVisualRegion = (event: ReactMouseEvent<HTMLImageElement>) => {
-    if (exploreMode !== 'vision' || !visualRegionStart || queryResult) return;
+    if (event.altKey || exploreMode !== 'vision' || !visualRegionStart || queryResult) return;
     const end = screenshotPoint(event);
     const start = visualRegionStart;
     setVisualRegionStart(null);
@@ -618,7 +623,7 @@ export function AutomationPage() {
   };
 
   const selectElementFromScreenshot = (event: ReactMouseEvent<HTMLImageElement>) => {
-    if (exploreMode !== 'uia' || !observation?.elements?.length || queryResult) return;
+    if (event.altKey || exploreMode !== 'uia' || !observation?.elements?.length || queryResult) return;
     const base = observation.screenshot_rect ?? observation.window_rect;
     if (!base || base.length !== 4) return;
     const box = event.currentTarget.getBoundingClientRect();
@@ -647,6 +652,32 @@ export function AutomationPage() {
     setActionValue(hit.value ?? '');
   };
 
+  const beginPreviewPan = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!event.altKey || event.button !== 0) return;
+    const node = previewScrollRef.current;
+    if (!node) return;
+    event.preventDefault();
+    previewPanRef.current = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      scrollLeft: node.scrollLeft,
+      scrollTop: node.scrollTop,
+    };
+  };
+
+  const movePreviewPan = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const start = previewPanRef.current;
+    const node = previewScrollRef.current;
+    if (!start || !node) return;
+    event.preventDefault();
+    node.scrollLeft = start.scrollLeft - (event.clientX - start.clientX);
+    node.scrollTop = start.scrollTop - (event.clientY - start.clientY);
+  };
+
+  const endPreviewPan = () => {
+    previewPanRef.current = null;
+  };
+
   const preview = <div className="panel automation-preview">
     <div className="automation-section-head">
       <div><strong>界面预览</strong><span className="muted">{observation?.window_title || '当前窗口'}</span></div>
@@ -655,25 +686,47 @@ export function AutomationPage() {
         : null}
     </div>
     {!queryResult && observation?.png_base64
-      ? <div className="automation-canvas">
-          <img src={'data:image/png;base64,' + observation.png_base64}
-               alt="被测窗口截图"
-               title={exploreMode === 'vision'
-                 ? '拖拽框选 Vision 搜索区域'
-                 : '点击截图可反查并选择 UIA 元素'}
-               onClick={selectElementFromScreenshot}
-               onMouseDown={startVisualRegion}
-               onMouseUp={finishVisualRegion} />
-          {exploreMode === 'vision' && visualRegionStyle &&
-            <div className="automation-region" style={visualRegionStyle}>
-              <span>搜索区域</span>
-            </div>}
-          {highlight && <div className="automation-highlight" style={highlight}>
-            <span>{exploreMode === 'vision'
-              ? (visualKey || visualDesc || visualTemplate || '视觉定位')
-              : (selected?.name || selected?.automation_id || selected?.control_type || '元素')}</span>
-          </div>}
-        </div>
+      ? <>
+          <div className="automation-preview-toolbar">
+            <button className="btn ghost small"
+                    onClick={() => setPreviewZoom((z) => Math.max(50, z - 25))}>−</button>
+            <input type="range" min={50} max={250} step={25} value={previewZoom}
+                   aria-label="截图缩放"
+                   onChange={(e) => setPreviewZoom(Number(e.target.value))} />
+            <span>{previewZoom}%</span>
+            <button className="btn ghost small"
+                    onClick={() => setPreviewZoom((z) => Math.min(250, z + 25))}>＋</button>
+            <button className="btn ghost small" onClick={() => setPreviewZoom(100)}>1:1</button>
+            <span className="muted">Alt + 拖拽平移</span>
+          </div>
+          <div className="automation-preview-scroll" ref={previewScrollRef}
+               onMouseDown={beginPreviewPan}
+               onMouseMove={movePreviewPan}
+               onMouseUp={endPreviewPan}
+               onMouseLeave={endPreviewPan}>
+            <div className="automation-canvas"
+                 style={{ width: previewZoom + '%', maxWidth: 'none' }}>
+              <img src={'data:image/png;base64,' + observation.png_base64}
+                   alt="被测窗口截图"
+                   style={{ width: '100%', maxWidth: 'none' }}
+                   title={exploreMode === 'vision'
+                     ? '拖拽框选 Vision 搜索区域；Alt+拖拽平移'
+                     : '点击截图反查 UIA 元素；Alt+拖拽平移'}
+                   onClick={selectElementFromScreenshot}
+                   onMouseDown={startVisualRegion}
+                   onMouseUp={finishVisualRegion} />
+              {exploreMode === 'vision' && visualRegionStyle &&
+                <div className="automation-region" style={visualRegionStyle}>
+                  <span>搜索区域</span>
+                </div>}
+              {highlight && <div className="automation-highlight" style={highlight}>
+                <span>{exploreMode === 'vision'
+                  ? (visualKey || visualDesc || visualTemplate || '视觉定位')
+                  : (selected?.name || selected?.automation_id || selected?.control_type || '元素')}</span>
+              </div>}
+            </div>
+          </div>
+        </>
       : <div className="automation-preview-empty">
           {queryResult ? '查询模式不展示旧截图' : '暂无截图'}
         </div>}
