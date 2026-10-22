@@ -85,10 +85,12 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec("app.attach", "按窗口标题正则附加到已运行程序", {
         "type": "object",
         "properties": {
-            "title_re": {"type": "string"},
+            "handle": {"type": "integer", "minimum": 1,
+                       "description": "app.list 返回的 HWND；提供时优先精确附加"},
+            "title_re": {"type": "string",
+                         "description": "窗口标题正则；建议同时提供，便于固化为 DSL"},
             "timeout_s": {"type": "number", "default": 10},
         },
-        "required": ["title_re"],
     }, needs="uia", capability="attach"),
     ToolSpec("app.wait_ready", "等待被测窗口就绪", {
         "type": "object", "properties": {"timeout_ms": {"type": "integer"}},
@@ -256,15 +258,26 @@ class ToolBox:
 
     def _app_attach(self, args) -> dict:
         drv = self._driver(args, default="uia")
-        attach = getattr(drv, "attach", None)
-        if not callable(attach):
-            raise ToolError("UIA 驱动不支持 attach")
-        title_re = str(_req(args, "title_re"))
-        rect = attach(title_re, timeout_s=float(args.get("timeout_s", 10)))
+        title_re = str(args.get("title_re") or "").strip()
+        timeout_s = float(args.get("timeout_s", 10))
+        handle = args.get("handle")
+        if handle is not None:
+            attach_handle = getattr(drv, "attach_handle", None)
+            if not callable(attach_handle):
+                raise ToolError("UIA 驱动不支持按句柄 attach")
+            rect = attach_handle(int(handle), timeout_s=timeout_s)
+        else:
+            attach = getattr(drv, "attach", None)
+            if not callable(attach):
+                raise ToolError("UIA 驱动不支持 attach")
+            if not title_re:
+                raise ToolError("app.attach 需要 handle 或 title_re")
+            rect = attach(title_re, timeout_s=timeout_s)
         self.ctx.window_rect = tuple(rect) if rect else None
         self.computer.reset()
         return {"window_rect": list(rect) if rect else None, "mode": "attach",
-                "title_re": title_re}
+                "handle": int(handle) if handle is not None else None,
+                "title_re": title_re or None}
 
     def _app_wait_ready(self, args) -> dict:
         drv = self._driver(args, default="uia")
