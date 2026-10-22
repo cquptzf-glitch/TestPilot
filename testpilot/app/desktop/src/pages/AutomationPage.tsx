@@ -12,7 +12,7 @@ import type {
 type InvokeReply<T> = { tool: string; result: T; history_count: number };
 type ExploreMode = 'uia' | 'vision' | 'device';
 
-const DEFAULT_sessionId = 'desktop-default';
+const DEFAULT_AUTOMATION_SESSION_ID = 'desktop-default';
 const AUTOMATION_SESSION_KEY_PREFIX = 'tp-automation-session-v2:';
 const LEGACY_AUTOMATION_SESSION_KEY = 'tp-automation-session-v1';
 
@@ -34,7 +34,7 @@ function savedSessionKey(sessionId: string): string {
 function readSavedSession(sessionId: string): AutomationHistory | null {
   try {
     let raw = localStorage.getItem(savedSessionKey(sessionId));
-    if (!raw && sessionId === DEFAULT_sessionId)
+    if (!raw && sessionId === DEFAULT_AUTOMATION_SESSION_ID)
       raw = localStorage.getItem(LEGACY_AUTOMATION_SESSION_KEY);
     if (!raw) return null;
     const value = JSON.parse(raw) as AutomationHistory;
@@ -58,7 +58,7 @@ function exactTitle(title: string): string {
 }
 
 export function AutomationPage() {
-  const [sessionId, setSessionId] = useState(DEFAULT_sessionId);
+  const [sessionId, setSessionId] = useState(DEFAULT_AUTOMATION_SESSION_ID);
   const [sessions, setSessions] = useState<AutomationSessionSummary[]>([]);
   const [newSessionId, setNewSessionId] = useState('');
   const [windows, setWindows] = useState<AutomationWindow[]>([]);
