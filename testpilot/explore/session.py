@@ -28,11 +28,13 @@ class ExploreStep:
     driver: str | None = None
     result: dict | None = None
     error: str | None = None
+    rerun_of: int | None = None
 
     def to_dict(self) -> dict:
         return {"index": self.index, "tool": self.tool, "args": self.args,
                 "ok": self.ok, "ms": self.ms, "driver": self.driver,
-                "result": self.result, "error": self.error}
+                "result": self.result, "error": self.error,
+                "rerun_of": self.rerun_of}
 
     @classmethod
     def from_dict(cls, data: dict) -> "ExploreStep":
@@ -43,7 +45,8 @@ class ExploreStep:
                    ms=int(data.get("ms") or 0),
                    driver=data.get("driver"),
                    result=data.get("result"),
-                   error=data.get("error"))
+                   error=data.get("error"),
+                   rerun_of=data.get("rerun_of"))
 
 
 class ExplorationSession:
@@ -62,7 +65,8 @@ class ExplorationSession:
         self.notes = notes
         self.steps: list[ExploreStep] = []
 
-    def call(self, tool: str, args: dict | None = None) -> dict:
+    def call(self, tool: str, args: dict | None = None, *,
+             rerun_of: int | None = None) -> dict:
         """调用一个工具并记录；失败同样留痕后抛出，供 agent 重规划。"""
         if self.toolbox is None:
             raise ToolError("会话未装配工具箱，只能用于离线转换")
@@ -74,13 +78,13 @@ class ExplorationSession:
             self.steps.append(ExploreStep(
                 index=len(self.steps) + 1, tool=tool, args=args, ok=False,
                 ms=int((time.monotonic() - t0) * 1000),
-                driver=args.get("driver"), error=str(e)))
+                driver=args.get("driver"), error=str(e), rerun_of=rerun_of))
             raise
         self.steps.append(ExploreStep(
             index=len(self.steps) + 1, tool=tool, args=args, ok=True,
             ms=int((time.monotonic() - t0) * 1000),
             driver=args.get("driver") or (out or {}).get("driver"),
-            result=_history_result(tool, out)))
+            result=_history_result(tool, out), rerun_of=rerun_of))
         return out
 
     def reset(self) -> None:
@@ -113,6 +117,29 @@ class ExplorationSession:
             raise ToolError("探索步骤 args 必须是对象")
         step.args = dict(args)
         return step
+
+    def rerun_step(self, index: int, args: dict | None = None) -> dict:
+        """按编辑后的参数重新执行，并保留旧步骤作为证据。
+
+        element_index/snapshot_id 是短生命周期句柄；如果旧步骤已有稳定 target.selector，
+        重跑时自动把临时句柄替换成该 selector，避免恢复/页面变化后误用旧 wrapper。
+        """
+        original = self._get_step(index)
+        effective = dict(original.args if args is None else args)
+        result = original.result if isinstance(original.result, dict) else {}
+        target = result.get("target") if isinstance(result.get("target"), dict) else {}
+        selector = target.get("selector") if isinstance(target.get("selector"), dict) else None
+
+        if effective.get("element_index") is not None and selector:
+            effective.pop("element_index", None)
+            effective.pop("snapshot_id", None)
+            for key, value in selector.items():
+                effective.setdefault(key, value)
+            stable_key = target.get("stable_key")
+            if stable_key and not effective.get("key"):
+                effective["key"] = stable_key
+
+        return self.call(original.tool, effective, rerun_of=original.index)
 
     def move_step(self, index: int, to_index: int) -> list[ExploreStep]:
         """调整探索历史顺序并重排 1-based index。"""
