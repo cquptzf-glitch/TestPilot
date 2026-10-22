@@ -379,6 +379,12 @@ function autoDraft(): Record<string, unknown> {
       steps.push({ id: 's' + (steps.length + 1), action: 'ui.toggle',
         target: { key: target?.stable_key ?? 'explore.target', primary: selector },
         value: item.args.checked ? 'true' : 'false', source_text: '[探索] 设置开关' });
+    } else if (item.tool === 'assert.ui' && selector) {
+      steps.push({ id: 's' + (steps.length + 1), action: 'assert.ui',
+        target: { key: target?.stable_key ?? 'explore.target', primary: selector },
+        verify: { type: 'text', expect: String(item.args.expect ?? ''),
+                  op: String(item.args.op ?? 'equals'), timeout_ms: 5000 },
+        source_text: '[探索] 文本断言' });
     }
   }
   return { case_id: autoCaseId, title: autoTitle, preconditions: [], steps,
@@ -393,6 +399,7 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         { name: 'ui.observe' }, { name: 'ui.query' }, { name: 'ui.click' },
         { name: 'ui.read' }, { name: 'ui.input' }, { name: 'ui.set_value' },
         { name: 'ui.toggle' }, { name: 'ui.keypress' }, { name: 'ui.select' },
+        { name: 'assert.ui' },
       ] };
     case 'automation.invoke': {
       const tool = String(params.tool ?? '');
@@ -430,11 +437,20 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
           el.value = String(tool === 'ui.input' ? args.text ?? '' : args.value ?? '');
         } else if (tool === 'ui.toggle') {
           el.value = args.checked ? 'true' : 'false';
+        } else if (tool === 'assert.ui') {
+          const expect = String(args.expect ?? '');
+          const op = String(args.op ?? 'equals');
+          const matched = op === 'contains' ? String(el.value).includes(expect)
+            : op === 'regex' ? new RegExp(expect).test(String(el.value))
+            : String(el.value) === expect;
+          if (!matched) throw new Error('UI 文本断言失败');
         }
         result = { rect: el.rect, driver: 'uia', target, element_index: el.element_index,
                    snapshot_id: autoSnapshot, value: el.value, read_back: el.value,
+                   expect: tool === 'assert.ui' ? args.expect : undefined,
+                   matched: tool === 'assert.ui' ? true : undefined,
                    verified: tool === 'ui.set_value' ? true : undefined,
-                   actual: tool === 'ui.set_value' ? el.value : undefined };
+                   actual: tool === 'ui.set_value' || tool === 'assert.ui' ? el.value : undefined };
       }
       recordAuto(tool, args, true, result);
       return { tool, result, history_count: autoSteps.length };
