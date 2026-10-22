@@ -42,6 +42,17 @@ def test_list_tools_is_capability_whitelist(toolbox):
     assert ToolBox({}).list_tools() == []
 
 
+def test_list_tools_hides_missing_uia_capabilities():
+    limited = FakeDriver("uia", capabilities={"click", "grab"})
+    names = {t["name"] for t in ToolBox({"uia": limited}).list_tools()}
+    assert "ui.click" in names
+    assert "app.list" not in names
+    assert "app.attach" not in names
+    assert "ui.read" not in names
+    assert "ui.toggle" not in names
+    assert "ui.keypress" not in names
+
+
 def test_invoke_unknown_tool_and_missing_param(toolbox):
     with pytest.raises(ToolError):
         toolbox.invoke("nope.nope", {})
