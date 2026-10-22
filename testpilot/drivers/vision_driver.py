@@ -41,8 +41,8 @@ MANIFEST = DriverManifest(
     kind="interaction",
     name="vision",
     version="1.2.0",
-    capabilities=frozenset({"click", "input", "grab", "locate_template",
-                            "locate_visual"}),
+    capabilities=frozenset({"click", "input", "scroll", "drag", "grab",
+                            "locate_template", "locate_visual"}),
     config_schema={"type": "object", "properties": {
         "grab_backend": {"type": "string", "enum": ["mss", "pil"],
                          "default": "mss"},
@@ -326,6 +326,48 @@ class VisionDriver:
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, cx, cy, 0, 0)
         except Exception as e:
             raise ActionError(f"视觉点击失败 @({cx},{cy}): {e}") from e
+
+    def scroll(self, el: LocatedElement, direction: str, amount: int,
+               ctx: ExecContext) -> None:
+        """在视觉目标中心发送物理滚轮。"""
+        ctx.abort.check()
+        x, y, w, h = el.rect
+        if w <= 0 or h <= 0:
+            raise ActionError("视觉目标没有可操作几何区域")
+        cx, cy = x + w // 2, y + h // 2
+        try:
+            from testpilot.infra.wininput import scroll_at
+            scroll_at(cx, cy, direction, amount, ctx.abort)
+        except Exception as e:
+            from testpilot.core.errors import AbortRequested
+            if isinstance(e, AbortRequested):
+                raise
+            raise ActionError(
+                f"视觉滚动失败: direction={direction!r} amount={amount!r} ({e})") from e
+
+    def drag(self, el: LocatedElement, dx: int, dy: int, duration_ms: int,
+             ctx: ExecContext) -> None:
+        """从视觉目标中心按相对位移拖拽，默认限制在当前被测窗口。"""
+        ctx.abort.check()
+        x, y, w, h = el.rect
+        if w <= 0 or h <= 0:
+            raise ActionError("视觉目标没有可操作几何区域")
+        cx, cy = x + w // 2, y + h // 2
+        end_x, end_y = cx + int(dx), cy + int(dy)
+        if ctx.window_rect is not None:
+            wx, wy, ww, wh = ctx.window_rect
+            if not (wx <= end_x < wx + ww and wy <= end_y < wy + wh):
+                raise ActionError(
+                    f"视觉拖拽终点 ({end_x},{end_y}) 超出当前被测窗口")
+        try:
+            from testpilot.infra.wininput import drag_from
+            drag_from(cx, cy, int(dx), int(dy), int(duration_ms), ctx.abort)
+        except Exception as e:
+            from testpilot.core.errors import AbortRequested
+            if isinstance(e, AbortRequested):
+                raise
+            raise ActionError(
+                f"视觉拖拽失败: dx={dx!r} dy={dy!r} duration_ms={duration_ms!r} ({e})") from e
 
     def input_text(self, el: LocatedElement, text: str, ctx: ExecContext) -> None:
         """视觉定位的输入：点击聚焦后剪贴板粘贴（支持中文/特殊字符）。"""
