@@ -187,7 +187,7 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         "properties": {
             "path": {"type": "string"},
             "expect": {"type": "string"},
-            "op": {"type": "string", "enum": ["equals", "regex"], "default": "equals"},
+            "op": {"type": "string", "enum": ["contains", "equals", "regex"], "default": "equals"},
         },
         "required": ["path", "expect"],
     }, needs="emulator"),
@@ -501,6 +501,8 @@ class ToolBox:
                 matched = re.search(expected, str(actual)) is not None
             except re.error as e:
                 raise ToolError(f"非法正则表达式: {e}") from e
+        elif op == "contains":
+            matched = expected in str(actual)
         elif op == "equals":
             matched = str(actual) == expected
         else:
