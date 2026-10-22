@@ -812,3 +812,136 @@ Qt Quick smoke
 7. 再考虑跨应用、全局输入、录制回放等能力。
 
 如果后面继续参考 open-computer-use，优先借鉴“会话安全、观察预算、动作回读、平台边界测试”，不要直接复制它面向通用桌面 Agent 的所有输入策略。TestPilot 的核心价值仍应是“可重复、可审计、可验证”的自动化测试。
+
+
+---
+
+## 10. 第二阶段功能扩展（2026-10-22）
+
+在第一阶段 observation-first / element_index 会话层基础上，本阶段继续补齐“探索 → 操作 → 验证 → 固化”的产品闭环。
+
+### 10.1 UIA locator 稳定化
+
+观察结果现在会为每个 UIA 元素生成：
+
+- `selector_score`：0~1 稳定度评分；
+- `selector_quality`：high / medium / low；
+- `selector_reason`：评分原因；
+- 可持久化 `selector`。
+
+优先级：
+
+1. 唯一 AutomationId；
+2. AutomationId + ancestors 父级作用域链；
+3. Name + ControlType + ancestors；
+4. 同一父级内仍重复时，最后才使用局部 index。
+
+DSL 的 UIA Locator 新增可选：
+
+```json
+{
+  "type": "uia",
+  "name": "确认",
+  "control_type": "Button",
+  "ancestors": [
+    {"automation_id": "resultPanel", "control_type": "Pane"}
+  ]
+}
+```
+
+注意：顶层主窗口不会写入 ancestors，因为 UIADriver 的搜索 scope 已经从主窗口开始。
+
+### 10.2 Vision Explore
+
+Desktop Explore 新增 Vision 模式：
+
+- `desc` 语义定位；
+- template 定位；
+- locate / click / input；
+- 命中 bbox 在当前截图上高亮；
+- 成功动作固化为 `vision_only`，其中 click 固化为 `vision.click`。
+
+这用于 Qt Quick Canvas、自绘控件、OpenGL/WebView 或 Accessibility 不完整区域。
+
+### 10.3 断言能力
+
+探索工具新增并统一固化：
+
+- `assert.ui`：UIA 文本 equals / contains / regex；
+- `assert.state`：模拟器状态 equals / contains / regex；
+- `assert.vision`：VLM 视觉语义断言；
+- UI 动作可开启 `verify_diff`：动作前后抓图并执行 screenshot_diff。
+
+screenshot_diff 有一条重要约束：
+
+> 只有探索期 before/after 实际验证通过、结果中产生 `diff_verified=true` 时，才允许写入正式 DSL。仅传 `verify_diff=true` 不足以固化验证。
+
+### 10.4 探索历史与恢复
+
+探索历史支持：
+
+- removeStep；
+- moveStep；
+- updateStep；
+- restore。
+
+恢复只恢复**历史与固化信息**，不恢复短生命周期 UI 句柄。恢复时会主动 reset ComputerUseSession，因此历史里的 element_index 不能直接继续使用，必须重新 observe/query。
+
+纯观察类历史做压缩：
+
+- ui.observe：只保留 snapshot/window/节点数/截图大小等摘要；
+- ui.query：只保留 match_count 等摘要；
+- screen.grab：只保留 bytes/rect；
+- 不把 PNG base64 或整棵 AX tree 长期写入 Session。
+
+Desktop 会将压缩后的 Session 保存到 localStorage，并在引擎侧空会话时自动恢复。
+
+### 10.5 Desktop 工作流
+
+当前探索页流程：
+
+```text
+选择 / 启动窗口
+        ↓
+观察截图 + UIA Tree
+        ↓
+┌────────────┬─────────────┬─────────────┐
+│ UIA 控件   │ Vision      │ Device      │
+│ 元素操作   │ 语义/模板   │ 场景/指令   │
+│ 文本断言   │ 视觉断言    │ 状态断言    │
+└────────────┴─────────────┴─────────────┘
+        ↓
+操作历史（编辑 / 排序 / 删除）
+        ↓
+生成 DSL 草稿
+        ↓
+保存为 draft
+        ↓
+进入 DSL 人审
+```
+
+截图支持点击反查 UIA 元素；元素列表支持“只看可操作控件”。
+
+### 10.6 并发安全
+
+Explore 与正式回归执行通过同一 interaction mutex 串行化：
+
+- Explore 正在操作 UI → task.run 拒绝启动；
+- 正式 run 正在执行 → Explore invoke 拒绝操作。
+
+当前仍只有一个全局 RPC Explore Session。后续若做多 Session，不能只增加 sessionId，因为 UIADriver 是有窗口状态的对象；必须为不同 Session 隔离驱动实例，才能真正支持多窗口并行探索。
+
+### 10.7 当前验证策略
+
+当前阶段刻意不把真机 smoke 作为提交门禁。
+
+GitHub Actions 负责：
+
+- Windows Python Ruff；
+- Windows Pytest；
+- Desktop TypeScript `tsc --noEmit`；
+- Vite build。
+
+提交 `287bdece1755acedfd3ba34d2c1f4829c412da0d` 已完整通过上述 Python 与 Desktop 两个 job。
+
+真机 Qt / DPI / 安装包验证继续保留在 `docs/defect-backlog.md` 的 ENV 项，待 P1 功能基本稳定后集中执行。
