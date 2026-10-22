@@ -691,6 +691,18 @@ class UIADriver:
         from testpilot.drivers.vision_driver import grab_screen
         return grab_screen(dpi.normalize_rect(rect, "physical"))
 
+    # ---------- Explore / Accessibility observation ----------
+
+    def observation_root(self):
+        """返回当前被测窗口的可访问性根节点；未附加窗口时明确失败。"""
+        if self._top is None:
+            raise AppError("尚未启动/附加被测窗口")
+        return self._top
+
+    def observation_rect(self, node) -> Rect:
+        """ObservationDriver 公共几何入口。"""
+        return self._rect_of(node)
+
     # ---------- 内部 ----------
 
     def _rect_of(self, wrapper) -> Rect:
