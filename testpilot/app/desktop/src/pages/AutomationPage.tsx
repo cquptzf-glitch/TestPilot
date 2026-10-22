@@ -11,6 +11,24 @@ import type {
 type InvokeReply<T> = { tool: string; result: T; history_count: number };
 type ExploreMode = 'uia' | 'vision' | 'device';
 
+const AUTOMATION_SESSION_KEY = 'tp-automation-session-v1';
+
+function readSavedSession(): AutomationHistory | null {
+  try {
+    const raw = localStorage.getItem(AUTOMATION_SESSION_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as AutomationHistory;
+    return value && Array.isArray(value.steps) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(session: AutomationHistory): void {
+  try { localStorage.setItem(AUTOMATION_SESSION_KEY, JSON.stringify(session)); }
+  catch { /* localStorage quota/private mode: engine session still works */ }
+}
+
 function exactTitle(title: string): string {
   return '^' + title.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&') + '$';
 }
@@ -92,17 +110,43 @@ export function AutomationPage() {
     return out.result;
   };
 
+  const applyHistory = (session: AutomationHistory) => {
+    setHistory(session);
+    setHistoryCount(session.steps.length);
+    setCaseId(session.case_id || 'TC-EXPLORE');
+    setCaseTitle(session.title || '自动化探索路径');
+    saveSession(session);
+  };
+
   const refreshHistory = async () => {
     const out = await call<{ session: AutomationHistory }>('automation.history');
-    setHistory(out.session);
-    setHistoryCount(out.session.steps.length);
+    applyHistory(out.session);
   };
 
   useEffect(() => {
-    void refreshHistory().catch(() => {});
-    void call<{ tools: { name: string }[] }>('automation.tools')
-      .then((out) => setToolNames(new Set(out.tools.map((item) => item.name))))
-      .catch(() => setToolNames(new Set()));
+    const initialize = async () => {
+      try {
+        const current = await call<{ session: AutomationHistory }>('automation.history');
+        let session = current.session;
+        const saved = readSavedSession();
+        if (session.steps.length === 0 && saved?.steps.length) {
+          const restored = await call<{ session: AutomationHistory }>('automation.restore', {
+            session: saved,
+          });
+          session = restored.session;
+        }
+        applyHistory(session);
+      } catch {
+        // 引擎尚未就绪时由后续用户操作/全局 engine-ready 触发正常 RPC 错误提示。
+      }
+      try {
+        const out = await call<{ tools: { name: string }[] }>('automation.tools');
+        setToolNames(new Set(out.tools.map((item) => item.name)));
+      } catch {
+        setToolNames(new Set());
+      }
+    };
+    void initialize();
   }, []);
 
   const saveLocalSession = () => run('正在保存探索会话…', async () => {
@@ -360,6 +404,7 @@ export function AutomationPage() {
     setVisionResult(null);
     setEditingIndex(null);
     setEditingArgs('');
+    try { localStorage.removeItem(AUTOMATION_SESSION_KEY); } catch { /* ignore */ }
   });
 
   const preview = <div className="panel automation-preview">
