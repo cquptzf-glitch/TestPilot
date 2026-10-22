@@ -84,6 +84,19 @@ def test_health_warns_when_vlm_missing(tmp_path):
     assert rep.ok is True and "VLM 未装配" in rep.detail
 
 
+def test_vision_right_click_delegates_to_wininput(driver, monkeypatch):
+    from testpilot.infra import wininput
+
+    seen = []
+    monkeypatch.setattr(
+        wininput, "right_click_at",
+        lambda x, y, abort=None: seen.append((x, y)),
+    )
+    el = LocatedElement(driver=None, handle=None, rect=(20, 30, 80, 40))
+    driver.right_click(el, _ctx((0, 0, 300, 200)))
+    assert seen == [(60, 50)]
+
+
 def test_vision_scroll_and_drag_delegate_to_wininput(driver, monkeypatch):
     from testpilot.infra import wininput
 
