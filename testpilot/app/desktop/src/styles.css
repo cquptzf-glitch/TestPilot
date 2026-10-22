@@ -2286,6 +2286,42 @@ details.task-create { margin-bottom: 22px; }
   color: var(--c-text-faint);
 }
 
+.automation-gesture-controls {
+  display: grid;
+  grid-template-columns: 120px 100px auto 100px 100px 110px auto;
+  gap: var(--sp-2);
+  align-items: end;
+  margin: var(--sp-3) 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-panel-soft);
+}
+
+.automation-gesture-controls.compact {
+  grid-template-columns: 100px 90px auto 90px 90px auto;
+}
+
+.automation-gesture-controls label {
+  display: grid;
+  gap: 4px;
+  color: var(--c-text-dim);
+  font-size: var(--fs-xs);
+}
+
+.automation-gesture-controls input,
+.automation-gesture-controls select {
+  min-width: 0;
+  width: 100%;
+}
+
+@media (max-width: 1080px) {
+  .automation-gesture-controls,
+  .automation-gesture-controls.compact {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
 .automation-action-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
