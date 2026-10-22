@@ -306,6 +306,17 @@ export function AutomationPage() {
       if (tool !== 'ui.locate') await observeNow();
     });
 
+  const saveVisualTemplate = () => run('正在保存视觉模板…', async () => {
+    if (!visualRegion) throw new Error('请先在截图上拖拽框选模板区域');
+    const name = visualKey.trim() || visualDesc.trim() || 'visual_template';
+    const result = await invoke<Record<string, unknown>>('screen.save_template', {
+      name, region: visualRegion,
+    });
+    const template = String(result.template ?? '');
+    if (template) setVisualTemplate(template);
+    setLastResult(result);
+  });
+
   const visualAssert = () => run('正在执行视觉断言…', async () => {
     if (!visionExpect.trim()) throw new Error('请填写视觉期望');
     const result = await invoke<Record<string, unknown>>('assert.vision', {
@@ -366,6 +377,44 @@ export function AutomationPage() {
       });
       setDraft(null);
     });
+
+  const rerunHistoryStep = (index: number, args?: Record<string, unknown>) =>
+    run('正在重新执行探索步骤…', async () => {
+      const result = await call<{ result: Record<string, unknown> }>('automation.rerunStep', {
+        index, ...(args ? { args } : {}),
+      });
+      setLastResult(result.result);
+      setDraft(null);
+    });
+
+  const saveAndRerunHistoryStep = () => {
+    if (editingIndex == null) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(editingArgs || '{}');
+    } catch {
+      setError('步骤参数必须是合法 JSON');
+      return;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      setError('步骤参数必须是 JSON 对象');
+      return;
+    }
+    void run('正在保存并重新执行探索步骤…', async () => {
+      await call('automation.updateStep', {
+        index: editingIndex,
+        args: parsed as Record<string, unknown>,
+      });
+      const out = await call<{ result: Record<string, unknown> }>('automation.rerunStep', {
+        index: editingIndex,
+        args: parsed as Record<string, unknown>,
+      });
+      setLastResult(out.result);
+      setEditingIndex(null);
+      setEditingArgs('');
+      setDraft(null);
+    });
+  };
 
   const removeHistoryStep = (index: number) =>
     run('正在移除探索步骤…', async () => {
@@ -758,6 +807,16 @@ export function AutomationPage() {
                  aria-label="视觉动作画面变化阈值" />
           <small>通过后会直接固化为 screenshot_diff verify</small>
         </div>
+        <div className="automation-region-control">
+          <span>{visualRegion
+            ? '当前模板/搜索区域：' + visualRegion.join(', ')
+            : '在右侧截图拖拽框选区域，可直接保存为模板'}</span>
+          <button className="btn ghost small"
+                  disabled={!!busy || !visualRegion || !toolNames.has('screen.save_template')}
+                  onClick={() => void saveVisualTemplate()}>
+            保存选区为模板
+          </button>
+        </div>
         <div className="hstack">
           <button className="btn" disabled={!!busy}
                   onClick={() => void visualAction('ui.locate')}>定位并高亮</button>
@@ -856,6 +915,8 @@ export function AutomationPage() {
                 <button className="btn ghost small" disabled={!!busy || index === all.length - 1}
                         onClick={() => void moveHistoryStep(step.index, step.index + 1)}>↓</button>
                 <button className="btn ghost small" disabled={!!busy}
+                        onClick={() => void rerunHistoryStep(step.index)}>重跑</button>
+                <button className="btn ghost small" disabled={!!busy}
                         onClick={() => editHistoryStep(step)}>编辑</button>
                 <button className="btn ghost small" disabled={!!busy}
                         onClick={() => void removeHistoryStep(step.index)}>移除</button>
@@ -871,7 +932,9 @@ export function AutomationPage() {
           <textarea value={editingArgs} onChange={(e) => setEditingArgs(e.target.value)} />
           <div className="hstack">
             <button className="btn primary" disabled={!!busy}
-                    onClick={() => void saveHistoryStep()}>保存参数</button>
+                    onClick={() => void saveHistoryStep()}>仅保存参数</button>
+            <button className="btn" disabled={!!busy}
+                    onClick={saveAndRerunHistoryStep}>保存并重跑</button>
             <button className="btn" onClick={() => {
               setEditingIndex(null);
               setEditingArgs('');
