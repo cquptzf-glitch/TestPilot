@@ -280,7 +280,9 @@ class UIADriver:
                     parent = scope.child_window(**acrit)
                     if not parent.exists(timeout=0):
                         raise LocateError(f"UIA 父级作用域未命中: {ancestor}")
-                    scope = parent.wrapper_object()
+                    # 保持 WindowSpecification 链，不要在中途转 wrapper：
+                    # child_window 是 specification 的查询构造 API，多级作用域靠它串联。
+                    scope = parent
                 el = scope.child_window(**crit)
                 if el.exists(timeout=0):
                     wrapper = el.wrapper_object()
