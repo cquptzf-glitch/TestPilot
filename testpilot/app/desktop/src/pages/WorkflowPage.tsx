@@ -14,6 +14,7 @@ interface AppTargetPreset {
   name: string;
   windowTitle: string;
   exe: string;
+  kind: 'preset' | 'recent';
   updatedAt: number;
 }
 
@@ -31,6 +32,10 @@ function loadTargetPresets(): AppTargetPreset[] {
         && typeof item.id === 'string' && typeof item.name === 'string'
         && typeof item.windowTitle === 'string' && typeof item.exe === 'string'
         && typeof item.updatedAt === 'number')
+      .map((item) => ({
+        ...item,
+        kind: item.kind === 'recent' ? 'recent' as const : 'preset' as const,
+      }))
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, TARGET_PRESET_LIMIT);
   } catch {
@@ -73,9 +78,6 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
   const [windowTitle, setWindowTitle] = useState(() => restored('tp-flow-window-title', ''));
   const [exe, setExe] = useState(() => restored('tp-flow-exe', ''));
   const [targetPresets, setTargetPresets] = useState<AppTargetPreset[]>(loadTargetPresets);
-  const [selectedTargetPreset, setSelectedTargetPreset] = useState('');
-  const [targetPresetName, setTargetPresetName] = useState('');
-  const [targetPresets, setTargetPresets] = useState<AppTargetPreset[]>(loadTargetPresets);
   const [targetPresetId, setTargetPresetId] = useState('');
   const [targetPresetName, setTargetPresetName] = useState('');
   const [busy, setBusy] = useState('');
@@ -113,7 +115,7 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
     if (!preset) return;
     setWindowTitle(preset.windowTitle);
     setExe(preset.exe);
-    setTargetPresetName(preset.name);
+    setTargetPresetName(preset.kind === 'preset' ? preset.name : '');
   };
 
   const saveTargetPreset = () => {
@@ -126,11 +128,11 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
     const name = targetPresetName.trim() || presetDefaultName(title, appExe);
     const now = Date.now();
     const existing = targetPresetId
-      ? targetPresets.find((item) => item.id === targetPresetId)
+      ? targetPresets.find((item) => item.id === targetPresetId && item.kind === 'preset')
       : undefined;
     const id = existing?.id ?? ('target-' + now.toString(36));
     const next: AppTargetPreset = {
-      id, name, windowTitle: title, exe: appExe, updatedAt: now,
+      id, name, windowTitle: title, exe: appExe, kind: 'preset', updatedAt: now,
     };
     const items = [next, ...targetPresets.filter((item) => item.id !== id)]
       .slice(0, TARGET_PRESET_LIMIT);
@@ -148,6 +150,33 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
     persistTargetPresets(items);
     setTargetPresetId('');
     setTargetPresetName('');
+  };
+
+  const rememberRecentTarget = () => {
+    const title = windowTitle.trim();
+    const appExe = exe.trim();
+    if (!title && !appExe) return;
+
+    const now = Date.now();
+    const sameTarget = (item: AppTargetPreset) =>
+      item.windowTitle === title && item.exe === appExe;
+    const presets = targetPresets.filter((item) => item.kind === 'preset');
+    const recents = [
+      {
+        id: 'recent-' + now.toString(36),
+        name: presetDefaultName(title, appExe),
+        windowTitle: title,
+        exe: appExe,
+        kind: 'recent' as const,
+        updatedAt: now,
+      },
+      ...targetPresets.filter((item) => item.kind === 'recent' && !sameTarget(item)),
+    ].slice(0, 5);
+    const items = [...presets, ...recents]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, TARGET_PRESET_LIMIT);
+    setTargetPresets(items);
+    persistTargetPresets(items);
   };
 
   const action = async (label: string, fn: () => Promise<void>) => {
@@ -247,13 +276,20 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
       <details className="flow-target"><summary>设置被测软件（用例未提供窗口时填写）</summary>
         <p className="muted">已打开软件可只填窗口标题；需要启动时填写程序路径。填写后会应用到本次生成的草稿，再由你确认。</p>
         <div className="flow-target-presets">
-          <label>常用目标
+          <label>目标预设 / 最近使用
             <select aria-label="常用被测软件预设" value={targetPresetId}
                     onChange={(e) => applyTargetPreset(e.target.value)}>
-              <option value="">不使用预设</option>
-              {targetPresets.map((preset) => <option key={preset.id} value={preset.id}>
-                {preset.name}
-              </option>)}
+              <option value="">手动填写</option>
+              {targetPresets.some((item) => item.kind === 'preset') &&
+                <optgroup label="常用预设">
+                  {targetPresets.filter((item) => item.kind === 'preset').map((preset) =>
+                    <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                </optgroup>}
+              {targetPresets.some((item) => item.kind === 'recent') &&
+                <optgroup label="最近使用">
+                  {targetPresets.filter((item) => item.kind === 'recent').map((preset) =>
+                    <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                </optgroup>}
             </select>
           </label>
           <label>预设名称
@@ -264,7 +300,8 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
           <div className="flow-target-preset-actions">
             <button type="button" className="btn" disabled={locked || (!windowTitle.trim() && !exe.trim())}
                     onClick={saveTargetPreset}>
-              {targetPresetId ? '更新预设' : '保存为预设'}
+              {targetPresets.some((item) => item.id === targetPresetId && item.kind === 'preset')
+                ? '更新预设' : '保存为预设'}
             </button>
             <button type="button" className="btn ghost"
                     disabled={locked || !targetPresetId}
@@ -272,7 +309,7 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
           </div>
         </div>
         {targetPresets.length > 0 && <p className="hint">
-          最多保留 {TARGET_PRESET_LIMIT} 个常用目标，保存在本机；切换预设会自动填入窗口标题和程序路径。
+          常用预设与最近 5 个目标保存在本机；切换后会自动填入窗口标题和程序路径。
         </p>}
         <div className="form-2col"><label>窗口标题<input aria-label="被测窗口标题" value={windowTitle} onChange={e => setWindowTitle(e.target.value)} placeholder="例如：仪器控制软件" /></label>
           <label>程序路径（可选）<input aria-label="被测程序路径" value={exe} onChange={e => setExe(e.target.value)} placeholder="D:\\Software\\Instrument.exe" /></label></div>
