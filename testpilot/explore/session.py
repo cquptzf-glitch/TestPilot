@@ -87,6 +87,20 @@ class ExplorationSession:
         if self.toolbox is not None:
             self.toolbox.reset_session()
 
+    def remove_step(self, index: int) -> ExploreStep:
+        """删除一条探索历史并重排索引；用于误操作撤销，不影响当前 UI 快照。"""
+        try:
+            wanted = int(index)
+        except (TypeError, ValueError):
+            raise ToolError(f"非法探索步骤序号: {index!r}") from None
+        pos = next((i for i, step in enumerate(self.steps) if step.index == wanted), -1)
+        if pos < 0:
+            raise ToolError(f"探索步骤不存在: {wanted}")
+        removed = self.steps.pop(pos)
+        for i, step in enumerate(self.steps, start=1):
+            step.index = i
+        return removed
+
     def to_case(self) -> dict:
         """转为 DSL 用例草稿；只有成功且可稳定映射的动作进入用例。"""
         steps = []
