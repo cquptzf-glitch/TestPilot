@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-10-22 自动化会话层增强
+
+已新增面向 Agent/探索的 Computer Use 会话层，参考 open-computer-use 的 observation-first 思路，但不改变现有确定性 DSL Executor 主链路。当前新增能力包括：
+
+- ui.observe：bounded UIA tree，可选截图；
+- ui.query：按文本 / AutomationId / control type 定向查询；
+- 会话级 snapshot_id + element_index，动作前做失效/身份/可见性校验；
+- screenshot-only 观察会主动清旧索引；
+- ui.set_value：可访问值写入后回读确认，避免“API 成功但 UI 没变化”；
+- ui.click / ui.input / ui.select 支持直接消费 element_index；
+- Explore MCP 默认装配健康的 UIA/Vision 驱动，不再只有模拟器；
+- MCP 截图改为 text + image block；
+- notifications/turn-ended 与 EOF 会清理会话句柄。
+
+设计、代码边界、验证清单和下一轮优先级统一见：
+docs/automation-runtime-ocu-2026-10-22.md
+
+本轮没有修改 Executor / Router / Verifier / DSL / DB schema。后续优先做真实 Windows Qt Widgets/Qt Quick、多 DPI/双屏 smoke，然后把当前 Explore 层对 UIADriver 私有 _top/_rect_of 的依赖下沉为正式 ObservationDriver 可选协议。
+
 ## 0. 一句话现状
 
 **引擎侧 M1–M4 代码全部落地，打包链路已跑通，前端 8 个页面与引擎能力已完全接线** —— 单测 674 全绿 / ruff 0 / 前端 tsc 通过 / Rust 壳测试 7 全绿 / 预检 74 项通过 / PyInstaller + `tauri build` 产出 **55.2 MB** NSIS 安装包，端到端冒烟（壳拉起 sidecar + RPC 监听 + 建库）通过。第七轮补齐三项代码增强（驱动降级统计、`case_ctx` 人审维护、`env_compat` 矩阵）与 M5+ piagent 工具层，第八轮补齐回归质量分析（用例稳定性 + 两次 run 对比），第九轮补齐失败用例复跑（flake 过滤），第十轮把 v1.7 复核出的 6 项"设计有、实现无"全部落地（device.* 清单校验与回执落库、能力清单裁剪、9.4 快速定位、9.2 语义召回钩子、壳侧独立指标）；剩余的是外部环境验证（干净机器安装 / UIA 实机 / 多缩放 DPI）。
