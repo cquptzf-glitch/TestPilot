@@ -189,6 +189,12 @@ def test_list_windows_returns_visible_native_windows(uia):
     assert rows[0]["rect"] == [10, 20, 100, 30]
 
 
+def test_attach_handle_uses_exact_native_window(uia):
+    rect = uia.attach_handle(12345, timeout_s=0.2)
+    assert rect == (10, 20, 100, 30)
+    assert uia._native_top.handle == 12345
+
+
 def test_launch_with_exe_and_args_returns_physical_rect(uia):
     rect = uia.launch({"exe": "target.exe", "args": "--test-mode"}, timeout_s=5)
     assert rect == (10, 20, 100, 30)          # width/height 由边界相减得出
