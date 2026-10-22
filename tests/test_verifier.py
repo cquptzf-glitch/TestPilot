@@ -100,6 +100,17 @@ def test_verify_state_pass_and_fail(cfg, fake_emulator):
     assert vr.status == "fail" and "idle" in vr.detail
 
 
+def test_verify_state_contains_operator(cfg):
+    from tests.conftest import FakeEmulator
+    emu = FakeEmulator(state={"state": {"run": "completed with warnings"}})
+    step = _step(
+        {"type": "state", "expect": "completed", "op": "contains"},
+        args={"path": "/state/run"},
+    )
+    assert _verifier(cfg, emulator=emu).verify(
+        step, _ctx(), None, None).status == "pass"
+
+
 def test_verify_state_without_emulator_fails(cfg):
     vr = _verifier(cfg).verify(_step({"type": "state"}), _ctx(), None, None)
     assert vr.status == "fail" and "模拟器" in vr.detail
