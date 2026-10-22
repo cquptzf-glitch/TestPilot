@@ -362,6 +362,26 @@ def test_explore_history_can_edit_and_reorder(toolbox):
         session.update_step(99, {})
 
 
+def test_explore_step_can_rerun_with_edited_args(toolbox):
+    session = ExplorationSession(toolbox)
+    session.call("ui.click", {
+        "key": "btn.old", "name": "旧按钮", "control_type": "Button",
+    })
+    session.update_step(1, {
+        "key": "btn.new", "name": "新按钮", "control_type": "Button",
+    })
+
+    out = session.rerun_step(1)
+    assert out["driver"] == "uia"
+    assert len(session.steps) == 2
+    assert session.steps[0].rerun_of is None
+    assert session.steps[1].rerun_of == 1
+    assert session.steps[1].args["key"] == "btn.new"
+    assert [step["target"]["key"] for step in session.to_case()["steps"]] == [
+        "btn.new", "btn.new",
+    ]
+
+
 def test_attach_solidifies_as_app_launch(toolbox):
     toolbox.drivers["uia"].attach = lambda title_re, timeout_s=10: (0, 0, 800, 600)
     s = ExplorationSession(toolbox)
