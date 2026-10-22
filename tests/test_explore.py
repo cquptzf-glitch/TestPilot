@@ -25,8 +25,9 @@ def toolbox():
 
 def test_list_tools_is_capability_whitelist(toolbox):
     names = [t["name"] for t in toolbox.list_tools()]
-    assert {"app.launch", "ui.click", "ui.input", "device.call",
-            "device.scene", "device.state", "screen.grab"} <= set(names)
+    assert {"app.list", "app.launch", "app.attach", "ui.click", "ui.input",
+            "ui.read", "ui.set_value", "ui.toggle", "ui.keypress",
+            "device.call", "device.scene", "device.state", "screen.grab"} <= set(names)
     # 每个工具都带头描述与 JSON Schema（MCP tools/list 形态）
     click = next(t for t in toolbox.list_tools() if t["name"] == "ui.click")
     # key 只是给会话记录/固化回 DSL 的可选语义键，定位本身不消费（不应强制 agent 填）
@@ -143,6 +144,15 @@ def test_session_to_case_maps_tools_and_passes_dsl_validation(toolbox):
     assert case["steps"][3]["value"] == "80"
     assert case["steps"][5]["args"]["cmd"] == "set_sample"
     assert "跳过 1 步" in case["notes"]          # device.state 是观测步骤
+
+
+def test_attach_solidifies_as_app_launch(toolbox):
+    toolbox.drivers["uia"].attach = lambda title_re, timeout_s=10: (0, 0, 800, 600)
+    s = ExplorationSession(toolbox)
+    s.call("app.attach", {"title_re": ".*主窗口.*"})
+    case = s.to_case()
+    assert case["steps"][0]["action"] == "app.launch"
+    assert case["steps"][0]["args"] == {"title_re": ".*主窗口.*"}
 
 
 def test_session_roundtrip_and_draft_text(toolbox):
