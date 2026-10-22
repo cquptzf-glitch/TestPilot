@@ -1790,6 +1790,25 @@ details.task-create { margin-bottom: 22px; }
     var(--c-panel-soft);
 }
 
+.automation-vision-assert {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.automation-vision-result {
+  max-height: 120px;
+  overflow: auto;
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-bg-sunken);
+  color: var(--c-text-dim);
+  font: var(--fs-xs)/1.5 var(--c-mono);
+}
+
 .automation-preview-empty,
 .automation-empty {
   min-height: 110px;
@@ -1940,7 +1959,8 @@ details.task-create { margin-bottom: 22px; }
   .automation-target-grid,
   .automation-query,
   .automation-action-grid,
-  .automation-device-grid { grid-template-columns: 1fr; }
+  .automation-device-grid,
+  .automation-vision-assert { grid-template-columns: 1fr; }
 }
 
 
