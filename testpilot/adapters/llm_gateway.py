@@ -304,7 +304,9 @@ class LlmGateway:
         for attempt in (1, 2, 3):            # 瞬时网络错误与服务端过载重试
             try:
                 self._check_abort()
-                remaining = deadline - time.monotonic()
+                # 浮点加减在不同平台可能得到 timeout + 1e-14；传给 httpx 的单次
+                # timeout 绝不能大于配置总预算，否则既违反契约也会让边界测试抖动。
+                remaining = min(timeout, deadline - time.monotonic())
                 if remaining <= 0:
                     raise LlmError("模型请求总超时")
                 resp = self._bounded_post(url, headers=headers, json=body, timeout=remaining)
