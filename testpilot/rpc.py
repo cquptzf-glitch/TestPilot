@@ -173,6 +173,7 @@ class RpcService:
             "automation.draft": self._automation_draft,
             "automation.removeStep": self._automation_remove_step,
             "automation.updateStep": self._automation_update_step,
+            "automation.rerunStep": self._automation_rerun_step,
             "automation.moveStep": self._automation_move_step,
             "automation.restore": self._automation_restore,
             "automation.reset": self._automation_reset,
@@ -209,7 +210,8 @@ class RpcService:
             "dsl.review", "dsl.save", "dsl.accept", "dsl.reject",
             "automation.tools", "automation.invoke", "automation.history",
             "automation.draft", "automation.removeStep", "automation.updateStep",
-            "automation.moveStep", "automation.restore", "automation.reset",
+            "automation.rerunStep", "automation.moveStep",
+            "automation.restore", "automation.reset",
             "config.describe", "config.apply", "config.reset",
             "config.overrideText",
         })
@@ -694,6 +696,22 @@ class RpcService:
             raise RpcError(INVALID_PARAMS, "automation.updateStep 的 args 需为对象")
         step = session.update_step(_to_int(p, "index"), args)
         return {"step": step.to_dict(), "history_count": len(session.steps)}
+
+    def _automation_rerun_step(self, p):
+        self._automation_guard()
+        if not self._interaction_lock.acquire(blocking=False):
+            raise RpcError(INVALID_PARAMS, "测试任务正在执行，自动化探索暂不可操作界面")
+        try:
+            args = p.get("args")
+            if args is not None and not isinstance(args, dict):
+                raise RpcError(INVALID_PARAMS, "automation.rerunStep 的 args 需为对象")
+            index = _to_int(p, "index")
+            session = self._automation()
+            result = session.rerun_step(index, args)
+            return {"rerun_of": index, "result": result,
+                    "history_count": len(session.steps)}
+        finally:
+            self._interaction_lock.release()
 
     def _automation_move_step(self, p):
         session = self._automation()
