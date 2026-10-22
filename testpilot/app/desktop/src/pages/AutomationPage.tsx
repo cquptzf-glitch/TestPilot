@@ -4,7 +4,7 @@ import { call } from '../bridge';
 import { Msg } from '../components/Bits';
 import { msg, navigate } from '../hooks';
 import type {
-  AutomationDraft, AutomationHistory, AutomationObservation, AutomationWindow,
+  AutomationDraft, AutomationHistory, AutomationHistoryStep, AutomationObservation, AutomationWindow,
 } from '../types';
 
 type InvokeReply<T> = { tool: string; result: T; history_count: number };
@@ -32,6 +32,21 @@ export function AutomationPage() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [lastResult, setLastResult] = useState<Record<string, unknown> | null>(null);
+  const [exploreMode, setExploreMode] = useState<'uia' | 'vision' | 'device'>('uia');
+  const [toolNames, setToolNames] = useState<Set<string>>(new Set());
+  const [visualDesc, setVisualDesc] = useState('');
+  const [visualTemplate, setVisualTemplate] = useState('');
+  const [visualKey, setVisualKey] = useState('');
+  const [visualRect, setVisualRect] = useState<number[] | null>(null);
+  const [deviceScene, setDeviceScene] = useState('');
+  const [deviceCmd, setDeviceCmd] = useState('query_state');
+  const [deviceArgsText, setDeviceArgsText] = useState('{}');
+  const [statePath, setStatePath] = useState('/state/run');
+  const [stateExpect, setStateExpect] = useState('completed');
+  const [stateOp, setStateOp] = useState<'equals' | 'contains' | 'regex'>('equals');
+  const [visionExpect, setVisionExpect] = useState('界面显示检测完成');
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingArgs, setEditingArgs] = useState('');
   const [toolNames, setToolNames] = useState<string[]>([]);
   const [sceneId, setSceneId] = useState('normal_sample_a');
   const [devicePath, setDevicePath] = useState('/state/run');
@@ -49,9 +64,9 @@ export function AutomationPage() {
     [elements, selectedIndex],
   );
   const highlight = useMemo(() => {
-    if (queryResult || !selected || !observation) return null;
+    if (queryResult || !observation) return null;
+    const rect = exploreMode === 'vision' ? visualRect : selected?.rect;
     const base = observation.screenshot_rect ?? observation.window_rect;
-    const rect = selected.rect;
     if (!base || base.length !== 4 || !rect || rect.length !== 4 || base[2] <= 0 || base[3] <= 0)
       return null;
     const left = ((rect[0] - base[0]) / base[2]) * 100;
@@ -65,8 +80,7 @@ export function AutomationPage() {
       width: Math.max(0.4, Math.min(100 - Math.max(0, left), width)) + '%',
       height: Math.max(0.4, Math.min(100 - Math.max(0, top), height)) + '%',
     };
-  }, [queryResult, selected, observation]);
-
+  }, [queryResult, selected, observation, exploreMode, visualRect]);
   const invoke = async <T,>(tool: string, args: Record<string, unknown> = {}): Promise<T> => {
     const out = await call<InvokeReply<T>>('automation.invoke', { tool, args });
     setHistoryCount(out.history_count);
@@ -168,6 +182,69 @@ export function AutomationPage() {
       const result = await invoke<Record<string, unknown>>(tool, { ...elementArgs(), ...extra });
       if (refresh) await observeNow(keepKey);
       setLastResult(result);
+    });
+
+  const visualArgs = (): Record<string, unknown> => {
+    const desc = visualDesc.trim();
+    const template = visualTemplate.trim();
+    if (!desc && !template) throw new Error('请填写视觉描述或模板路径');
+    return {
+      driver: 'vision',
+      key: visualKey.trim() || undefined,
+      desc: desc || undefined,
+      template: template || undefined,
+      timeout_ms: 10000,
+    };
+  };
+
+  const visualAction = (tool: 'ui.locate' | 'ui.click' | 'ui.input') =>
+    run('正在执行视觉自动化…', async () => {
+      const args = visualArgs();
+      if (tool === 'ui.input') args.text = actionValue;
+      const result = await invoke<Record<string, unknown>>(tool, args);
+      const rect = result.rect;
+      setVisualRect(Array.isArray(rect) ? rect.map(Number) : null);
+      setLastResult(result);
+      if (tool !== 'ui.locate') await observeNow();
+    });
+
+  const deviceAction = (tool: string, args: Record<string, unknown>) =>
+    run('正在执行 ' + tool + '…', async () => {
+      const result = await invoke<Record<string, unknown>>(tool, args);
+      setLastResult(result);
+    });
+
+  const parseDeviceArgs = (): Record<string, unknown> => {
+    let value: unknown;
+    try { value = JSON.parse(deviceArgsText || '{}'); }
+    catch { throw new Error('设备指令参数必须是合法 JSON'); }
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      throw new Error('设备指令参数必须是 JSON 对象');
+    return value as Record<string, unknown>;
+  };
+
+  const editHistoryStep = (step: AutomationHistoryStep) => {
+    setEditingIndex(step.index);
+    setEditingArgs(JSON.stringify(step.args ?? {}, null, 2));
+  };
+
+  const saveHistoryStep = () => run('正在更新探索步骤…', async () => {
+    if (editingIndex == null) return;
+    let args: unknown;
+    try { args = JSON.parse(editingArgs || '{}'); }
+    catch { throw new Error('步骤参数必须是合法 JSON'); }
+    if (!args || typeof args !== 'object' || Array.isArray(args))
+      throw new Error('步骤参数必须是 JSON 对象');
+    await call('automation.updateStep', { index: editingIndex, args: args as Record<string, unknown> });
+    setEditingIndex(null);
+    setEditingArgs('');
+    setDraft(null);
+  });
+
+  const moveHistoryStep = (index: number, toIndex: number) =>
+    run('正在调整步骤顺序…', async () => {
+      await call('automation.moveStep', { index, toIndex });
+      setDraft(null);
     });
 
   const removeHistoryStep = (index: number) =>
