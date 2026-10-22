@@ -1,11 +1,7 @@
 """探索会话 — 记录工具调用轨迹并固化回 DSL 草稿（设计 11.1）。
 
-链路：agent（或人工）逐步调用工具 -> ``ExplorationSession`` 留痕 ->
-``to_draft_text()`` 产出 DSL 草稿 -> 走既有 ``case import`` / ``case accept`` 人审链路。
-**探索负责"发现"，DSL 引擎负责"回归"**：本模块绝不直接把路径写进 active 用例。
-
-会话可序列化为 JSON（``to_dict`` / ``from_dict``），因此 agent 侧（含 MCP 客户端）
-只需产出这份记录，固化与审阅在引擎侧完成。
+探索负责发现，DSL 引擎负责回归。element_index 等临时句柄绝不写入正式 DSL；
+固化时优先消费工具结果里的稳定 selector 候选。
 """
 import time
 from dataclasses import dataclass
@@ -13,10 +9,13 @@ from dataclasses import dataclass
 from testpilot.core.errors import TestPilotError
 from testpilot.explore.toolbox import ToolBox, ToolError
 
-# 可映射为 DSL 步骤的工具（其余是观测类，不进入用例）
-DSL_TOOLS = ("app.launch", "app.wait_ready", "app.close",
-             "ui.locate", "ui.click", "ui.input", "ui.select",
-             "device.scene", "device.call")
+# 可映射为 DSL 步骤的工具（观察/读取类不进入用例）
+DSL_TOOLS = (
+    "app.launch", "app.attach", "app.wait_ready", "app.close",
+    "ui.locate", "ui.click", "ui.input", "ui.set_value", "ui.select",
+    "ui.toggle", "ui.keypress",
+    "device.scene", "device.call",
+)
 
 
 @dataclass
@@ -48,7 +47,7 @@ class ExploreStep:
 
 
 class ExplorationSession:
-    """一次探索会话：调用即留痕；成功后固化为**待审** DSL 草稿。"""
+    """一次探索会话：调用即留痕；成功后固化为待审 DSL 草稿。"""
 
     def __init__(self, toolbox: ToolBox | None = None, *,
                  case_id: str = "TC-EXPLORE", title: str = "探索路径",
@@ -63,10 +62,8 @@ class ExplorationSession:
         self.notes = notes
         self.steps: list[ExploreStep] = []
 
-    # ---------- 执行 ----------
-
     def call(self, tool: str, args: dict | None = None) -> dict:
-        """调用一个工具并记录一步；失败同样留痕后原样抛出（agent 据此重规划）。"""
+        """调用一个工具并记录；失败同样留痕后抛出，供 agent 重规划。"""
         if self.toolbox is None:
             raise ToolError("会话未装配工具箱，只能用于离线转换")
         args = dict(args or {})
@@ -85,17 +82,20 @@ class ExplorationSession:
             driver=args.get("driver") or (out or {}).get("driver"), result=out))
         return out
 
-    # ---------- 固化 ----------
+    def reset(self) -> None:
+        self.steps.clear()
+        if self.toolbox is not None:
+            self.toolbox.reset_session()
 
     def to_case(self) -> dict:
-        """转为 DSL 用例草稿（仅含成功且可映射的步骤）。"""
+        """转为 DSL 用例草稿；只有成功且可稳定映射的动作进入用例。"""
         steps = []
         skipped = 0
-        for s in self.steps:
-            if not s.ok:
+        for step in self.steps:
+            if not step.ok:
                 skipped += 1
                 continue
-            dsl = _to_dsl_step(s)
+            dsl = _to_dsl_step(step)
             if dsl is None:
                 skipped += 1
                 continue
@@ -104,9 +104,11 @@ class ExplorationSession:
 
         notes = self.notes or ""
         if self.steps:
-            summary = (f"由探索会话固化：工具调用 {len(self.steps)} 步，"
-                       f"可映射 {len(steps)} 步，跳过 {skipped} 步"
-                       f"（失败/观测步骤不进入用例）。需人审确认后生效。")
+            summary = (
+                f"由探索会话固化：工具调用 {len(self.steps)} 步，"
+                f"可映射 {len(steps)} 步，跳过 {skipped} 步"
+                "（失败/观测/无法生成稳定定位的步骤不进入用例）。需人审确认后生效。"
+            )
             notes = f"{notes} {summary}".strip()
         return {
             "case_id": self.case_id,
@@ -122,10 +124,7 @@ class ExplorationSession:
         return dumps(self.to_case(), fmt)
 
     def import_draft(self, case_service) -> dict:
-        """把草稿导入本地库（``status=draft``）；后续走 ``case accept`` 人审。"""
         return case_service.import_draft(self.to_draft_text("json"), "json")
-
-    # ---------- 序列化 ----------
 
     def to_dict(self) -> dict:
         return {"case_id": self.case_id, "title": self.title,
@@ -136,7 +135,6 @@ class ExplorationSession:
 
     @classmethod
     def from_dict(cls, data: dict, toolbox: ToolBox | None = None) -> "ExplorationSession":
-        """从 JSON 记录还原会话（不依赖工具箱，可直接转换与导入）。"""
         session = cls(toolbox, case_id=str(data.get("case_id") or "TC-EXPLORE"),
                       title=str(data.get("title") or "探索路径"),
                       zentao_case_id=data.get("zentao_case_id"),
@@ -147,20 +145,25 @@ class ExplorationSession:
         return session
 
 
-# ---------- 工具 -> DSL 步骤映射 ----------
-
 def _to_dsl_step(step: ExploreStep) -> dict | None:
     args = step.args or {}
+    result = step.result or {}
     tool = step.tool
 
-    if tool == "app.launch":
-        spec = {"exe": args.get("exe")}
+    if tool in ("app.launch", "app.attach"):
+        spec = {}
+        if tool == "app.launch" and args.get("exe"):
+            spec["exe"] = args["exe"]
         if args.get("args"):
             spec["args"] = list(args["args"])
         if args.get("title_re"):
             spec["title_re"] = args["title_re"]
-        return {"action": "app.launch", "args": _drop_none(spec),
-                "source_text": f"[探索] 启动 {args.get('exe')}"}
+        if not spec.get("exe") and not spec.get("title_re"):
+            return None
+        verb = "启动" if spec.get("exe") else "附加"
+        label = spec.get("exe") or spec.get("title_re")
+        return {"action": "app.launch", "args": spec,
+                "source_text": f"[探索] {verb} {label}"}
 
     if tool == "app.wait_ready":
         return {"action": "app.wait_ready",
@@ -172,21 +175,39 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
                 "args": {"mode": args.get("mode", "graceful")},
                 "source_text": "[探索] 关闭被测程序"}
 
-    if tool in ("ui.locate", "ui.click", "ui.input", "ui.select"):
-        target = _target_of(args)
-        action = {"ui.locate": "ui.wait", "ui.click": "ui.click",
-                  "ui.input": "ui.input",
-                  "ui.select": "ui.select"}[tool]
+    if tool in ("ui.locate", "ui.click", "ui.input", "ui.set_value",
+                "ui.select", "ui.toggle", "ui.keypress"):
+        target = _target_of(args, result)
+        if target is None:
+            return None
+        action = {
+            "ui.locate": "ui.wait",
+            "ui.click": "ui.click",
+            "ui.input": "ui.input",
+            "ui.set_value": "ui.input",
+            "ui.select": "ui.select",
+            "ui.toggle": "ui.toggle",
+            "ui.keypress": "ui.keypress",
+        }[tool]
         out = {"action": action, "target": target,
-               "source_text": f"[探索] {_describe(tool, args)}"}
+               "source_text": f"[探索] {_describe(tool, args, result)}"}
         if tool == "ui.locate":
             out["args"] = {"state": "exists"}
-        if tool == "ui.input":
+        elif tool == "ui.input":
             out["value"] = str(args.get("text") or "")
             if args.get("clear"):
                 out["args"] = {"clear": True}
-        if tool == "ui.select":
+        elif tool == "ui.set_value":
+            # 正式 DSL 暂无独立 set_value 动作：等价固化为“清空后输入”，
+            # 保持可重复性且不把 Explore-only API 泄漏到 Executor。
             out["value"] = str(args.get("value") or "")
+            out["args"] = {"clear": True}
+        elif tool == "ui.select":
+            out["value"] = str(args.get("value") or "")
+        elif tool == "ui.toggle":
+            out["value"] = "true" if bool(args.get("checked")) else "false"
+        elif tool == "ui.keypress":
+            out["value"] = str(args.get("keys") or "")
         return out
 
     if tool == "device.scene":
@@ -203,39 +224,76 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
     return None
 
 
-def _target_of(args: dict) -> dict:
-    """工具参数 -> DSL TargetDesc（保留实际生效的定位方式为 primary）。"""
-    key = str(args.get("key") or "").strip() or "explore.target"
-    driver = args.get("driver")
-    if not driver:
-        driver = "uia" if args.get("name") or args.get("automation_id") else "vision"
+def _target_of(args: dict, result: dict | None = None) -> dict | None:
+    """把临时 element_index 还原为稳定 TargetDesc，不把会话句柄写入 DSL。"""
+    result = result or {}
+    meta = result.get("target") if isinstance(result.get("target"), dict) else {}
+    selector = meta.get("selector") if isinstance(meta.get("selector"), dict) else None
+
+    key = str(args.get("key") or meta.get("stable_key") or "").strip()
+    if not key:
+        key = _key_from_meta(meta)
+
+    if selector:
+        primary = dict(selector)
+        driver = result.get("driver") or args.get("driver") or "uia"
+    else:
+        driver = args.get("driver")
+        if not driver:
+            driver = "uia" if args.get("name") or args.get("automation_id")                 or args.get("control_type") else "vision"
+        if driver == "uia":
+            primary = _drop_none({
+                "type": "uia",
+                "name": args.get("name"),
+                "automation_id": args.get("automation_id"),
+                "control_type": args.get("control_type"),
+            })
+            if len(primary) == 1:
+                return None
+        elif args.get("template"):
+            primary = {"type": "template", "template": args["template"]}
+        elif args.get("desc"):
+            primary = {"type": "visual", "desc": args["desc"]}
+        else:
+            return None
+
+    fallback = None
     if driver == "uia":
-        primary = _drop_none({"type": "uia", "name": args.get("name"),
-                              "automation_id": args.get("automation_id"),
-                              "control_type": args.get("control_type")})
-        fallback = None
         if args.get("desc"):
             fallback = {"type": "visual", "desc": args["desc"]}
         elif args.get("template"):
             fallback = {"type": "template", "template": args["template"]}
-    elif args.get("template"):
-        primary = {"type": "template", "template": args["template"]}
-        fallback = None
-    else:
-        primary = {"type": "visual", "desc": args.get("desc")}
-        fallback = None
-    target = {"key": key, "primary": primary}
+
+    target = {"key": key or "explore.target", "primary": primary}
     if fallback:
         target["fallback"] = fallback
     return target
 
 
-def _describe(tool: str, args: dict) -> str:
-    key = args.get("key") or args.get("name") or args.get("desc") or "target"
-    if tool == "ui.input":
-        return f"在 {key} 输入 {args.get('text')!r}"
+def _key_from_meta(meta: dict) -> str:
+    auto_id = str(meta.get("automation_id") or "").strip()
+    name = str(meta.get("name") or "").strip()
+    control = str(meta.get("control_type") or "element").strip().lower()
+    raw = auto_id or name
+    if not raw:
+        return "explore.target"
+    cleaned = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in raw)
+    return f"{control}.{cleaned.strip('._-') or 'target'}"[:120]
+
+
+def _describe(tool: str, args: dict, result: dict | None = None) -> str:
+    meta = (result or {}).get("target") or {}
+    key = (args.get("key") or meta.get("stable_key") or
+           meta.get("name") or args.get("name") or args.get("desc") or "target")
+    if tool in ("ui.input", "ui.set_value"):
+        value = args.get("text") if tool == "ui.input" else args.get("value")
+        return f"在 {key} 输入 {value!r}"
     if tool == "ui.select":
         return f"在 {key} 选择 {args.get('value')!r}"
+    if tool == "ui.toggle":
+        return f"设置 {key} 为 {'选中' if args.get('checked') else '未选中'}"
+    if tool == "ui.keypress":
+        return f"在 {key} 发送按键 {args.get('keys')!r}"
     if tool == "ui.locate":
         return f"等待 {key} 出现"
     return f"点击 {key}"
