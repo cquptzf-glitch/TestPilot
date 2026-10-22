@@ -2052,6 +2052,35 @@ details.task-create { margin-bottom: 22px; }
   white-space: nowrap;
 }
 
+.automation-selector-note {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: calc(-1 * var(--sp-2)) 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  font-size: var(--fs-xs);
+}
+
+.automation-selector-note strong { white-space: nowrap; }
+.automation-selector-note span { color: var(--c-text-dim); }
+
+.automation-selector-note.high {
+  background: var(--s-pass-bg);
+  border-color: var(--s-pass-border);
+}
+
+.automation-selector-note.medium {
+  background: var(--s-warn-soft);
+  border-color: var(--s-blocked-border);
+}
+
+.automation-selector-note.low {
+  background: var(--s-fail-bg);
+  border-color: var(--s-fail-border);
+}
+
 .automation-action-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
