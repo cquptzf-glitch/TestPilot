@@ -14,6 +14,17 @@ type ExploreMode = 'uia' | 'vision' | 'device';
 
 const AUTOMATION_SESSION_KEY = 'tp-automation-session-v1';
 
+const KEY_PRESETS = [
+  { label: 'Enter', keys: '{ENTER}' },
+  { label: 'Tab', keys: '{TAB}' },
+  { label: 'Esc', keys: '{ESC}' },
+  { label: 'Ctrl+A', keys: '^a' },
+  { label: 'Ctrl+C', keys: '^c' },
+  { label: 'Ctrl+V', keys: '^v' },
+  { label: 'Ctrl+S', keys: '^s' },
+  { label: 'F5', keys: '{F5}' },
+] as const;
+
 function readSavedSession(): AutomationHistory | null {
   try {
     const raw = localStorage.getItem(AUTOMATION_SESSION_KEY);
@@ -666,6 +677,13 @@ export function AutomationPage() {
                      onChange={(e) => setDiffThreshold(e.target.value)}
                      aria-label="画面变化阈值" />
               <small>变化像素比阈值，默认 0.005（0.5%）</small>
+            </div>
+            <div className="automation-key-presets" aria-label="常用按键快捷选择">
+              <span className="muted">快捷按键：</span>
+              {KEY_PRESETS.map((preset) => <button key={preset.label} type="button"
+                className="btn ghost small" disabled={!!busy}
+                title={"填入 pywinauto 键序列：" + preset.keys}
+                onClick={() => setActionValue(preset.keys)}>{preset.label}</button>)}
             </div>
             <div className="automation-action-grid">
               <button className="btn primary" disabled={!selected.actions.includes('click')}
