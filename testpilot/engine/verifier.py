@@ -132,6 +132,8 @@ class Verifier:
                 ok = bool(re.search(expect, str(actual)))
             except re.error as e:
                 return VerifyResult(status="fail", detail=f"非法正则: {e}")
+        elif v.op == "contains":
+            ok = str(expect) in str(actual)
         else:
             ok = str(actual) == str(expect)
         return VerifyResult(status="pass" if ok else "fail",
