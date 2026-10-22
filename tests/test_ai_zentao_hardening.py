@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from testpilot.adapters.llm_gateway import LlmGateway
+from testpilot.adapters.prompts import PROMPT_VERSIONS, parse_case_prompt
 from testpilot.adapters.zentao_adapter import ZentaoAdapter, ZentaoHttp, _zentao_ids
 from testpilot.case_parser import CaseService
 from testpilot.core.contracts import ExecContext, Screenshot, StepResult
@@ -20,6 +21,13 @@ from testpilot.infra.jobs import CaseJobs
 from testpilot.knowledge.signature import FailureSignature
 from testpilot.storage import repos
 from tests.conftest import FakeLlm, FakeZentao, PNG_1PX
+
+
+def test_parse_prompt_exposes_extended_computer_use_actions():
+    prompt = parse_case_prompt({"title": "gesture", "steps": []})
+    assert PROMPT_VERSIONS["parse_case"] == "parse_case_v4"
+    for action in ("ui.right_click", "ui.scroll", "ui.drag"):
+        assert action in prompt
 
 
 @pytest.mark.parametrize("bad", ["NaN", "Infinity", -0.1, 1.1, True, "not-a-number"])
