@@ -48,7 +48,7 @@
 |---|---|---|---|
 | A-201 | TODO | 截图直接 base64 放 JSON-RPC，4K/高频观察开销大 | 大图改临时 asset 引用；UI 侧按需读取，保留小图 inline。 |
 | A-202 | TODO | Explore 直接依赖 UIADriver 的 _top/_rect_of 私有实现 | 抽出 ObservationDriver/AccessibilityDriver 可选协议。 |
-| A-203 | TODO | keypress 仍要求 pywinauto 原始键序列语法 | UI 提供常用键组合选择器，并保留高级原文输入。 |
+| A-203 | DONE | keypress 常用键预设 | Explore UI 提供 Enter、Tab、Esc、Ctrl+A/C/V/S、F5 快捷填充，并保留高级原文输入。 |
 | A-204 | TODO | 元素树缺少折叠、仅显示扁平层级缩进 | 增加节点折叠、只看可操作元素、按 action/control type 过滤。 |
 | A-205 | TODO | 截图缺少缩放/拖拽/点击截图反查元素 | 增加 zoom/pan 与坐标命中最近 UIA 元素。 |
 | A-206 | TODO | Workflow 被测程序路径/窗口配置仅 sessionStorage | 增加“最近目标/目标预设”，可按项目复用。 |
