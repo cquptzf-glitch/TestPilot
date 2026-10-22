@@ -13,7 +13,7 @@ from testpilot.explore.toolbox import ToolBox, ToolError
 DSL_TOOLS = (
     "app.launch", "app.attach", "app.wait_ready", "app.close",
     "ui.locate", "ui.click", "ui.input", "ui.set_value", "ui.select",
-    "ui.toggle", "ui.keypress", "assert.ui", "assert.state",
+    "ui.toggle", "ui.keypress", "assert.ui", "assert.state", "assert.vision",
     "device.scene", "device.call",
 )
 
@@ -100,6 +100,44 @@ class ExplorationSession:
         for i, step in enumerate(self.steps, start=1):
             step.index = i
         return removed
+
+    def update_step(self, index: int, args: dict) -> ExploreStep:
+        """只允许编辑探索步骤参数；tool/result 仍保留原执行证据。
+
+        编辑后的参数用于 DSL 固化，result 用于保留当时实际执行证据。这样既允许
+        修正文案/期望值/稳定 key，又不会把“未执行过的新工具”伪装成已执行。
+        """
+        step = self._get_step(index)
+        if not isinstance(args, dict):
+            raise ToolError("探索步骤 args 必须是对象")
+        step.args = dict(args)
+        return step
+
+    def move_step(self, index: int, to_index: int) -> list[ExploreStep]:
+        """调整探索历史顺序并重排 1-based index。"""
+        step = self._get_step(index)
+        try:
+            target = int(to_index)
+        except (TypeError, ValueError):
+            raise ToolError(f"非法目标序号: {to_index!r}") from None
+        if not self.steps:
+            return []
+        target = max(1, min(target, len(self.steps)))
+        self.steps.remove(step)
+        self.steps.insert(target - 1, step)
+        for i, item in enumerate(self.steps, start=1):
+            item.index = i
+        return list(self.steps)
+
+    def _get_step(self, index: int) -> ExploreStep:
+        try:
+            wanted = int(index)
+        except (TypeError, ValueError):
+            raise ToolError(f"非法探索步骤序号: {index!r}") from None
+        step = next((item for item in self.steps if item.index == wanted), None)
+        if step is None:
+            raise ToolError(f"探索步骤不存在: {wanted}")
+        return step
 
     def to_case(self) -> dict:
         """转为 DSL 用例草稿；只有成功且可稳定映射的动作进入用例。"""
@@ -203,8 +241,13 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
             "ui.toggle": "ui.toggle",
             "ui.keypress": "ui.keypress",
         }[tool]
+        driver_name = str(result.get("driver") or args.get("driver") or "")
+        if tool == "ui.click" and driver_name == "vision":
+            action = "vision.click"
         out = {"action": action, "target": target,
                "source_text": f"[探索] {_describe(tool, args, result)}"}
+        if driver_name == "vision":
+            out["driver"] = "vision_only"
         if tool == "ui.locate":
             out["args"] = {"state": "exists"}
         elif tool == "ui.input":
@@ -245,9 +288,9 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
 
     if tool == "assert.state":
         path = str(args.get("path") or "")
-        expect = str(args.get("expect") or "")
-        if not path or not expect:
+        if not path or "expect" not in args:
             return None
+        expect = args.get("expect")
         return {
             "action": "assert.state",
             "args": {"path": path, "expect": expect},
@@ -261,6 +304,20 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
                 f"[探索] 断言设备状态 {path} "
                 f"{args.get('op', 'equals')} {expect!r}"
             ),
+        }
+
+    if tool == "assert.vision":
+        expect = str(args.get("expect") or "")
+        if not expect:
+            return None
+        return {
+            "action": "assert.vision",
+            "verify": {
+                "type": "vision",
+                "expect": expect,
+                "timeout_ms": int(args.get("timeout_ms", 5000)),
+            },
+            "source_text": f"[探索] 视觉断言 {expect!r}",
         }
 
     if tool == "device.scene":
