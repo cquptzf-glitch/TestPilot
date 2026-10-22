@@ -714,6 +714,8 @@ class RpcService:
             raise RpcError(INVALID_PARAMS, "探索会话步骤过多（上限 2000）")
 
         current = self._automation()
+        # 历史可以恢复，短生命周期 UI 句柄绝不能恢复；恢复后必须重新 observe/query。
+        current.toolbox.reset_session()
         restored = ExplorationSession.from_dict(data, toolbox=current.toolbox)
         self._automation_session = restored
         return {"session": restored.to_dict(),
