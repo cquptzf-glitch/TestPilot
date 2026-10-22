@@ -275,6 +275,31 @@ def test_explored_action_can_verify_and_solidify_screenshot_diff():
     DslCase.model_validate(case)
 
 
+def test_visual_region_is_preserved_in_solidified_locator(toolbox):
+    session = ExplorationSession(toolbox, case_id="TC-VISUAL-REGION")
+    session.call("ui.click", {
+        "driver": "vision",
+        "key": "btn.export",
+        "desc": "右下角蓝色导出按钮",
+        "region": [500, 300, 260, 180],
+    })
+
+    step = session.to_case()["steps"][0]
+    assert step["driver"] == "vision_only"
+    assert step["target"]["primary"]["type"] == "visual"
+    assert step["target"]["primary"]["region"] == [500, 300, 260, 180]
+    DslCase.model_validate(session.to_case())
+
+
+def test_visual_region_validation_rejects_invalid_shape(toolbox):
+    with pytest.raises(ToolError, match="region"):
+        toolbox.invoke("ui.locate", {
+            "driver": "vision",
+            "desc": "导出按钮",
+            "region": [1, 2, 3],
+        })
+
+
 def test_visual_action_solidifies_as_vision_only(toolbox):
     session = ExplorationSession(toolbox, case_id="TC-VISUAL")
     out = session.call("ui.click", {
