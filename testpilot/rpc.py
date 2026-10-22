@@ -838,6 +838,7 @@ class RpcService:
             index = _to_int(p, "index")
             session = self._automation(p)
             result = session.rerun_step(index, args)
+            result = self._automation_transport_result(p, result)
             return {"rerun_of": index, "result": result,
                     "history_count": len(session.steps)}
         finally:
