@@ -230,6 +230,46 @@ def test_automation_session_id_validation(svc):
     assert e2.value.code == INVALID_PARAMS
 
 
+def test_automation_large_screenshot_uses_asset_transport(svc):
+    from pathlib import Path
+
+    from testpilot.core.contracts import Screenshot
+
+    service, _, _ = svc
+    session = service._automation({"sessionId": "asset-big"})
+    driver = session.toolbox.drivers["uia"]
+    driver.grab = lambda rect, ctx: Screenshot(
+        png=b"x" * (128 * 1024 + 32),
+        rect=(0, 0, 800, 600),
+    )
+
+    out = service.dispatch("automation.invoke", {
+        "sessionId": "asset-big",
+        "tool": "ui.observe",
+        "args": {"include_ax": False, "include_screenshot": True},
+    })["result"]
+
+    assert out["screenshot_transport"] == "asset"
+    assert "png_base64" not in out
+    path = Path(out["asset_path"])
+    assert path.exists()
+    assert path.read_bytes() == b"x" * (128 * 1024 + 32)
+
+    service.dispatch("automation.reset", {"sessionId": "asset-big"})
+    assert not path.exists()
+
+
+def test_automation_small_screenshot_stays_inline(svc):
+    service, _, _ = svc
+    out = service.dispatch("automation.invoke", {
+        "sessionId": "asset-small",
+        "tool": "ui.observe",
+        "args": {"include_ax": False, "include_screenshot": True},
+    })["result"]
+    assert out["screenshot_transport"] == "inline"
+    assert out["png_base64"]
+
+
 def test_automation_rpc_rejects_ui_actions_while_run_is_active(svc):
     service, orch, _ = svc
     orch._in_run.set()
