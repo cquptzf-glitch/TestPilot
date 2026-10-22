@@ -251,9 +251,13 @@ class ComputerUseSession:
 
     def _observe_ax(self, *, max_nodes: int, max_depth: int) -> dict:
         driver = self._uia()
-        top = getattr(driver, "_top", None)
-        if top is None:
-            raise ComputerUseError("尚未启动/附加被测窗口，无法读取 UIA 状态")
+        root = getattr(driver, "observation_root", None)
+        if not callable(root):
+            raise ComputerUseError("UIA 驱动未实现 ObservationDriver")
+        try:
+            top = root()
+        except Exception as e:
+            raise ComputerUseError(f"无法读取可访问性根节点: {e}") from e
 
         root_rect = self._rect(driver, top)
         queue = deque([(top, 0, None)])
@@ -386,7 +390,7 @@ class ComputerUseSession:
 
     @staticmethod
     def _rect(driver, wrapper):
-        helper = getattr(driver, "_rect_of", None)
+        helper = getattr(driver, "observation_rect", None)
         try:
             if callable(helper):
                 return tuple(int(v) for v in helper(wrapper))
