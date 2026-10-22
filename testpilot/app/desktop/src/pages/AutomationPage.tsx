@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
-import { call } from '../bridge';
+import { call, readAssetDataUrl } from '../bridge';
 import { Msg } from '../components/Bits';
 import { msg, navigate } from '../hooks';
 import type {
@@ -310,6 +310,11 @@ export function AutomationPage() {
       max_nodes: 500,
       max_depth: 16,
     });
+    if (!out.png_base64 && out.asset_path) {
+      const dataUrl = await readAssetDataUrl(out.asset_path);
+      const comma = dataUrl.indexOf(',');
+      if (comma >= 0) out.png_base64 = dataUrl.slice(comma + 1);
+    }
     setObservation(out);
     setQueryResult(null);
     setCollapsedElements(new Set());
