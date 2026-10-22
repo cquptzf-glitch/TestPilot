@@ -321,22 +321,26 @@ let autoElements: any[] = [
   { element_index: 1, depth: 0, parent_index: null, name: '仪器控制软件', automation_id: 'mainWindow',
     control_type: 'Window', class_name: 'QWindow', framework_id: 'Qt', value: '',
     rect: [0, 0, 1280, 800], visible: true, enabled: true, actions: ['click'],
-    stable_key: 'window.mainWindow',
+    stable_key: 'window.mainWindow', selector_score: 0.98, selector_quality: 'high',
+    selector_reason: 'AutomationId 唯一',
     selector: { type: 'uia', automation_id: 'mainWindow', control_type: 'Window' } },
   { element_index: 2, depth: 1, parent_index: 1, name: '样本号', automation_id: 'sampleId',
     control_type: 'Edit', class_name: 'QLineEdit', framework_id: 'Qt', value: 'S001',
     rect: [80, 120, 240, 34], visible: true, enabled: true,
     actions: ['click', 'input', 'set_value'], stable_key: 'edit.sampleId',
+    selector_score: 0.98, selector_quality: 'high', selector_reason: 'AutomationId 唯一',
     selector: { type: 'uia', automation_id: 'sampleId', control_type: 'Edit' } },
   { element_index: 3, depth: 1, parent_index: 1, name: '开始检测', automation_id: 'startButton',
     control_type: 'Button', class_name: 'QPushButton', framework_id: 'Qt', value: '',
     rect: [80, 180, 130, 38], visible: true, enabled: true, actions: ['click'],
-    stable_key: 'button.startButton',
+    stable_key: 'button.startButton', selector_score: 0.98, selector_quality: 'high',
+    selector_reason: 'AutomationId 唯一',
     selector: { type: 'uia', automation_id: 'startButton', control_type: 'Button' } },
   { element_index: 4, depth: 1, parent_index: 1, name: '自动保存', automation_id: 'autoSave',
     control_type: 'CheckBox', class_name: 'QCheckBox', framework_id: 'Qt', value: 'false',
     rect: [80, 240, 120, 30], visible: true, enabled: true, actions: ['click', 'toggle'],
-    stable_key: 'checkbox.autoSave',
+    stable_key: 'checkbox.autoSave', selector_score: 0.98, selector_quality: 'high',
+    selector_reason: 'AutomationId 唯一',
     selector: { type: 'uia', automation_id: 'autoSave', control_type: 'CheckBox' } },
 ];
 
@@ -349,7 +353,8 @@ function recordAuto(tool: string, args: Record<string, unknown>, ok: boolean,
   autoSteps.push({
     index: autoSteps.length + 1, tool, args: structuredClone(args), ok,
     ms: Math.max(1, Math.round(4 + Math.random() * 28)),
-    driver: tool.startsWith('ui.') ? 'uia' : null, result, error,
+    driver: String(args.driver ?? (tool.startsWith('ui.') || tool === 'assert.ui' ? 'uia' : '')) || null,
+    result, error,
   });
 }
 
@@ -374,14 +379,18 @@ function autoDraft(): Record<string, unknown> {
       steps.push({ id: 's' + (steps.length + 1), action: 'app.launch',
         args: { title_re: item.args.title_re }, source_text: '[探索] 附加被测窗口' });
     } else if (item.tool === 'ui.click' && selector) {
-      steps.push({ id: 's' + (steps.length + 1), action: 'ui.click',
+      const visual = item.result?.driver === 'vision' || item.args.driver === 'vision';
+      steps.push({ id: 's' + (steps.length + 1), action: visual ? 'vision.click' : 'ui.click',
+        driver: visual ? 'vision_only' : undefined,
         target: { key: target?.stable_key ?? 'explore.target', primary: selector },
-        source_text: '[探索] 点击 ' + (target?.name ?? 'target') });
+        source_text: '[探索] 点击 ' + (target?.name ?? target?.desc ?? 'target') });
     } else if ((item.tool === 'ui.input' || item.tool === 'ui.set_value') && selector) {
       const value = item.tool === 'ui.input' ? item.args.text : item.args.value;
+      const visual = item.result?.driver === 'vision' || item.args.driver === 'vision';
       steps.push({ id: 's' + (steps.length + 1), action: 'ui.input',
+        driver: visual ? 'vision_only' : undefined,
         target: { key: target?.stable_key ?? 'explore.target', primary: selector },
-        value: String(value ?? ''), args: { clear: true },
+        value: String(value ?? ''), args: visual ? {} : { clear: true },
         source_text: '[探索] 输入 ' + String(value ?? '') });
     } else if (item.tool === 'ui.toggle' && selector) {
       steps.push({ id: 's' + (steps.length + 1), action: 'ui.toggle',
@@ -402,10 +411,15 @@ function autoDraft(): Record<string, unknown> {
         source_text: '[探索] 执行设备指令' });
     } else if (item.tool === 'assert.state') {
       steps.push({ id: 's' + (steps.length + 1), action: 'assert.state',
-        args: { path: item.args.path, expect: String(item.args.expect ?? '') },
+        args: { path: item.args.path, expect: item.args.expect },
         verify: { type: 'state', expect: String(item.args.expect ?? ''),
                   op: String(item.args.op ?? 'equals'), timeout_ms: 5000 },
         source_text: '[探索] 设备状态断言' });
+    } else if (item.tool === 'assert.vision') {
+      steps.push({ id: 's' + (steps.length + 1), action: 'assert.vision',
+        verify: { type: 'vision', expect: String(item.args.expect ?? ''),
+                  timeout_ms: Number(item.args.timeout_ms ?? 5000) },
+        source_text: '[探索] 视觉断言' });
     }
   }
   return { case_id: autoCaseId, title: autoTitle, preconditions: [], steps,
@@ -420,7 +434,7 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         { name: 'ui.observe' }, { name: 'ui.query' }, { name: 'ui.click' },
         { name: 'ui.read' }, { name: 'ui.input' }, { name: 'ui.set_value' },
         { name: 'ui.toggle' }, { name: 'ui.keypress' }, { name: 'ui.select' },
-        { name: 'assert.ui' },
+        { name: 'assert.ui' }, { name: 'assert.vision' },
         { name: 'device.scene' }, { name: 'device.call' }, { name: 'device.state' },
         { name: 'assert.state' },
       ] };
@@ -449,6 +463,27 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
           (!ct || String(e.control_type).toLowerCase() === ct));
         result = { snapshot_id: autoSnapshot, matches: structuredClone(matches),
                    truncated: false, visited_nodes: autoElements.length, limit: 100 };
+      } else if ((tool === 'ui.locate' || tool === 'ui.click' || tool === 'ui.input')
+                 && args.driver === 'vision') {
+        const desc = String(args.desc ?? '');
+        const template = String(args.template ?? '');
+        if (!desc && !template) throw new Error('视觉定位需要 desc 或 template');
+        const rect = [650, 180, 180, 52];
+        const selector = template
+          ? { type: 'template', template }
+          : { type: 'visual', desc };
+        const target = {
+          desc, template, stable_key: 'vision.' + (desc || template || 'target'),
+          selector,
+        };
+        result = { rect, driver: 'vision', confidence: 0.92, target, ms: 26 };
+        if (tool === 'ui.input') result.read_back = String(args.text ?? '');
+      } else if (tool === 'assert.vision') {
+        const expect = String(args.expect ?? '');
+        if (!expect) throw new Error('视觉断言缺少 expect');
+        result = { expect, matched: true, detail: '开发态模拟视觉断言通过',
+                   confidence: 0.93, screenshot_bytes: 70,
+                   screenshot_rect: [120, 80, 1280, 800] };
       } else if (tool === 'device.scene') {
         autoDeviceScene = String(args.scene_id ?? '');
         result = { scene_id: autoDeviceScene, ok: true };
@@ -467,7 +502,9 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         const op = String(args.op ?? 'equals');
         const matched = op === 'regex'
           ? new RegExp(expect).test(String(actual))
-          : String(actual) === expect;
+          : op === 'contains'
+            ? String(actual).includes(expect)
+            : String(actual) === expect;
         if (!matched) throw new Error('状态断言失败');
         result = { path, expect, actual, op, matched: true };
       } else {
@@ -517,6 +554,26 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
       const [removed] = autoSteps.splice(pos, 1);
       autoSteps.forEach((step, i) => { step.index = i + 1; });
       return { removed, history_count: autoSteps.length };
+    }
+    case 'automation.updateStep': {
+      const index = Number(params.index);
+      const step = autoSteps.find((item) => item.index === index);
+      if (!step) throw new Error('探索步骤不存在');
+      const args = params.args;
+      if (!args || typeof args !== 'object' || Array.isArray(args))
+        throw new Error('args 必须是对象');
+      step.args = structuredClone(args as Record<string, unknown>);
+      return { step: structuredClone(step), history_count: autoSteps.length };
+    }
+    case 'automation.moveStep': {
+      const index = Number(params.index);
+      const toIndex = Math.max(1, Math.min(Number(params.toIndex), autoSteps.length));
+      const pos = autoSteps.findIndex((item) => item.index === index);
+      if (pos < 0) throw new Error('探索步骤不存在');
+      const [step] = autoSteps.splice(pos, 1);
+      autoSteps.splice(toIndex - 1, 0, step);
+      autoSteps.forEach((item, i) => { item.index = i + 1; });
+      return { steps: structuredClone(autoSteps), history_count: autoSteps.length };
     }
     case 'automation.reset':
       autoSteps = []; autoSnapshot += 1; autoAttached = false;
