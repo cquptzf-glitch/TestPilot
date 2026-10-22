@@ -13,7 +13,7 @@ from testpilot.explore.toolbox import ToolBox, ToolError
 DSL_TOOLS = (
     "app.launch", "app.attach", "app.wait_ready", "app.close",
     "ui.locate", "ui.click", "ui.input", "ui.set_value", "ui.select",
-    "ui.toggle", "ui.keypress",
+    "ui.toggle", "ui.keypress", "assert.ui",
     "device.scene", "device.call",
 )
 
@@ -224,6 +224,25 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
             out["value"] = str(args.get("keys") or "")
         return out
 
+    if tool == "assert.ui":
+        target = _target_of(args, result)
+        if target is None:
+            return None
+        expect = str(args.get("expect") or "")
+        if not expect:
+            return None
+        return {
+            "action": "assert.ui",
+            "target": target,
+            "verify": {
+                "type": "text",
+                "expect": expect,
+                "op": str(args.get("op") or "equals"),
+                "timeout_ms": int(args.get("timeout_ms", 5000)),
+            },
+            "source_text": f"[探索] 断言 {_describe(tool, args, result)}",
+        }
+
     if tool == "device.scene":
         return {"action": "device.scene",
                 "args": {"scene_id": args.get("scene_id")},
@@ -310,6 +329,8 @@ def _describe(tool: str, args: dict, result: dict | None = None) -> str:
         return f"在 {key} 发送按键 {args.get('keys')!r}"
     if tool == "ui.locate":
         return f"等待 {key} 出现"
+    if tool == "assert.ui":
+        return f"{key} {args.get('op', 'equals')} {args.get('expect')!r}"
     return f"点击 {key}"
 
 
