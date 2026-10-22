@@ -6,6 +6,32 @@
 
 ---
 
+## 2026-10-22 当前开发策略（覆盖下文旧“下一步”顺序）
+
+用户当前明确要求：
+
+1. **暂不做真机 smoke**，优先把功能堆完整；
+2. 以**单元测试 / 契约测试 / 前端编译**作为当前开发门禁；
+3. 持续分析缺陷与不足，统一记录后逐项完成；
+4. 优化桌面 UI 操作流程与信息展示。
+
+当前缺陷与改进台账统一维护在：`docs/defect-backlog.md`。
+本轮新增 GitHub Actions `.github/workflows/ci.yml`，只跑 Windows Python unit+ruff 与 Desktop TypeScript/Vite build，**不执行真机 smoke、不打安装包**。
+
+本轮自动化探索链路已继续扩展：
+
+- Desktop 新增“自动化探索”工作台；
+- `app.list` + HWND 精确 attach；
+- `ui.read/click/input/set_value/select/toggle/keypress`；
+- `assert.ui` 文本断言并可固化为正式 DSL；
+- UIA observation 自动生成稳定 selector 候选；
+- 探索历史可单步移除；
+- Explore 与正式 `task.run` 增加 UI interaction mutex；
+- Workflow 执行前增加驱动模式、失败复跑和禅道同步配置；
+- 工具列表按 DriverManifest capability 精确裁剪。
+
+> 下文历史 smoke / 打包验证记录仍保留作为既有证据，但**不代表当前开发阶段要求每轮执行**。
+
 ## 2026-10-22 自动化会话层增强
 
 已新增面向 Agent/探索的 Computer Use 会话层，参考 open-computer-use 的 observation-first 思路，但不改变现有确定性 DSL Executor 主链路。当前新增能力包括：
