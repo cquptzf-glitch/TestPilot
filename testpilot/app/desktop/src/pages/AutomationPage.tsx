@@ -12,6 +12,7 @@ import type {
 type InvokeReply<T> = { tool: string; result: T; history_count: number };
 type ExploreMode = 'uia' | 'vision' | 'device';
 
+const AUTOMATION_SESSION_ID = 'desktop-default';
 const AUTOMATION_SESSION_KEY = 'tp-automation-session-v1';
 
 const KEY_PRESETS = [
@@ -138,7 +139,9 @@ export function AutomationPage() {
 
 
   const invoke = async <T,>(tool: string, args: Record<string, unknown> = {}): Promise<T> => {
-    const out = await call<InvokeReply<T>>('automation.invoke', { tool, args });
+    const out = await call<InvokeReply<T>>('automation.invoke', {
+      sessionId: AUTOMATION_SESSION_ID, tool, args,
+    });
     setHistoryCount(out.history_count);
     return out.result;
   };
@@ -152,18 +155,23 @@ export function AutomationPage() {
   };
 
   const refreshHistory = async () => {
-    const out = await call<{ session: AutomationHistory }>('automation.history');
+    const out = await call<{ session: AutomationHistory }>('automation.history', {
+      sessionId: AUTOMATION_SESSION_ID,
+    });
     applyHistory(out.session);
   };
 
   useEffect(() => {
     const initialize = async () => {
       try {
-        const current = await call<{ session: AutomationHistory }>('automation.history');
+        const current = await call<{ session: AutomationHistory }>('automation.history', {
+          sessionId: AUTOMATION_SESSION_ID,
+        });
         let session = current.session;
         const saved = readSavedSession();
         if (session.steps.length === 0 && saved?.steps.length) {
           const restored = await call<{ session: AutomationHistory }>('automation.restore', {
+            sessionId: AUTOMATION_SESSION_ID,
             session: saved,
           });
           session = restored.session;
@@ -173,7 +181,9 @@ export function AutomationPage() {
         // 引擎尚未就绪时由后续用户操作/全局 engine-ready 触发正常 RPC 错误提示。
       }
       try {
-        const out = await call<{ tools: { name: string }[] }>('automation.tools');
+        const out = await call<{ tools: { name: string }[] }>('automation.tools', {
+          sessionId: AUTOMATION_SESSION_ID,
+        });
         setToolNames(new Set(out.tools.map((item) => item.name)));
       } catch {
         setToolNames(new Set());
@@ -340,6 +350,7 @@ export function AutomationPage() {
     if (!args || typeof args !== 'object' || Array.isArray(args))
       throw new Error('步骤参数必须是 JSON 对象');
     await call('automation.updateStep', {
+      sessionId: AUTOMATION_SESSION_ID,
       index: editingIndex,
       args: args as Record<string, unknown>,
     });
@@ -350,13 +361,17 @@ export function AutomationPage() {
 
   const moveHistoryStep = (index: number, toIndex: number) =>
     run('正在调整步骤顺序…', async () => {
-      await call('automation.moveStep', { index, toIndex });
+      await call('automation.moveStep', {
+        sessionId: AUTOMATION_SESSION_ID, index, toIndex,
+      });
       setDraft(null);
     });
 
   const removeHistoryStep = (index: number) =>
     run('正在移除探索步骤…', async () => {
-      await call('automation.removeStep', { index });
+      await call('automation.removeStep', {
+        sessionId: AUTOMATION_SESSION_ID, index,
+      });
       if (editingIndex === index) {
         setEditingIndex(null);
         setEditingArgs('');
@@ -366,6 +381,7 @@ export function AutomationPage() {
 
   const generateDraft = () => run('正在生成 DSL 草稿…', async () => {
     const out = await call<AutomationDraft>('automation.draft', {
+      sessionId: AUTOMATION_SESSION_ID,
       caseId: caseId.trim() || 'TC-EXPLORE',
       title: caseTitle.trim() || '自动化探索路径',
       format: 'json',
@@ -390,6 +406,7 @@ export function AutomationPage() {
 
   const reset = () => run('正在清空探索会话…', async () => {
     await call('automation.reset', {
+      sessionId: AUTOMATION_SESSION_ID,
       caseId: caseId.trim() || 'TC-EXPLORE',
       title: caseTitle.trim() || '自动化探索路径',
     });
