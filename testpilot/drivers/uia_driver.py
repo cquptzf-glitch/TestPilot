@@ -25,7 +25,8 @@ MANIFEST = DriverManifest(
     version="1.1.0",
     capabilities=frozenset({"click", "input", "select", "grab", "wait_ready",
                             "wait_gone", "launch", "attach", "close", "read_text",
-                            "toggle", "keypress", "scroll", "drag", "list_windows"}),
+                            "toggle", "keypress", "right_click", "scroll", "drag",
+                            "list_windows"}),
     config_schema={"type": "object", "properties": {
         "backend": {"type": "string", "default": "uia"},
         "uia_timeout_ms": {"type": "integer", "default": 3000},
@@ -435,6 +436,19 @@ class UIADriver:
             el.handle.click_input()  # 真实鼠标事件（走完整消息链）
         except Exception as e:
             raise ActionError(f"点击失败: {e}") from e
+
+    def right_click(self, el: LocatedElement, ctx: ExecContext) -> None:
+        """在目标控件中心发送右键，常用于上下文菜单。"""
+        ctx.abort.check()
+        try:
+            from testpilot.infra.wininput import right_click_at
+            self._focus_window()
+            cx, cy = self._action_center(el)
+            right_click_at(cx, cy, ctx.abort)
+        except (ActionError, AbortRequested):
+            raise
+        except Exception as e:
+            raise ActionError(f"右键点击失败: {e}") from e
 
     def scroll(self, el: LocatedElement, direction: str, amount: int,
                ctx: ExecContext) -> None:
