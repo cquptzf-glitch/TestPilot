@@ -174,7 +174,7 @@ def test_health_reports_pywinauto_version(uia):
 def test_manifest_is_module_level_and_complete():
     from testpilot.drivers.uia_driver import MANIFEST
     assert MANIFEST.name == "uia"
-    assert {"click", "input", "select", "scroll", "drag", "grab", "wait_ready",
+    assert {"click", "right_click", "input", "select", "scroll", "drag", "grab", "wait_ready",
             "wait_gone", "launch", "close", "read_text"} <= set(MANIFEST.capabilities)
     assert MANIFEST.entry == "testpilot.drivers.uia_driver:create"
 
@@ -399,6 +399,20 @@ def test_click_failure_is_action_error(uia):
     with pytest.raises(ActionError):
         uia.click(LocatedElement(driver=None, handle=Boom(), rect=(0, 0, 1, 1)),
                   _ctx())
+
+
+def test_right_click_delegates_to_wininput(uia, monkeypatch):
+    from testpilot.infra import wininput
+
+    seen = []
+    monkeypatch.setattr(
+        wininput, "right_click_at",
+        lambda x, y, abort=None: seen.append((x, y)),
+    )
+    el = LocatedElement(driver=None, handle=FakeWindow(),
+                        rect=(10, 20, 100, 30))
+    uia.right_click(el, _ctx())
+    assert seen == [(60, 35)]
 
 
 def test_scroll_and_drag_delegate_to_wininput(uia, monkeypatch):
