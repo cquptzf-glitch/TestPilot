@@ -449,6 +449,9 @@ class Executor:
         elif step.action == "ui.keypress":
             self._require(drv, "keypress")
             drv.keypress(el, step.value or "", ctx)
+        elif step.action == "ui.right_click":
+            self._require(drv, "right_click")
+            drv.right_click(el, ctx)
         elif step.action == "ui.scroll":
             self._require(drv, "scroll")
             drv.scroll(
