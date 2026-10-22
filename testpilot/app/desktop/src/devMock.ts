@@ -549,7 +549,7 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         { name: 'ui.toggle' }, { name: 'ui.keypress' }, { name: 'ui.select' },
         { name: 'assert.ui' }, { name: 'assert.vision' },
         { name: 'device.scene' }, { name: 'device.call' }, { name: 'device.state' },
-        { name: 'assert.state' },
+        { name: 'assert.state' }, { name: 'screen.save_template' },
       ] };
     case 'automation.invoke': {
       activateAutoSession(params.sessionId);
@@ -598,6 +598,16 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
           result.diff_threshold = Number(args.diff_threshold ?? 0.005);
           result.diff_detail = '开发态模拟：变化像素比 0.12';
         }
+      } else if (tool === 'screen.save_template') {
+        const region = Array.isArray(args.region) ? args.region.map(Number) : [];
+        if (region.length !== 4 || region[2] <= 0 || region[3] <= 0)
+          throw new Error('region 必须是 [x,y,w,h]');
+        const base = String(args.name ?? 'visual_template')
+          .replace(/[^\w\u4e00-\u9fff.-]+/g, '_')
+          .replace(/^\.+|\.+$/g, '') || 'visual_template';
+        const template = base.toLowerCase().endsWith('.png') ? base : base + '.png';
+        result = { template, path: 'data/templates/' + template, region,
+                   width: region[2], height: region[3], bytes: 1024 };
       } else if (tool === 'assert.vision') {
         const expect = String(args.expect ?? '');
         if (!expect) throw new Error('视觉断言缺少期望描述');
