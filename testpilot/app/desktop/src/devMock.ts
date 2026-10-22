@@ -308,7 +308,15 @@ let autoSnapshot = 0;
 let autoCaseId = 'TC-EXPLORE';
 let autoTitle = '自动化探索路径';
 let autoAttached = false;
+let autoDeviceScene = 'normal_sample_a';
 let autoSteps: any[] = [];
+
+function autoDeviceValue(path: string): unknown {
+  if (path === '/state/run') return 'completed';
+  if (path === '/state/scene') return autoDeviceScene;
+  if (path === '/state/summary') return { run: 'completed', scene: autoDeviceScene };
+  return null;
+}
 let autoElements: any[] = [
   { element_index: 1, depth: 0, parent_index: null, name: '仪器控制软件', automation_id: 'mainWindow',
     control_type: 'Window', class_name: 'QWindow', framework_id: 'Qt', value: '',
@@ -385,6 +393,19 @@ function autoDraft(): Record<string, unknown> {
         verify: { type: 'text', expect: String(item.args.expect ?? ''),
                   op: String(item.args.op ?? 'equals'), timeout_ms: 5000 },
         source_text: '[探索] 文本断言' });
+    } else if (item.tool === 'device.scene') {
+      steps.push({ id: 's' + (steps.length + 1), action: 'device.scene',
+        args: { scene_id: item.args.scene_id }, source_text: '[探索] 加载设备场景' });
+    } else if (item.tool === 'device.call') {
+      steps.push({ id: 's' + (steps.length + 1), action: 'device.call',
+        args: { cmd: item.args.cmd, args: item.args.args ?? {} },
+        source_text: '[探索] 执行设备指令' });
+    } else if (item.tool === 'assert.state') {
+      steps.push({ id: 's' + (steps.length + 1), action: 'assert.state',
+        args: { path: item.args.path, expect: String(item.args.expect ?? '') },
+        verify: { type: 'state', expect: String(item.args.expect ?? ''),
+                  op: String(item.args.op ?? 'equals'), timeout_ms: 5000 },
+        source_text: '[探索] 设备状态断言' });
     }
   }
   return { case_id: autoCaseId, title: autoTitle, preconditions: [], steps,
@@ -400,6 +421,8 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         { name: 'ui.read' }, { name: 'ui.input' }, { name: 'ui.set_value' },
         { name: 'ui.toggle' }, { name: 'ui.keypress' }, { name: 'ui.select' },
         { name: 'assert.ui' },
+        { name: 'device.scene' }, { name: 'device.call' }, { name: 'device.state' },
+        { name: 'assert.state' },
       ] };
     case 'automation.invoke': {
       const tool = String(params.tool ?? '');
@@ -426,6 +449,27 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
           (!ct || String(e.control_type).toLowerCase() === ct));
         result = { snapshot_id: autoSnapshot, matches: structuredClone(matches),
                    truncated: false, visited_nodes: autoElements.length, limit: 100 };
+      } else if (tool === 'device.scene') {
+        autoDeviceScene = String(args.scene_id ?? '');
+        result = { scene_id: autoDeviceScene, ok: true };
+      } else if (tool === 'device.state') {
+        const path = String(args.path ?? '/');
+        result = { path, state: autoDeviceValue(path) };
+      } else if (tool === 'device.call') {
+        const cmdArgs = (args.args ?? {}) as Record<string, unknown>;
+        result = { ok: true, data: { cmd: args.cmd, args: cmdArgs,
+          state: args.cmd === 'query_state' ? autoDeviceValue(String(cmdArgs.path ?? '/')) : null },
+          elapsed_ms: 7 };
+      } else if (tool === 'assert.state') {
+        const path = String(args.path ?? '/');
+        const actual = autoDeviceValue(path);
+        const expect = String(args.expect ?? '');
+        const op = String(args.op ?? 'equals');
+        const matched = op === 'regex'
+          ? new RegExp(expect).test(String(actual))
+          : String(actual) === expect;
+        if (!matched) throw new Error('状态断言失败');
+        result = { path, expect, actual, op, matched: true };
       } else {
         const el = autoTarget(Number(args.element_index));
         if (!el) throw new Error('element_index 已失效，请重新观察');
