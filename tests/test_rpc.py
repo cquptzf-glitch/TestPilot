@@ -139,6 +139,28 @@ def test_automation_rpc_restore_session(svc):
     assert e.value.code == INVALID_PARAMS
 
 
+def test_automation_restore_recovers_serialized_history(svc):
+    service, _, _ = svc
+    service.dispatch("automation.invoke", {
+        "tool": "ui.click",
+        "args": {"key": "btn.start", "name": "开始检测",
+                 "control_type": "Button"},
+    })
+    saved = service.dispatch("automation.history", {})["session"]
+    assert len(saved["steps"]) == 1
+
+    service.dispatch("automation.reset", {})
+    assert service.dispatch("automation.history", {})["session"]["steps"] == []
+
+    restored = service.dispatch("automation.restore", {"session": saved})
+    assert restored["history_count"] == 1
+    assert restored["session"]["steps"][0]["tool"] == "ui.click"
+
+    draft = service.dispatch("automation.draft", {})
+    assert draft["case"]["steps"][0]["action"] == "ui.click"
+    assert draft["case"]["steps"][0]["target"]["primary"]["name"] == "开始检测"
+
+
 def test_automation_rpc_rejects_ui_actions_while_run_is_active(svc):
     service, orch, _ = svc
     orch._in_run.set()
