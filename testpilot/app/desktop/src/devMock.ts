@@ -450,6 +450,14 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
       return { case: item, text: JSON.stringify(item, null, 2),
                history_count: autoSteps.length };
     }
+    case 'automation.removeStep': {
+      const index = Number(params.index);
+      const pos = autoSteps.findIndex((step) => step.index === index);
+      if (pos < 0) throw new Error('探索步骤不存在');
+      const [removed] = autoSteps.splice(pos, 1);
+      autoSteps.forEach((step, i) => { step.index = i + 1; });
+      return { removed, history_count: autoSteps.length };
+    }
     case 'automation.reset':
       autoSteps = []; autoSnapshot += 1; autoAttached = false;
       autoCaseId = String(params.caseId ?? 'TC-EXPLORE');
