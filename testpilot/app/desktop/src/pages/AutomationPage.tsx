@@ -411,7 +411,7 @@ export function AutomationPage() {
   };
 
   const visualAction = (
-    tool: 'ui.locate' | 'ui.click' | 'ui.input' | 'ui.scroll' | 'ui.drag',
+    tool: 'ui.locate' | 'ui.click' | 'ui.right_click' | 'ui.input' | 'ui.scroll' | 'ui.drag',
   ) =>
     run('正在执行视觉自动化…', async () => {
       const args: Record<string, unknown> = {
@@ -1020,6 +1020,8 @@ export function AutomationPage() {
             <div className="automation-action-grid">
               <button className="btn primary" disabled={!selected.actions.includes('click')}
                       onClick={() => void action('ui.click')}>点击</button>
+              <button className="btn" disabled={!toolNames.has('ui.right_click')}
+                      onClick={() => void action('ui.right_click')}>右键</button>
               <button className="btn" onClick={() => void action('ui.read', {}, false)}>读取</button>
               <button className="btn" onClick={() => void action('assert.ui', {
                 expect: actionValue, op: 'equals',
@@ -1108,6 +1110,8 @@ export function AutomationPage() {
                   onClick={() => void visualAction('ui.locate')}>定位并高亮</button>
           <button className="btn primary" disabled={!!busy}
                   onClick={() => void visualAction('ui.click')}>视觉点击</button>
+          <button className="btn" disabled={!!busy || !toolNames.has('ui.right_click')}
+                  onClick={() => void visualAction('ui.right_click')}>视觉右键</button>
           <button className="btn" disabled={!!busy || !actionValue}
                   onClick={() => void visualAction('ui.input')}>视觉输入</button>
         </div>
