@@ -542,6 +542,7 @@ export interface AutomationHistoryStep {
   driver?: string | null;
   result?: Record<string, unknown> | null;
   error?: string | null;
+  rerun_of?: number | null;
 }
 
 export interface AutomationHistory {
