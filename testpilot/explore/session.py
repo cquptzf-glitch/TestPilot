@@ -269,8 +269,10 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
         elif tool == "ui.keypress":
             out["value"] = str(args.get("keys") or "")
 
-        if args.get("verify_diff") or result.get("diff_verified"):
-            threshold = result.get("diff_threshold", args.get("diff_threshold", 0.005))
+        # 只有探索现场的 before/after 真正验证通过，才把 screenshot_diff
+        # 写进正式 DSL；不能只信调用方传入 verify_diff=true。
+        if result.get("diff_verified") is True:
+            threshold = result.get("diff_threshold", 0.005)
             out["verify"] = {
                 "type": "screenshot_diff",
                 "expect": str(threshold),
