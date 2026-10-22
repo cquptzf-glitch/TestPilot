@@ -24,7 +24,8 @@ MANIFEST = DriverManifest(
     name="uia",
     version="1.1.0",
     capabilities=frozenset({"click", "input", "select", "grab", "wait_ready",
-                            "wait_gone", "launch", "close", "read_text", "toggle", "keypress"}),
+                            "wait_gone", "launch", "attach", "close", "read_text",
+                            "toggle", "keypress", "list_windows"}),
     config_schema={"type": "object", "properties": {
         "backend": {"type": "string", "default": "uia"},
         "uia_timeout_ms": {"type": "integer", "default": 3000},
@@ -65,6 +66,39 @@ class UIADriver:
                                        f"backend={self.backend}")
         except Exception as e:  # pragma: no cover - 依赖缺失路径
             return HealthReport(ok=False, detail=f"pywinauto 不可用: {e}")
+
+    def list_windows(self, limit: int = 100) -> list[dict]:
+        """列出当前桌面可见顶层窗口，供 Explore/Agent 选择附加目标。
+
+        这里刻意使用 win32 顶层窗口枚举，不做 Desktop-wide UIA 树搜索：
+        某个第三方 UIA provider 卡住时不应拖死整个窗口列表。
+        """
+        try:
+            from pywinauto import Desktop
+            native = Desktop(backend="win32")
+            rows = []
+            for win in native.windows(visible_only=True)[:max(1, min(int(limit), 500))]:
+                try:
+                    title = str(win.window_text() or "").strip()
+                except Exception:
+                    title = ""
+                try:
+                    rect = self._rect_of(win)
+                except Exception:
+                    rect = None
+                try:
+                    pid = int(win.process_id())
+                except Exception:
+                    pid = None
+                rows.append({
+                    "title": title,
+                    "handle": int(getattr(win, "handle", 0) or 0),
+                    "pid": pid,
+                    "rect": list(rect) if rect else None,
+                })
+            return rows
+        except Exception as e:
+            raise AppError(f"枚举桌面窗口失败: {e}") from e
 
     def launch(self, spec: dict, timeout_s: float = 30) -> Rect:
         """启动被测程序并等待主窗口；spec: {exe, args, title_re}。
