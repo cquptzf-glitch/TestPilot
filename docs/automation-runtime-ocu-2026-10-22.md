@@ -6,6 +6,41 @@
 
 ---
 
+## 2026-10-23 当前实现状态（覆盖本文早期“后续建议”）
+
+本文最初记录的是第一阶段方案，当前实现已经继续推进，以下内容以此节为准：
+
+- Explore 已支持多 `sessionId` 隔离、恢复、关闭和资源回收；
+- `ObservationDriver` 已成为正式可选协议，Explore 不再依赖 UIADriver 私有字段；
+- 大截图已支持 asset 化传输，避免高频 JSON-RPC base64 膨胀；
+- UIA / Vision / Device 三类探索工作台均已接入 Desktop；
+- Vision 支持截图框选 region、选区保存模板、desc/template 定位；
+- 探索步骤支持编辑、排序、删除、重跑，并保留 `rerun_of` 证据；
+- selector 已有稳定度评分、ancestor scope 和重复元素局部 index；
+- Desktop 支持 screenshot zoom/pan、UIA 反查元素、目标预设；
+- Computer Use 动作面已扩展为 click / right-click / input / set-value / select /
+  toggle / keypress / scroll / drag，并可将可重复动作固化进正式 DSL；
+- AI 用例解析 Prompt 与 DSL 人审 StepEditor 同步认识 right-click / scroll / drag；
+- 当前策略仍是单元测试/契约测试/前端编译优先，真机 smoke 暂不作为阻塞项。
+
+新增动作的确定性语义：
+
+~~~text
+ui.right_click
+  target -> 元素中心右键
+
+ui.scroll
+  target + direction(up/down/left/right) + amount(1..20)
+
+ui.drag
+  target + dx/dy(相对元素中心) + duration_ms
+~~~
+
+采用相对目标语义而非绝对屏幕坐标，是为了让探索产物在窗口移动、不同分辨率和
+不同截图尺寸下仍能固化为可重复回归用例。
+
+---
+
 ## 1. 为什么要做这轮增强
 
 TestPilot 原有自动化主链路已经比较完整：
