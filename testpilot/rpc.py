@@ -172,6 +172,8 @@ class RpcService:
             "automation.history": self._automation_history,
             "automation.draft": self._automation_draft,
             "automation.removeStep": self._automation_remove_step,
+            "automation.updateStep": self._automation_update_step,
+            "automation.moveStep": self._automation_move_step,
             "automation.reset": self._automation_reset,
 
             "config.describe": self._config_describe,
@@ -205,7 +207,8 @@ class RpcService:
             "kb.envCompat",
             "dsl.review", "dsl.save", "dsl.accept", "dsl.reject",
             "automation.tools", "automation.invoke", "automation.history",
-            "automation.draft", "automation.removeStep", "automation.reset",
+            "automation.draft", "automation.removeStep", "automation.updateStep",
+            "automation.moveStep", "automation.reset",
             "config.describe", "config.apply", "config.reset",
             "config.overrideText",
         })
@@ -613,7 +616,11 @@ class RpcService:
         orch = self._orch
         owner = id(orch)
         if self._automation_session is None or self._automation_owner != owner:
-            toolbox = ToolBox(orch.drivers, emulator=getattr(orch, "emulator", None))
+            toolbox = ToolBox(
+                orch.drivers,
+                emulator=getattr(orch, "emulator", None),
+                verifier=getattr(orch, "verifier", None),
+            )
             self._automation_session = ExplorationSession(toolbox)
             self._automation_owner = owner
         return self._automation_session
@@ -676,6 +683,20 @@ class RpcService:
         session = self._automation()
         removed = session.remove_step(_to_int(p, "index"))
         return {"removed": removed.to_dict(), "history_count": len(session.steps)}
+
+    def _automation_update_step(self, p):
+        session = self._automation()
+        args = p.get("args")
+        if not isinstance(args, dict):
+            raise RpcError(INVALID_PARAMS, "automation.updateStep 的 args 需为对象")
+        step = session.update_step(_to_int(p, "index"), args)
+        return {"step": step.to_dict(), "history_count": len(session.steps)}
+
+    def _automation_move_step(self, p):
+        session = self._automation()
+        steps = session.move_step(_to_int(p, "index"), _to_int(p, "toIndex"))
+        return {"steps": [step.to_dict() for step in steps],
+                "history_count": len(steps)}
 
     def _automation_reset(self, p):
         session = self._automation()
