@@ -236,6 +236,32 @@ def test_session_to_case_maps_tools_and_passes_dsl_validation(toolbox):
     assert "跳过 1 步" in case["notes"]          # device.state 是观测步骤
 
 
+def test_explored_action_can_verify_and_solidify_screenshot_diff():
+    from testpilot.engine.verifier import Verifier
+
+    drivers = {"uia": FakeDriver("uia")}
+    verifier = Verifier(drivers, None, None, {})
+    session = ExplorationSession(
+        ToolBox(drivers, verifier=verifier),
+        case_id="TC-DIFF",
+    )
+    out = session.call("ui.click", {
+        "key": "btn.start",
+        "name": "开始检测",
+        "control_type": "Button",
+        "verify_diff": True,
+        "diff_threshold": 0.005,
+    })
+    assert out["diff_verified"] is True
+    assert "变化像素比" in out["diff_detail"]
+
+    case = session.to_case()
+    step = case["steps"][0]
+    assert step["verify"]["type"] == "screenshot_diff"
+    assert step["verify"]["expect"] == "0.005"
+    DslCase.model_validate(case)
+
+
 def test_visual_action_solidifies_as_vision_only(toolbox):
     session = ExplorationSession(toolbox, case_id="TC-VISUAL")
     out = session.call("ui.click", {
