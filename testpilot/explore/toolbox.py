@@ -8,6 +8,7 @@
    最终固化回 DSL 时仍应使用稳定 locator。
 """
 import base64
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -148,6 +149,13 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec("ui.keypress", "向目标控件发送 pywinauto 键序列",
              _locate_schema({"keys": {"type": "string"}},
                             required=("keys",)), needs="uia", capability="keypress"),
+
+    ToolSpec("assert.ui", "读取当前控件文本/值并立即校验；成功后可固化为 DSL 断言",
+             _locate_schema({
+                 "expect": {"type": "string"},
+                 "op": {"type": "string", "enum": ["contains", "equals", "regex"],
+                        "default": "equals"},
+             }, required=("expect",)), needs="uia", capability="read_text"),
 
     ToolSpec("device.scene", "加载模拟器场景（前置依赖）", {
         "type": "object", "properties": {"scene_id": {"type": "string"}},
@@ -371,6 +379,32 @@ class ToolBox:
         keypress(el, keys, self.ctx)
         return {"rect": list(el.rect), "driver": "uia", "target": meta,
                 "keys": keys, **_session_ref(args)}
+
+    def _assert_ui(self, args) -> dict:
+        drv, el, meta = self._resolve(args, force_driver="uia")
+        read = getattr(drv, "read_text", None)
+        if not callable(read):
+            raise ToolError("UIA 驱动不支持 read_text")
+        actual = str(read(el))
+        expected = str(_req(args, "expect"))
+        op = str(args.get("op", "equals"))
+        if op == "equals":
+            matched = actual == expected
+        elif op == "contains":
+            matched = expected in actual
+        elif op == "regex":
+            try:
+                matched = re.search(expected, actual) is not None
+            except re.error as e:
+                raise ToolError(f"非法正则表达式: {e}") from e
+        else:
+            raise ToolError(f"未知断言操作: {op}")
+        if not matched:
+            raise ToolError(
+                f"UI 文本断言失败: op={op} expect={expected!r} actual={actual!r}")
+        return {"rect": list(el.rect), "driver": "uia", "target": meta,
+                "expect": expected, "actual": actual, "op": op, "matched": True,
+                **_session_ref(args)}
 
     # ---------- device.* / screen.* ----------
 
