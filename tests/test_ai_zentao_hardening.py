@@ -257,7 +257,8 @@ def test_whole_model_retry_budget_is_not_reset(monkeypatch):
         gateway.parse_case({})
     assert time.monotonic() - started < 0.4
     assert len(calls) == 1
-    assert 0 < calls[0] <= 0.08
+    # timeout 是由 monotonic deadline 反算的剩余预算，浮点/调度会产生微小误差。
+    assert 0 < calls[0] <= 0.08 + 1e-6
 
 
 def test_human_edit_during_parse_is_not_overwritten(db_conn):
