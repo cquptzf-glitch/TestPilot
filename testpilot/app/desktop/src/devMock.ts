@@ -547,7 +547,7 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         { name: 'ui.observe' }, { name: 'ui.query' }, { name: 'ui.click' },
         { name: 'ui.read' }, { name: 'ui.input' }, { name: 'ui.set_value' },
         { name: 'ui.toggle' }, { name: 'ui.keypress' }, { name: 'ui.select' },
-        { name: 'assert.ui' }, { name: 'assert.vision' },
+        { name: 'ui.scroll' }, { name: 'ui.drag' }, { name: 'assert.ui' }, { name: 'assert.vision' },
         { name: 'device.scene' }, { name: 'device.call' }, { name: 'device.state' },
         { name: 'assert.state' }, { name: 'screen.save_template' },
       ] };
@@ -656,8 +656,14 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
             : String(el.value) === expect;
           if (!matched) throw new Error('UI 文本断言失败');
         }
-        result = { rect: el.rect, driver: 'uia', target, element_index: el.element_index,
-                   snapshot_id: autoSnapshot, value: el.value, read_back: el.value,
+        result = { rect: el.rect, driver: String(args.driver ?? 'uia'), target,
+                   element_index: el.element_index, snapshot_id: autoSnapshot,
+                   direction: tool === 'ui.scroll' ? args.direction : undefined,
+                   amount: tool === 'ui.scroll' ? args.amount : undefined,
+                   dx: tool === 'ui.drag' ? args.dx : undefined,
+                   dy: tool === 'ui.drag' ? args.dy : undefined,
+                   duration_ms: tool === 'ui.drag' ? args.duration_ms : undefined,
+                   value: el.value, read_back: el.value,
                    expect: tool === 'assert.ui' ? args.expect : undefined,
                    matched: tool === 'assert.ui' ? true : undefined,
                    verified: tool === 'ui.set_value' ? true : undefined,
