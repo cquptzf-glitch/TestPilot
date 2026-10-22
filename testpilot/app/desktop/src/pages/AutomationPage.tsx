@@ -52,9 +52,6 @@ export function AutomationPage() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [lastResult, setLastResult] = useState<Record<string, unknown> | null>(null);
-  const [hasSavedSession, setHasSavedSession] = useState(
-    () => localStorage.getItem(LOCAL_SESSION_KEY) != null,
-  );
   const [toolNames, setToolNames] = useState<Set<string>>(new Set());
 
   const [exploreMode, setExploreMode] = useState<ExploreMode>('uia');
@@ -148,51 +145,6 @@ export function AutomationPage() {
     };
     void initialize();
   }, []);
-
-  const saveLocalSession = () => run('正在保存探索会话…', async () => {
-    const out = await call<{ session: AutomationHistory }>('automation.history');
-    localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify({
-      version: 1,
-      saved_at: new Date().toISOString(),
-      session: out.session,
-    }));
-    setHasSavedSession(true);
-    setLastResult({
-      saved: true,
-      steps: out.session.steps.length,
-      storage: 'local',
-    });
-  });
-
-  const restoreLocalSession = () => run('正在恢复探索会话…', async () => {
-    const text = localStorage.getItem(LOCAL_SESSION_KEY);
-    if (!text) throw new Error('没有本地保存的探索会话');
-    let envelope: unknown;
-    try {
-      envelope = JSON.parse(text);
-    } catch {
-      throw new Error('本地探索会话 JSON 已损坏');
-    }
-    const session = (envelope as { session?: unknown })?.session;
-    if (!session || typeof session !== 'object' || Array.isArray(session))
-      throw new Error('本地探索会话格式无效');
-    const out = await call<{
-      session: AutomationHistory;
-      history_count: number;
-    }>('automation.restore', { session: session as Record<string, unknown> });
-    setHistory(out.session);
-    setHistoryCount(out.history_count);
-    setCaseId(out.session.case_id || 'TC-EXPLORE');
-    setCaseTitle(out.session.title || '自动化探索路径');
-    setDraft(null);
-    setEditingIndex(null);
-    setEditingArgs('');
-    setLastResult({
-      restored: true,
-      steps: out.history_count,
-      note: 'UI 元素句柄不会跨进程恢复；继续操作前请重新附加并观察窗口。',
-    });
-  });
 
   const run = async (label: string, fn: () => Promise<void>) => {
     if (busy) return;
