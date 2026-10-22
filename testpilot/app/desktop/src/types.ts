@@ -534,6 +534,8 @@ export interface AutomationObservation {
   window_handle?: number;
   screenshot_rect?: number[];
   screenshot_bytes?: number;
+  screenshot_transport?: 'inline' | 'asset';
+  asset_path?: string;
   png_base64?: string;
   elements?: AutomationElement[];
   matches?: AutomationElement[];
