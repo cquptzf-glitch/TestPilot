@@ -44,6 +44,8 @@ export function AutomationPage() {
   const [query, setQuery] = useState('');
   const [controlType, setControlType] = useState('');
   const [actionValue, setActionValue] = useState('');
+  const [verifyDiff, setVerifyDiff] = useState(false);
+  const [diffThreshold, setDiffThreshold] = useState('0.005');
   const [history, setHistory] = useState<AutomationHistory | null>(null);
   const [historyCount, setHistoryCount] = useState(0);
   const [draft, setDraft] = useState<AutomationDraft | null>(null);
@@ -217,10 +219,20 @@ export function AutomationPage() {
     return { element_index: selected.element_index, snapshot_id: current.snapshot_id };
   };
 
+  const diffArgs = (): Record<string, unknown> => {
+    if (!verifyDiff) return {};
+    const threshold = Number(diffThreshold);
+    if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1)
+      throw new Error('画面变化阈值必须在 0~1 之间');
+    return { verify_diff: true, diff_threshold: threshold };
+  };
+
   const action = (tool: string, extra: Record<string, unknown> = {}, refresh = true) =>
     run('正在执行 ' + tool + '…', async () => {
       const keepKey = selected?.stable_key;
-      const result = await invoke<Record<string, unknown>>(tool, { ...elementArgs(), ...extra });
+      const result = await invoke<Record<string, unknown>>(tool, {
+        ...elementArgs(), ...extra, ...diffArgs(),
+      });
       if (refresh) await observeNow(keepKey);
       setLastResult(result);
     });
@@ -238,13 +250,15 @@ export function AutomationPage() {
     };
   };
 
-  const visualAction = (tool: 'ui.locate' | 'ui.click') =>
+  const visualAction = (tool: 'ui.locate' | 'ui.click' | 'ui.input') =>
     run('正在执行视觉自动化…', async () => {
-      const result = await invoke<Record<string, unknown>>(tool, visualArgs());
+      const args = { ...visualArgs(), ...(tool === 'ui.locate' ? {} : diffArgs()) };
+      if (tool === 'ui.input') args.text = actionValue;
+      const result = await invoke<Record<string, unknown>>(tool, args);
       const rect = result.rect;
       setVisualRect(Array.isArray(rect) ? rect.map(Number) : null);
       setLastResult(result);
-      if (tool === 'ui.click') await observeNow();
+      if (tool !== 'ui.locate') await observeNow();
     });
 
   const visualAssert = () => run('正在执行视觉断言…', async () => {
@@ -527,6 +541,16 @@ export function AutomationPage() {
             </div>}
             <input value={actionValue} onChange={(e) => setActionValue(e.target.value)}
                    placeholder="输入 / 选择 / 按键 / 文本断言值" />
+            <div className="automation-diff-option">
+              <label><input type="checkbox" checked={verifyDiff}
+                            onChange={(e) => setVerifyDiff(e.target.checked)} />
+                验证画面发生变化
+              </label>
+              <input value={diffThreshold} disabled={!verifyDiff}
+                     onChange={(e) => setDiffThreshold(e.target.value)}
+                     aria-label="画面变化阈值" />
+              <small>变化像素比阈值，默认 0.005（0.5%）</small>
+            </div>
             <div className="automation-action-grid">
               <button className="btn primary" disabled={!selected.actions.includes('click')}
                       onClick={() => void action('ui.click')}>点击</button>
@@ -569,11 +593,27 @@ export function AutomationPage() {
           <input value={visualKey} onChange={(e) => setVisualKey(e.target.value)}
                  placeholder="btn.start_detect" />
         </label>
+        <label>输入值（视觉输入时使用）
+          <input value={actionValue} onChange={(e) => setActionValue(e.target.value)}
+                 placeholder="需要写入控件的文本" />
+        </label>
+        <div className="automation-diff-option">
+          <label><input type="checkbox" checked={verifyDiff}
+                        onChange={(e) => setVerifyDiff(e.target.checked)} />
+            验证动作后画面发生变化
+          </label>
+          <input value={diffThreshold} disabled={!verifyDiff}
+                 onChange={(e) => setDiffThreshold(e.target.value)}
+                 aria-label="视觉动作画面变化阈值" />
+          <small>通过后会直接固化为 screenshot_diff verify</small>
+        </div>
         <div className="hstack">
           <button className="btn" disabled={!!busy}
                   onClick={() => void visualAction('ui.locate')}>定位并高亮</button>
           <button className="btn primary" disabled={!!busy}
                   onClick={() => void visualAction('ui.click')}>视觉点击</button>
+          <button className="btn" disabled={!!busy || !actionValue}
+                  onClick={() => void visualAction('ui.input')}>视觉输入</button>
         </div>
         <p className="hint">模板路径存在时优先按模板定位；否则使用视觉语义描述。成功动作会把视觉 locator 固化进 DSL。</p>
         {lastResult && <pre className="automation-result">{JSON.stringify(lastResult, null, 2)}</pre>}
