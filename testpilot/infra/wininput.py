@@ -76,3 +76,20 @@ def drag_from(x: int, y: int, dx: int, dy: int, duration_ms: int = 300,
         # 即使 AbortRequested/异常，也不能把系统鼠标留在“按住”状态。
         win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, end_x, end_y, 0, 0)
     return end_x, end_y
+
+
+def right_click_at(x: int, y: int, abort: Any = None) -> None:
+    """在指定物理像素坐标发送一次右键点击。"""
+    if abort is not None:
+        abort.check()
+    import win32api
+    import win32con
+
+    x, y = int(x), int(y)
+    win32api.SetCursorPos((x, y))
+    win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTDOWN, x, y, 0, 0)
+    try:
+        if abort is not None:
+            abort.check()
+    finally:
+        win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTUP, x, y, 0, 0)
