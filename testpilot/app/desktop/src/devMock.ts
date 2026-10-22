@@ -436,11 +436,6 @@ function autoDraft(): Record<string, unknown> {
         verify: { type: 'state', expect: String(item.args.expect ?? ''),
                   op: String(item.args.op ?? 'equals'), timeout_ms: 5000 },
         source_text: '[探索] 设备状态断言' });
-    } else if (item.tool === 'assert.vision') {
-      steps.push({ id: 's' + (steps.length + 1), action: 'assert.vision',
-        verify: { type: 'vision', expect: String(item.args.expect ?? ''),
-                  timeout_ms: Number(item.args.timeout_ms ?? 5000) },
-        source_text: '[探索] 视觉断言' });
     }
   }
   return { case_id: autoCaseId, title: autoTitle, preconditions: [], steps,
