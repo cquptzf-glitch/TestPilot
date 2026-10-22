@@ -523,9 +523,12 @@ def _annotate_selector_quality(elements: list[dict]) -> None:
             node = by_index.get(int(parent))
             if node is None:
                 break
-            segment = _selector_segment(node)
-            if segment:
-                chain.append(segment)
+            # 顶层主窗口已经是 UIADriver.locate() 的起始 scope，不能再作为
+            # ancestor 写回，否则执行时会变成“在主窗口里再找主窗口”。
+            if node.get("parent_index") is not None:
+                segment = _selector_segment(node)
+                if segment:
+                    chain.append(segment)
             parent = node.get("parent_index")
         chain.reverse()
         return chain
