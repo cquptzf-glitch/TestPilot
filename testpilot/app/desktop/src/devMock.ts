@@ -502,6 +502,22 @@ function autoDraft(): Record<string, unknown> {
           timeout_ms: 5000,
         } : undefined,
         source_text: '[探索] 设置开关' });
+    } else if ((item.tool === 'ui.scroll' || item.tool === 'ui.drag') && selector) {
+      const visual = item.result?.driver === 'vision' || item.args.driver === 'vision';
+      const args = item.tool === 'ui.scroll'
+        ? { direction: item.args.direction, amount: item.args.amount ?? 3 }
+        : { dx: item.args.dx ?? 0, dy: item.args.dy ?? 0,
+            duration_ms: item.args.duration_ms ?? 300 };
+      steps.push({ id: 's' + (steps.length + 1), action: item.tool,
+        driver: visual ? 'vision_only' : undefined,
+        target: { key: target?.stable_key ?? 'explore.target', primary: selector },
+        args,
+        verify: item.args.verify_diff ? {
+          type: 'screenshot_diff',
+          expect: String(item.args.diff_threshold ?? 0.005),
+          timeout_ms: 5000,
+        } : undefined,
+        source_text: item.tool === 'ui.scroll' ? '[探索] 滚动元素' : '[探索] 拖拽元素' });
     } else if (item.tool === 'assert.ui' && selector) {
       steps.push({ id: 's' + (steps.length + 1), action: 'assert.ui',
         target: { key: target?.stable_key ?? 'explore.target', primary: selector },
@@ -577,7 +593,8 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
           (!ct || String(e.control_type).toLowerCase() === ct));
         result = { snapshot_id: autoSnapshot, matches: structuredClone(matches),
                    truncated: false, visited_nodes: autoElements.length, limit: 100 };
-      } else if ((tool === 'ui.locate' || tool === 'ui.click' || tool === 'ui.input')
+      } else if ((tool === 'ui.locate' || tool === 'ui.click' || tool === 'ui.input'
+                    || tool === 'ui.scroll' || tool === 'ui.drag')
                  && args.driver === 'vision') {
         const desc = String(args.desc ?? '');
         const template = String(args.template ?? '');
@@ -593,6 +610,15 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         };
         result = { rect, driver: 'vision', confidence: 0.92, target, ms: 26 };
         if (tool === 'ui.input') result.read_back = String(args.text ?? '');
+        if (tool === 'ui.scroll') {
+          result.direction = args.direction;
+          result.amount = args.amount;
+        }
+        if (tool === 'ui.drag') {
+          result.dx = args.dx;
+          result.dy = args.dy;
+          result.duration_ms = args.duration_ms;
+        }
         if (args.verify_diff) {
           result.diff_verified = true;
           result.diff_threshold = Number(args.diff_threshold ?? 0.005);
