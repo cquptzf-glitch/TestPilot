@@ -635,6 +635,8 @@ class RpcService:
     def _automation_tools(self, _p):
         session = self._automation()
         return {"tools": session.toolbox.list_tools(),
+                "drivers": sorted(session.toolbox.drivers),
+                "emulator": session.toolbox.emulator is not None,
                 "snapshot_id": session.toolbox.computer.snapshot_id}
 
     def _automation_invoke(self, p):
