@@ -385,6 +385,40 @@ def test_app_launch_without_uia_driver_fails(env):
     assert result.steps[0].error["type"] == "app_error"
 
 
+def test_scroll_and_drag_actions_reach_driver(env):
+    env.cfg["driver"]["mode"] = "uia_only"
+    env.rebuild()
+    case = make_case("TC-1", steps=[
+        make_step(id="s1", action="ui.scroll",
+                  args={"direction": "down", "amount": 4}),
+        make_step(id="s2", action="ui.drag",
+                  args={"dx": 80, "dy": -10, "duration_ms": 250}),
+    ])
+    run_id, ce, ctx = _start(env, case)
+    result = env.executor.run_case(case, ctx, None)
+
+    assert result.status == "pass"
+    calls = env.drivers["uia"].calls
+    assert ("scroll", ("down", 4)) in calls
+    assert ("drag", (80, -10, 250)) in calls
+
+
+def test_scroll_capability_gate_blocks_unsupported_driver(env):
+    env.cfg["driver"]["mode"] = "uia_only"
+    env.drivers = {"uia": FakeDriver("uia", capabilities={"click", "grab"})}
+    env.rebuild()
+    case = make_case("TC-1", steps=[
+        make_step(id="s1", action="ui.scroll",
+                  args={"direction": "down", "amount": 2}),
+    ])
+    run_id, ce, ctx = _start(env, case)
+    result = env.executor.run_case(case, ctx, None)
+
+    assert result.status == "fail"
+    assert result.steps[0].error["type"] == "action_failed"
+    assert "scroll" in result.steps[0].error["message"]
+
+
 def test_capability_gate_blocks_unsupported_action(env):
     env.cfg["driver"]["mode"] = "vision_only"
     env.drivers = {"vision": FakeVisionDriver()}
