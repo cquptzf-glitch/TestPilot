@@ -1,12 +1,11 @@
-"""探索工具层（M5+ piagent）— 把既有驱动与模拟器包装成 agent 可调用工具。
+"""探索工具层 — 把既有驱动与模拟器包装成 agent 可调用工具。
 
-设计 11.1 的三条约束在这里落地：
-1. **业务能力零重写**：工具只提供"名字 + JSON Schema + 分发"，执行仍走
-   uia / vision / emulator 的既有实现；
-2. **主链路不依赖**：确定性回归仍由 DSL 引擎负责，本模块是可选的探索上层；
-3. **能力白名单**：``list_tools()`` 即 agent 可见的全部动作（防模型幻觉出不存在的工具）。
-
-工具结果统一为 JSON 可序列化 dict；失败抛 ``ToolError``（agent 可据此重规划）。
+原则：
+1. 业务能力不重写：动作仍复用 uia / vision / emulator；
+2. 主回归链路不依赖本模块：确定性 DSL Executor 保持原样；
+3. 工具白名单：只暴露当前依赖真实可用的能力；
+4. Agent 观察与回归定位分离：element_index 只在 Explore/MCP 会话内短期有效，
+   最终固化回 DSL 时仍应使用稳定 locator。
 """
 import base64
 import time
@@ -15,6 +14,7 @@ from dataclasses import dataclass, field
 from testpilot.core.contracts import ExecContext
 from testpilot.core.dsl import Locator, LocatorType
 from testpilot.core.errors import TestPilotError
+from testpilot.explore.computer_use import ComputerUseSession
 
 
 class ToolError(TestPilotError):
@@ -23,7 +23,7 @@ class ToolError(TestPilotError):
 
 @dataclass
 class ToolSpec:
-    """一个工具的声明（``to_dict`` 即 MCP ``tools/list`` 的条目形态）。"""
+    """一个工具声明；to_dict() 直接生成 MCP tools/list 条目。"""
     name: str
     description: str
     params: dict = field(default_factory=dict)
@@ -36,9 +36,18 @@ class ToolSpec:
 
 _LOCATE_PROPS = {
     "key": {"type": "string",
-            "description": "可选：稳定语义键（供会话记录与固化回 DSL 的 target.key，"
-                           "定位本身不消费）"},
+            "description": "可选稳定语义键，供会话记录/固化回 DSL 使用"},
     "driver": {"type": "string", "enum": ["uia", "vision"]},
+    "element_index": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "ui.observe/ui.query 返回的会话内短期元素索引；提供后无需 locator 字段",
+    },
+    "snapshot_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "可选：与 element_index 同时校验，防止跨快照误操作",
+    },
     "name": {"type": "string", "description": "UIA accessibleName / 控件文本"},
     "automation_id": {"type": "string"},
     "control_type": {"type": "string", "description": "Button/Edit/Table..."},
@@ -74,17 +83,51 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         "type": "object",
         "properties": {"mode": {"type": "string", "enum": ["graceful", "force"]}},
     }, needs="uia"),
+
+    ToolSpec("ui.observe", "读取当前 UI 状态；AX 与截图可按需选择", {
+        "type": "object",
+        "properties": {
+            "include_ax": {"type": "boolean", "default": True},
+            "include_screenshot": {"type": "boolean", "default": False},
+            "max_nodes": {"type": "integer", "minimum": 1, "maximum": 5000,
+                          "default": 300},
+            "max_depth": {"type": "integer", "minimum": 0, "maximum": 64,
+                          "default": 12},
+        },
+    }, needs="uia"),
+    ToolSpec("ui.query", "按文本/AutomationId/控件类型定向查找 UIA 元素，不截图", {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string"},
+            "automation_id": {"type": "string"},
+            "control_type": {"type": "string"},
+            "exact": {"type": "boolean", "default": False},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100,
+                      "default": 20},
+            "max_nodes": {"type": "integer", "minimum": 1, "maximum": 5000,
+                          "default": 500},
+            "max_depth": {"type": "integer", "minimum": 0, "maximum": 64,
+                          "default": 16},
+        },
+    }, needs="uia"),
+
     ToolSpec("ui.locate", "定位控件（返回矩形、命中驱动与耗时）",
              _locate_schema("定位"), needs="driver"),
-    ToolSpec("ui.click", "定位并点击控件",
+    ToolSpec("ui.click", "定位/解析元素并点击控件",
              _locate_schema("点击"), needs="driver"),
-    ToolSpec("ui.input", "定位并输入文本",
+    ToolSpec("ui.input", "定位/解析元素并输入文本",
              _locate_schema("输入", {"text": {"type": "string"},
                                      "clear": {"type": "boolean"}},
                             required=("text",)), needs="driver"),
-    ToolSpec("ui.select", "定位并选择下拉项",
+    ToolSpec("ui.set_value", "通过 UIA 可访问值写入并写后回读校验",
+             _locate_schema("设值", {
+                 "value": {"type": "string"},
+                 "verify_timeout_ms": {"type": "integer", "default": 800},
+             }, required=("value",)), needs="uia"),
+    ToolSpec("ui.select", "定位/解析元素并选择下拉项",
              _locate_schema("选择", {"value": {"type": "string"}},
                             required=("value",)), needs="driver"),
+
     ToolSpec("device.scene", "加载模拟器场景（前置依赖）", {
         "type": "object", "properties": {"scene_id": {"type": "string"}},
         "required": ["scene_id"],
@@ -99,20 +142,21 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         "type": "object", "properties": {"path": {"type": "string"}},
         "required": ["path"],
     }, needs="emulator"),
-    ToolSpec("screen.grab", "截取当前画面（返回 PNG base64）", {
+    ToolSpec("screen.grab", "截取当前画面（MCP 下会作为 image block 返回）", {
         "type": "object", "properties": {},
     }, needs="driver"),
 )
 
 
 class ToolBox:
-    """工具容器：驱动 + 模拟器 + 执行上下文（取消语义与主链路一致）。"""
+    """工具容器：驱动 + 模拟器 + ComputerUse 会话。"""
 
     def __init__(self, drivers: dict | None = None, emulator=None,
                  ctx: ExecContext | None = None):
         self.drivers = dict(drivers or {})
         self.emulator = emulator
         self.ctx = ctx or ExecContext(run_id=0, case_exec_id=0)
+        self.computer = ComputerUseSession(self.drivers, self.ctx)
 
     # ---------- 对外 ----------
 
@@ -126,7 +170,7 @@ class ToolBox:
         return True
 
     def list_tools(self) -> list[dict]:
-        """可用工具清单（依赖未装配的工具不暴露，避免 agent 调用必然失败）。"""
+        """可用工具清单；依赖未装配的工具不暴露。"""
         return [s.to_dict() for s in TOOL_SPECS if self.available(s)]
 
     def invoke(self, name: str, args: dict | None = None) -> dict:
@@ -141,6 +185,10 @@ class ToolBox:
             raise ToolError(f"工具 {name} 未实现")
         return handler(args)
 
+    def reset_session(self) -> None:
+        """Agent turn 结束后清理 element_index，避免跨回合使用旧句柄。"""
+        self.computer.reset()
+
     # ---------- app.* ----------
 
     def _app_launch(self, args) -> dict:
@@ -152,6 +200,7 @@ class ToolBox:
             spec["title_re"] = str(args["title_re"])
         rect = drv.launch(spec, timeout_s=float(args.get("timeout_s", 30)))
         self.ctx.window_rect = tuple(rect) if rect else None
+        self.computer.reset()
         return {"window_rect": list(rect) if rect else None}
 
     def _app_wait_ready(self, args) -> dict:
@@ -166,44 +215,80 @@ class ToolBox:
         mode = str(args.get("mode", "graceful"))
         drv.close(mode)
         self.ctx.window_rect = None
+        self.computer.reset()
         return {"closed": mode}
+
+    # ---------- observation ----------
+
+    def _ui_observe(self, args) -> dict:
+        return self.computer.observe(
+            include_ax=bool(args.get("include_ax", True)),
+            include_screenshot=bool(args.get("include_screenshot", False)),
+            max_nodes=int(args.get("max_nodes", 300)),
+            max_depth=int(args.get("max_depth", 12)),
+        )
+
+    def _ui_query(self, args) -> dict:
+        return self.computer.query(
+            text=args.get("text"),
+            automation_id=args.get("automation_id"),
+            control_type=args.get("control_type"),
+            exact=bool(args.get("exact", False)),
+            limit=int(args.get("limit", 20)),
+            max_nodes=int(args.get("max_nodes", 500)),
+            max_depth=int(args.get("max_depth", 16)),
+        )
 
     # ---------- ui.* ----------
 
     def _ui_locate(self, args) -> dict:
-        drv, loc = self._locator(args)
         t0 = time.monotonic()
-        el = drv.locate(loc, self.ctx,
-                        timeout_ms=int(args.get("timeout_ms", 10000)))
+        drv, el, meta = self._resolve(args)
         return {"rect": list(el.rect), "driver": drv.manifest.name,
-                "confidence": el.confidence,
+                "confidence": el.confidence, "target": meta,
                 "ms": int((time.monotonic() - t0) * 1000)}
 
     def _ui_click(self, args) -> dict:
-        drv, loc = self._locator(args)
-        el = drv.locate(loc, self.ctx,
-                        timeout_ms=int(args.get("timeout_ms", 10000)))
+        drv, el, meta = self._resolve(args)
         drv.click(el, self.ctx)
-        return {"rect": list(el.rect), "driver": drv.manifest.name}
+        return {"rect": list(el.rect), "driver": drv.manifest.name,
+                "target": meta,
+                "element_index": args.get("element_index"),
+                "snapshot_id": args.get("snapshot_id")}
 
     def _ui_input(self, args) -> dict:
-        drv, loc = self._locator(args)
-        el = drv.locate(loc, self.ctx,
-                        timeout_ms=int(args.get("timeout_ms", 10000)))
+        drv, el, meta = self._resolve(args)
         if args.get("clear"):
             clear = getattr(drv, "select_all_and_delete", None)
             if not callable(clear):
                 raise ToolError(f"驱动 {drv.manifest.name} 不支持 clear 输入")
             clear(el, self.ctx)
         drv.input_text(el, str(_req(args, "text")), self.ctx)
-        return {"rect": list(el.rect), "driver": drv.manifest.name}
+        return {"rect": list(el.rect), "driver": drv.manifest.name,
+                "target": meta,
+                "element_index": args.get("element_index"),
+                "snapshot_id": args.get("snapshot_id")}
+
+    def _ui_set_value(self, args) -> dict:
+        drv, el, meta = self._resolve(args, force_driver="uia")
+        if drv.manifest.name != "uia":
+            raise ToolError("ui.set_value 仅支持 UIA 驱动")
+        out = self.computer.set_value(
+            el,
+            str(_req(args, "value")),
+            timeout_ms=int(args.get("verify_timeout_ms", 800)),
+        )
+        return {"rect": list(el.rect), "driver": "uia", "target": meta,
+                "element_index": args.get("element_index"),
+                "snapshot_id": args.get("snapshot_id"), **out}
 
     def _ui_select(self, args) -> dict:
-        drv, loc = self._locator(args)
-        el = drv.locate(loc, self.ctx,
-                        timeout_ms=int(args.get("timeout_ms", 10000)))
+        drv, el, meta = self._resolve(args)
         drv.select(el, str(_req(args, "value")), self.ctx)
-        return {"rect": list(el.rect), "driver": drv.manifest.name}
+        return {"rect": list(el.rect), "driver": drv.manifest.name,
+                "target": meta,
+                "element_index": args.get("element_index"),
+                "snapshot_id": args.get("snapshot_id")}
 
     # ---------- device.* / screen.* ----------
 
@@ -230,18 +315,18 @@ class ToolBox:
         if args.get("driver"):
             drv = self._driver(args, default="vision")
         else:
-            # 默认驱动按"谁真的具备 grab 能力"挑：只装配 uia（无 cv2 环境）时
-            # 硬点 vision 必然 ToolError，与 available() 的判定自相矛盾
             drv = next(
-                (d for n, d in self.drivers.items()
+                (d for d in self.drivers.values()
                  if "grab" in getattr(getattr(d, "manifest", None),
                                       "capabilities", frozenset())),
-                None)
+                None
+            )
             if drv is None:
                 raise ToolError("没有具备截图能力（grab）的驱动")
         shot = drv.grab(self.ctx.window_rect, self.ctx)
         return {"png_base64": base64.b64encode(shot.png).decode("ascii"),
-                "bytes": len(shot.png)}
+                "bytes": len(shot.png),
+                "rect": list(shot.rect) if shot.rect is not None else None}
 
     # ---------- 内部 ----------
 
@@ -256,8 +341,35 @@ class ToolBox:
         if self.emulator is None:
             raise ToolError("模拟器端口未装配")
 
-    def _locator(self, args) -> tuple:
-        driver_name = args.get("driver")
+    def _resolve(self, args: dict, force_driver: str | None = None):
+        if args.get("element_index") is not None:
+            if force_driver and force_driver != "uia":
+                raise ToolError("element_index 仅支持 UIA 会话元素")
+            if args.get("driver") not in (None, "", "uia"):
+                raise ToolError("element_index 只能与 UIA 驱动一起使用")
+            drv = self._driver({"driver": "uia"}, default="uia")
+            el, record = self.computer.resolve(
+                int(args["element_index"]),
+                snapshot_id=int(args["snapshot_id"])
+                if args.get("snapshot_id") is not None else None,
+            )
+            return drv, el, _stable_meta(record)
+
+        drv, loc = self._locator(args, force_driver=force_driver)
+        el = drv.locate(
+            loc, self.ctx,
+            timeout_ms=int(args.get("timeout_ms", 10000)))
+        meta = _stable_meta({
+            "name": loc.name,
+            "automation_id": loc.automation_id,
+            "control_type": loc.control_type,
+            "desc": loc.desc,
+            "template": loc.template,
+        })
+        return drv, el, meta
+
+    def _locator(self, args, force_driver: str | None = None) -> tuple:
+        driver_name = force_driver or args.get("driver")
         if not driver_name:
             driver_name = "uia" if "uia" in self.drivers else "vision"
         drv = self.drivers.get(driver_name)
@@ -277,9 +389,12 @@ class ToolBox:
         except ValueError:
             raise ToolError(f"未知定位类型: {raw_type}") from None
 
-        if ltype == LocatorType.UIA and not (args.get("name")
-                                             or args.get("automation_id")):
-            raise ToolError("uia 定位需要 name 或 automation_id")
+        if ltype == LocatorType.UIA and not (
+                args.get("name") or args.get("automation_id")
+                or args.get("control_type")):
+            raise ToolError(
+                "uia 定位需要 name / automation_id / control_type，"
+                "或直接提供 element_index")
         if ltype == LocatorType.VISUAL and not args.get("desc"):
             raise ToolError("visual 定位需要 desc")
         if ltype == LocatorType.TEMPLATE and not args.get("template"):
@@ -291,6 +406,16 @@ class ToolBox:
                       desc=args.get("desc"), template=args.get("template"),
                       index=int(args.get("index", 0) or 0))
         return drv, loc
+
+
+def _stable_meta(data: dict | None) -> dict:
+    data = data or {}
+    out = {}
+    for key in ("name", "automation_id", "control_type", "desc", "template"):
+        value = data.get(key)
+        if value not in (None, ""):
+            out[key] = value
+    return out
 
 
 def _req(args: dict, key: str):
