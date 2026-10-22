@@ -79,7 +79,8 @@ class ExplorationSession:
         self.steps.append(ExploreStep(
             index=len(self.steps) + 1, tool=tool, args=args, ok=True,
             ms=int((time.monotonic() - t0) * 1000),
-            driver=args.get("driver") or (out or {}).get("driver"), result=out))
+            driver=args.get("driver") or (out or {}).get("driver"),
+            result=_history_result(tool, out)))
         return out
 
     def reset(self) -> None:
@@ -194,6 +195,8 @@ class ExplorationSession:
                       notes=str(data.get("notes") or ""))
         session.steps = [ExploreStep.from_dict(s)
                          for s in (data.get("steps") or []) if isinstance(s, dict)]
+        for i, step in enumerate(session.steps, start=1):
+            step.index = i
         return session
 
 
@@ -413,3 +416,33 @@ def _describe(tool: str, args: dict, result: dict | None = None) -> str:
 
 def _drop_none(data: dict) -> dict:
     return {k: v for k, v in data.items() if v is not None}
+
+
+
+def _history_result(tool: str, result: dict | None) -> dict | None:
+    """压缩纯观察类工具的历史证据，避免截图/UI 树把会话 JSON 撑爆。
+
+    工具调用的实时返回保持完整；这里只影响 ExplorationSession.steps 中保存的副本。
+    会进入 DSL 的动作结果必须保留 target/selector，因此不做裁剪。
+    """
+    if not isinstance(result, dict):
+        return result
+    if tool == "ui.observe":
+        keep = (
+            "snapshot_id", "window_rect", "window_title", "window_handle",
+            "truncated", "max_nodes", "max_depth", "screenshot_bytes",
+            "screenshot_rect",
+        )
+        out = {key: result[key] for key in keep if key in result}
+        out["element_count"] = len(result.get("elements") or [])
+        return out
+    if tool == "ui.query":
+        keep = ("snapshot_id", "truncated", "visited_nodes", "limit")
+        out = {key: result[key] for key in keep if key in result}
+        out["match_count"] = len(result.get("matches") or [])
+        return out
+    if tool == "app.list":
+        return {"count": int(result.get("count") or len(result.get("windows") or []))}
+    if tool == "screen.grab":
+        return {key: result[key] for key in ("bytes", "rect") if key in result}
+    return dict(result)
