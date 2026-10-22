@@ -159,6 +159,15 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
                         "default": "equals"},
              }, required=("expect",)), needs="uia", capability="read_text"),
 
+    ToolSpec("assert.vision", "截取当前窗口并执行视觉语义断言；通过后可固化为 DSL", {
+        "type": "object",
+        "properties": {
+            "expect": {"type": "string"},
+            "timeout_ms": {"type": "integer", "minimum": 1, "default": 10000},
+        },
+        "required": ["expect"],
+    }, needs="verifier"),
+
     ToolSpec("device.scene", "加载模拟器场景（前置依赖）", {
         "type": "object", "properties": {"scene_id": {"type": "string"}},
         "required": ["scene_id"],
@@ -437,6 +446,31 @@ class ToolBox:
 
     # ---------- device.* / screen.* ----------
 
+    def _assert_vision(self, args) -> dict:
+        if self.verifier is None:
+            raise ToolError("视觉断言验证器未装配")
+        expect = str(_req(args, "expect"))
+        timeout_ms = int(args.get("timeout_ms", 10000))
+        shot = self._grab_shot()
+        step = Step(
+            id="explore_assert_vision",
+            action="assert.vision",
+            verify=VerifySpec(type="vision", expect=expect, timeout_ms=timeout_ms),
+            timeout_ms=timeout_ms,
+        )
+        result = self.verifier.verify(step, self.ctx, None, shot)
+        if result.status != "pass":
+            raise ToolError(
+                f"视觉断言未通过: status={result.status} detail={result.detail}")
+        return {
+            "expect": expect,
+            "status": result.status,
+            "detail": result.detail,
+            "confidence": result.confidence,
+            "screenshot_bytes": len(shot.png),
+            "screenshot_rect": list(shot.rect) if shot.rect is not None else None,
+        }
+
     def _device_scene(self, args) -> dict:
         self._require_emulator()
         scene = str(_req(args, "scene_id"))
@@ -478,21 +512,26 @@ class ToolBox:
                 "op": op, "matched": True}
 
     def _screen_grab(self, args) -> dict:
-        if args.get("driver"):
-            drv = self._driver(args, default="vision")
-        else:
-            drv = next(
-                (d for d in self.drivers.values()
-                 if "grab" in getattr(getattr(d, "manifest", None),
-                                      "capabilities", frozenset())),
-                None
-            )
-            if drv is None:
-                raise ToolError("没有具备截图能力（grab）的驱动")
-        shot = drv.grab(self.ctx.window_rect, self.ctx)
+        shot = self._grab_shot(args.get("driver"))
         return {"png_base64": base64.b64encode(shot.png).decode("ascii"),
                 "bytes": len(shot.png),
                 "rect": list(shot.rect) if shot.rect is not None else None}
+
+    def _grab_shot(self, driver_name=None):
+        if driver_name:
+            drv = self._driver({"driver": driver_name}, default="vision")
+            caps = getattr(getattr(drv, "manifest", None), "capabilities", frozenset())
+            if "grab" not in caps:
+                raise ToolError(f"驱动 {driver_name} 不支持截图")
+            return drv.grab(self.ctx.window_rect, self.ctx)
+        for name in ("vision", "uia"):
+            drv = self.drivers.get(name)
+            if drv is None:
+                continue
+            caps = getattr(getattr(drv, "manifest", None), "capabilities", frozenset())
+            if "grab" in caps:
+                return drv.grab(self.ctx.window_rect, self.ctx)
+        raise ToolError("没有具备截图能力（grab）的驱动")
 
     # ---------- internal ----------
 
