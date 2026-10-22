@@ -5,7 +5,9 @@ const object = (v: unknown): Obj => v && typeof v === 'object' && !Array.isArray
 const ACTIONS: [string, string][] = [
   ['app.launch', '启动应用'], ['app.close', '关闭应用'], ['app.wait_ready', '等待应用就绪'],
   ['ui.click', '点击控件'], ['ui.input', '输入文本'], ['ui.select', '选择选项'],
-  ['ui.toggle', '勾选或取消勾选'], ['ui.keypress', '键盘操作'], ['ui.wait', '等待控件'], ['vision.click', '视觉定位并点击'],
+  ['ui.toggle', '勾选或取消勾选'], ['ui.keypress', '键盘操作'],
+  ['ui.right_click', '右键 / 上下文菜单'], ['ui.scroll', '滚动控件'],
+  ['ui.drag', '拖拽控件'], ['ui.wait', '等待控件'], ['vision.click', '视觉定位并点击'],
   ['assert.ui', '检查界面文本'], ['assert.state', '检查设备状态'], ['assert.vision', '检查画面'],
   ['device.scene', '加载设备场景'], ['device.call', '发送设备指令'], ['sleep', '等待一段时间'],
 ];
@@ -42,7 +44,9 @@ export function StepEditor({ text, onChange }: { text: string; onChange: (value:
         const kind = { 'assert.ui': 'text', 'assert.state': 'state', 'assert.vision': 'vision' }[value];
         update({ action: value, ...(kind ? { verify: { ...verify, type: kind } } : {}) });
       }}><option value="">请选择操作</option>{ACTIONS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-      {(['ui.click', 'ui.input', 'ui.select', 'ui.toggle', 'ui.keypress', 'ui.wait', 'assert.ui', 'vision.click'].includes(action)) && <>
+      {(['ui.click', 'ui.input', 'ui.select', 'ui.toggle', 'ui.keypress',
+          'ui.right_click', 'ui.scroll', 'ui.drag', 'ui.wait',
+          'assert.ui', 'vision.click'].includes(action)) && <>
         <label>目标控件名称<input aria-label="目标控件名称" value={String(primary.name ?? '')} onChange={(e) => locator('name', e.target.value)} placeholder="例如：开始检测" /></label>
         <label>控件自动化 ID（可选）<input aria-label="控件自动化 ID" value={String(primary.automation_id ?? '')} onChange={(e) => locator('automation_id', e.target.value)} /></label>
         <label>控件类型（可选）<input aria-label="控件类型" value={String(primary.control_type ?? '')} onChange={(e) => locator('control_type', e.target.value || null)} placeholder="如 Edit、Tab、Table、TreeItem" /></label>
@@ -51,6 +55,25 @@ export function StepEditor({ text, onChange }: { text: string; onChange: (value:
       </>}
       {action === 'ui.toggle' && <label>勾选状态<select aria-label="勾选状态" value={String(step.value ?? '')} onChange={(e) => update({ value: e.target.value })}><option value="">请选择</option><option value="true">勾选</option><option value="false">取消勾选</option></select></label>}
       {action === 'ui.keypress' && <label>键序列<input aria-label="键序列" value={String(step.value ?? '')} onChange={(e) => update({ value: e.target.value })} placeholder="{F2} 或 {ENTER}" /></label>}
+      {action === 'ui.scroll' && <>
+        <label>滚动方向<select aria-label="滚动方向" value={String(args.direction ?? 'down')}
+          onChange={(e) => arg('direction', e.target.value)}>
+          <option value="up">向上</option><option value="down">向下</option>
+          <option value="left">向左</option><option value="right">向右</option>
+        </select></label>
+        <label>滚动格数<input type="number" min="1" max="20" aria-label="滚动格数"
+          value={Number(args.amount ?? 3)}
+          onChange={(e) => arg('amount', Number(e.target.value))} /></label>
+      </>}
+      {action === 'ui.drag' && <>
+        <label>拖拽 X 偏移<input type="number" aria-label="拖拽 X 偏移"
+          value={Number(args.dx ?? 0)} onChange={(e) => arg('dx', Number(e.target.value))} /></label>
+        <label>拖拽 Y 偏移<input type="number" aria-label="拖拽 Y 偏移"
+          value={Number(args.dy ?? 0)} onChange={(e) => arg('dy', Number(e.target.value))} /></label>
+        <label>拖拽耗时 ms<input type="number" min="0" max="10000" aria-label="拖拽耗时"
+          value={Number(args.duration_ms ?? 300)}
+          onChange={(e) => arg('duration_ms', Number(e.target.value))} /></label>
+      </>}
       {['ui.input', 'ui.select'].includes(action) && <label>输入或选择内容<input aria-label="输入或选择内容" value={String(step.value ?? '')} onChange={(e) => update({ value: e.target.value })} /></label>}
       {action === 'device.scene' && <label>设备场景<input aria-label="设备场景" value={String(args.scene_id ?? '')} onChange={(e) => arg('scene_id', e.target.value)} /></label>}
       {action === 'device.call' && <label>设备指令<input aria-label="设备指令" value={String(args.cmd ?? '')} onChange={(e) => arg('cmd', e.target.value)} /></label>}
