@@ -1835,10 +1835,23 @@ details.task-create { margin-bottom: 22px; }
 
 .automation-query {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) 150px auto auto;
+  grid-template-columns: minmax(140px, 1fr) 150px auto auto auto;
   gap: var(--sp-2);
   margin-bottom: var(--sp-3);
 }
+
+.automation-filter-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 34px;
+  padding: 0 var(--sp-2);
+  color: var(--c-text-dim);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.automation-filter-check input { margin: 0; }
 
 .automation-query-note {
   padding: var(--sp-2) var(--sp-3);
@@ -1950,11 +1963,14 @@ details.task-create { margin-bottom: 22px; }
 
 .automation-canvas img {
   display: block;
+  cursor: crosshair;
   width: auto;
   max-width: 100%;
   height: auto;
   max-height: 520px;
 }
+
+.automation-canvas img:hover { filter: brightness(.99); }
 
 .automation-highlight {
   position: absolute;
