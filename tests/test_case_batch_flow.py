@@ -155,7 +155,12 @@ def test_rpc_background_cancellation_keeps_partial_result(service):
         rpc.close()
 
 
-@pytest.mark.parametrize("target", [{"title_re": "Instrument.*"}, {"exe": "D:/Qt/Instrument.exe"}])
+@pytest.mark.parametrize("target", [
+    {"title_re": "Instrument.*"},
+    {"exe": "D:/Qt/Instrument.exe"},
+    {"exe": "D:/Qt/Instrument.exe", "title_re": "Instrument.*",
+     "args": "--test-mode --device demo"},
+])
 def test_selected_target_is_visible_in_draft_and_requires_review(service, target):
     result = service.parse_many(["TC-1", "TC-2"], app_target=target)
     assert result["parsed"] == 2
@@ -167,7 +172,10 @@ def test_selected_target_is_visible_in_draft_and_requires_review(service, target
     assert service.llm.parse_calls[0]["application"] == target
 
 
-@pytest.mark.parametrize("target", [{}, [], {"exe": ""}, {"title_re": 1}, {"cmd": "x"}])
+@pytest.mark.parametrize("target", [
+    {}, [], {"exe": ""}, {"title_re": 1}, {"cmd": "x"},
+    {"title_re": "Instrument.*", "args": "--test-mode"},
+])
 def test_invalid_application_target_rejected_before_analysis(service, target):
     rpc = RpcService(SimpleNamespace(cases=service))
     try:
