@@ -21,12 +21,14 @@
 **绝不**直接触碰 sqlite 连接（跨线程并发使用同一连接的防线在调用侧，不在 sqlite）。
 """
 import asyncio
+import base64
 import json
 import logging
 import os
 import secrets
 import hmac
 import threading
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as futures_wait
 
@@ -45,6 +47,8 @@ _INLINE = frozenset({"shutdown", "task.abort", "job.start", "job.status", "job.c
 _LONG = frozenset({"task.run"})
 
 _DRAIN_TIMEOUT_S = 15.0     # shutdown 时等待执行中 task.run 收尾的上限
+_AUTOMATION_INLINE_PNG_MAX = 128 * 1024
+_AUTOMATION_ASSET_KEEP = 6
 
 
 class RpcService:
@@ -714,7 +718,9 @@ class RpcService:
             known = {item["name"] for item in session.toolbox.list_tools()}
             if tool not in known:
                 raise RpcError(INVALID_PARAMS, f"当前环境不可用的自动化工具: {tool}")
-            return {"tool": tool, "result": session.call(tool, args),
+            result = session.call(tool, args)
+            result = self._automation_transport_result(p, result)
+            return {"tool": tool, "result": result,
                     "history_count": len(session.steps)}
         except TestPilotError:
             # ExplorationSession 已经把失败调用写入 history；保留原业务异常语义。
@@ -722,6 +728,52 @@ class RpcService:
         finally:
             self._interaction_lock.release()
 
+    def _automation_transport_result(self, p: dict, result):
+        """大截图改为短期 asset 引用；小图保持 inline 兼容旧客户端。"""
+        if not isinstance(result, dict):
+            return result
+        encoded = result.get("png_base64")
+        if not isinstance(encoded, str) or not encoded:
+            return result
+        try:
+            png = base64.b64decode(encoded)
+        except Exception:
+            return result
+        out = dict(result)
+        out["screenshot_bytes"] = len(png)
+        if len(png) <= _AUTOMATION_INLINE_PNG_MAX:
+            out["screenshot_transport"] = "inline"
+            return out
+
+        session_id = self._automation_session_id(p)
+        root = Path(self._orch.cfg["app"]["screenshot_root"]).expanduser().resolve()
+        folder = root / "_explore" / session_id
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            snapshot_id = int(out.get("snapshot_id") or 0)
+            path = folder / f"snapshot_{snapshot_id}_{secrets.token_hex(4)}.png"
+            path.write_bytes(png)
+            out.pop("png_base64", None)
+            out["asset_path"] = str(path.resolve())
+            out["screenshot_transport"] = "asset"
+            self._cleanup_automation_assets(folder)
+        except OSError as e:
+            log.warning(f"探索截图临时资产写入失败，回退 inline: {e}")
+            out["screenshot_transport"] = "inline"
+        return out
+
+    @staticmethod
+    def _cleanup_automation_assets(folder: Path) -> None:
+        try:
+            files = sorted(folder.glob("*.png"),
+                           key=lambda path: path.stat().st_mtime, reverse=True)
+            for old in files[_AUTOMATION_ASSET_KEEP:]:
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
+        except OSError:
+            pass
     def _automation_history(self, _p):
         session = self._automation(_p)
         return {"session": session.to_dict(),
