@@ -24,14 +24,15 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
   const [phase, setPhase] = useState(1);
   const [query, setQuery] = useState('');
   const [pullIds, setPullIds] = useState('');
-  const [windowTitle, setWindowTitle] = useState('');
-  const [exe, setExe] = useState('');
+  const [windowTitle, setWindowTitle] = useState(() => restored('tp-flow-window-title', ''));
+  const [exe, setExe] = useState(() => restored('tp-flow-exe', ''));
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [batch, setBatch] = useState<ParseBatchResult | null>(null);
   const [reviewId, setReviewId] = useState<string>();
-  const [remote, setRemote] = useState(false);
-  const [mode, setMode] = useState('auto');
+  const [remote, setRemote] = useState(() => restored('tp-flow-remote', false));
+  const [mode, setMode] = useState(() => restored('tp-flow-mode', 'auto'));
+  const [caseRetry, setCaseRetry] = useState(() => restored('tp-flow-case-retry', 0));
   const [task, setTask] = useState<{ id: number; fingerprint: string } | null>(() => restored('tp-flow-task', null));
   const gate = useRef(false);
   const background = useCaseJobBusy();
@@ -41,10 +42,15 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
     (c.case_id + ' ' + c.title).toLowerCase().includes(query.trim().toLowerCase())), [rows, query]);
   const runnable = chosen.length === selected.length && chosen.length > 0 && chosen.every(approved);
   const windowMissing = chosen.filter(missingWindow);
-  const fingerprint = JSON.stringify([chosen.map(c => [c.case_id, c.version]), remote, mode]);
+  const fingerprint = JSON.stringify([chosen.map(c => [c.case_id, c.version]), remote, mode, caseRetry]);
   const reusable = task?.fingerprint === fingerprint ? task : null;
   useEffect(() => { sessionStorage.setItem('tp-flow-selection', JSON.stringify(selected)); }, [selected]);
   useEffect(() => { sessionStorage.setItem('tp-flow-task', JSON.stringify(task)); }, [task]);
+  useEffect(() => { sessionStorage.setItem('tp-flow-window-title', JSON.stringify(windowTitle)); }, [windowTitle]);
+  useEffect(() => { sessionStorage.setItem('tp-flow-exe', JSON.stringify(exe)); }, [exe]);
+  useEffect(() => { sessionStorage.setItem('tp-flow-remote', JSON.stringify(remote)); }, [remote]);
+  useEffect(() => { sessionStorage.setItem('tp-flow-mode', JSON.stringify(mode)); }, [mode]);
+  useEffect(() => { sessionStorage.setItem('tp-flow-case-retry', JSON.stringify(caseRetry)); }, [caseRetry]);
   useEffect(() => {
     if (cases.data) setSelected(ids => ids.filter(id => rows.some(c => c.case_id === id && c.status !== 'rejected')));
   }, [cases.data]);
@@ -103,7 +109,9 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
       sessionStorage.setItem('tp-flow-task', JSON.stringify(current));
       setTask(current);
     }
-    const result = await call<{ run_id: number }>('task.run', { taskId: current.id, writeback: remote });
+    const result = await call<{ run_id: number }>('task.run', {
+      taskId: current.id, writeback: remote, caseRetry,
+    });
     setTask(null); sessionStorage.removeItem('tp-flow-task');
     navigate('run', { runId: result.run_id });
   });
@@ -163,16 +171,35 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
     </section>}
 
     {phase === 3 && <section className="panel flow-card">
-      <h3>准备执行 {chosen.length} 条用例</h3><p className="muted">点击开始后会自动创建任务，执行过程中可查看进度或停止，完成后显示测试报告。</p>
+      <h3>执行前确认</h3><p className="muted">确认范围、驱动策略和失败复跑策略后开始。运行中仍可停止，完成后自动进入报告。</p>
+      <div className="flow-preflight">
+        <div><strong>{chosen.length}</strong><span>用例</span></div>
+        <div><strong>{chosen.reduce((n, c) => n + (c.steps?.length ?? 0), 0)}</strong><span>总步骤</span></div>
+        <div><strong>{mode === 'auto' ? '自动' : mode.replace('_', ' ')}</strong><span>驱动策略</span></div>
+        <div><strong>{caseRetry ? caseRetry + ' 次' : '关闭'}</strong><span>失败复跑</span></div>
+      </div>
       <ul className="flow-ready-list">{chosen.map(c => <li key={c.case_id}><Badge status={c.status} /><strong>{c.title}</strong><span className="muted">{c.case_id} · v{c.version} · {c.steps.length} 步</span></li>)}</ul>
       {windowMissing.length > 0 && <Msg kind="warn">{windowMissing.map(c => c.case_id).join('、')} 缺少启动或附加窗口步骤。请返回选择用例，展开“设置被测软件”后重新生成并确认。</Msg>}
-      <details className="flow-target"><summary>可选设置</summary><div className="form-2col">
+      <div className="flow-run-options">
         <label>驱动方式<select aria-label="测试驱动方式" value={mode} onChange={e => setMode(e.target.value)} disabled={locked}>
-          <option value="auto">自动选择（推荐）</option><option value="uia_only">控件驱动（Qt / Windows）</option><option value="vision_only">视觉驱动</option>
+          <option value="auto">自动路由（UIA 优先，失败可降级）</option>
+          <option value="uia_first">UIA 优先，再视觉兜底</option>
+          <option value="vision_first">视觉优先，再 UIA 兜底</option>
+          <option value="uia_only">仅 UIA / 控件驱动</option>
+          <option value="vision_only">仅视觉驱动</option>
         </select></label>
-        <label className="hstack"><input type="checkbox" checked={remote} onChange={e => setRemote(e.target.checked)} disabled={locked} />同步任务及结果到禅道</label>
-      </div><p className="hint">禅道同步需先在设置中配置地址、账号及构建版本。默认在本地执行并保存报告。</p></details>
-      {reusable && <Msg kind="info">已创建任务 #{reusable.id}，再次执行会复用该任务。</Msg>}
+        <label>失败用例复跑<select aria-label="失败用例复跑次数" value={caseRetry} onChange={e => setCaseRetry(Number(e.target.value))} disabled={locked}>
+          <option value={0}>关闭（默认）</option>
+          <option value={1}>失败后再跑 1 次</option>
+          <option value={2}>失败后最多再跑 2 次</option>
+          <option value={3}>失败后最多再跑 3 次</option>
+        </select></label>
+        <label className="flow-checkbox"><input type="checkbox" checked={remote} onChange={e => setRemote(e.target.checked)} disabled={locked} />
+          <span><strong>同步到禅道</strong><small>创建远端任务并回写汇总结果</small></span>
+        </label>
+      </div>
+      <p className="hint">复跑仅用于过滤环境抖动；最终报告会保留每次尝试和首次失败证据。UIA/视觉混合模式会记录完整降级链。</p>
+      {reusable && <Msg kind="info">已创建任务 #{reusable.id}，当前配置未变化，再次执行会复用该任务。</Msg>}
       <div className="flow-footer"><button className="btn" disabled={locked} onClick={() => setPhase(1)}>返回选择用例</button>
         <button className="btn primary large" disabled={locked || !runnable || !!windowMissing.length || cases.loading} onClick={() => void execute()}>{reusable ? '重试执行已有任务 →' : '开始执行 →'}</button></div>
     </section>}
