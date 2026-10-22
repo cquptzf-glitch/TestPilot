@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-10-23 Computer Use 动作面扩展
+
+在前两阶段的 observe/query/element_index/视觉/设备探索基础上，本轮继续补齐桌面交互动作，并坚持“探索动作必须能固化成确定性 DSL”：
+
+- 新增 `ui.scroll`：方向 `up/down/left/right` + 1..20 滚轮格；
+- 新增 `ui.drag`：从目标中心按 `dx/dy + duration_ms` 相对拖拽；
+- 新增 `ui.right_click`：目标中心右键 / 上下文菜单；
+- UIA 与 Vision Driver 均实现以上动作，物理输入原语集中在 `infra/wininput.py`；
+- Executor 对新动作继续走 DriverManifest capability gate；
+- Explore ToolBox、MCP、Desktop 工作台、devMock 均同步；
+- Explore 历史可以把新动作固化回正式 DSL，Vision 动作保持 `vision_only`；
+- AI 解析 Prompt 升级到 `parse_case_v4`，可以从自然语言生成新动作；
+- DSL Review 的 StepEditor 可以人工编辑滚动方向/格数与拖拽偏移/耗时；
+- `ui.observe` 的 actions 元数据会提示 right_click / scroll / drag affordance；
+- 驱动一致性门禁同步要求 right_click / scroll / drag 方法，防止 manifest/实现漂移。
+
+本轮仍不要求真机 smoke；验证重点为 Ruff、Pytest、Driver conformance 和 Desktop TypeScript/Vite build。
+详细实现状态见 `docs/automation-runtime-ocu-2026-10-22.md`，缺陷状态见 `docs/defect-backlog.md`。
+
 ## 2026-10-22 自动化探索第二阶段收口
 
 当前开发策略仍是“功能优先 + 单元测试/契约测试/前端编译门禁”，真机 smoke 暂不阻塞提交。
