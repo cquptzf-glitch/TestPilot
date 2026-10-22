@@ -26,7 +26,7 @@ def toolbox():
 def test_list_tools_is_capability_whitelist(toolbox):
     names = [t["name"] for t in toolbox.list_tools()]
     assert {"app.list", "app.launch", "app.attach", "ui.click", "ui.input",
-            "ui.read", "ui.set_value", "ui.toggle", "ui.keypress",
+            "ui.read", "ui.set_value", "ui.toggle", "ui.keypress", "assert.ui",
             "device.call", "device.scene", "device.state", "screen.grab"} <= set(names)
     # 每个工具都带头描述与 JSON Schema（MCP tools/list 形态）
     click = next(t for t in toolbox.list_tools() if t["name"] == "ui.click")
@@ -108,6 +108,27 @@ def test_device_tools_and_screen_grab(toolbox):
 
     shot = toolbox.invoke("screen.grab", {})
     assert shot["bytes"] > 0 and shot["png_base64"]
+
+
+def test_assert_ui_verifies_and_solidifies(toolbox):
+    toolbox.drivers["uia"].text = "检测完成"
+    session = ExplorationSession(toolbox, case_id="TC-ASSERT")
+    out = session.call("assert.ui", {
+        "key": "lbl.status", "name": "状态栏",
+        "control_type": "Text", "expect": "检测完成", "op": "equals",
+    })
+    assert out["matched"] is True and out["actual"] == "检测完成"
+
+    case = session.to_case()
+    assert case["steps"][0]["action"] == "assert.ui"
+    assert case["steps"][0]["verify"]["type"] == "text"
+    assert case["steps"][0]["verify"]["expect"] == "检测完成"
+    DslCase.model_validate(case)
+
+    with pytest.raises(ToolError, match="断言失败"):
+        session.call("assert.ui", {
+            "name": "状态栏", "expect": "失败", "op": "equals",
+        })
 
 
 # ---------- 会话固化 ----------
