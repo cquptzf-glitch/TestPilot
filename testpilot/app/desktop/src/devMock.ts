@@ -348,6 +348,96 @@ function autoTarget(index: number): any {
   return autoElements.find((e) => e.element_index === index);
 }
 
+interface AutoSessionState {
+  snapshot: number;
+  caseId: string;
+  title: string;
+  attached: boolean;
+  deviceScene: string;
+  steps: any[];
+  elements: any[];
+}
+
+const AUTO_ELEMENT_SEED = structuredClone(autoElements);
+const autoSessionStates = new Map<string, AutoSessionState>();
+let activeAutoSessionId = 'default';
+
+function validateAutoSessionId(raw: unknown): string {
+  const value = String(raw ?? 'default').trim();
+  if (!value || value.length > 64 || !/^[A-Za-z0-9._-]+$/.test(value))
+    throw new Error('sessionId 只允许 1..64 位字母、数字、点、下划线和连字符');
+  return value;
+}
+
+function saveActiveAutoSession(): void {
+  if (!activeAutoSessionId) return;
+  autoSessionStates.set(activeAutoSessionId, {
+    snapshot: autoSnapshot,
+    caseId: autoCaseId,
+    title: autoTitle,
+    attached: autoAttached,
+    deviceScene: autoDeviceScene,
+    steps: structuredClone(autoSteps),
+    elements: structuredClone(autoElements),
+  });
+}
+
+function loadAutoSession(sessionId: string): void {
+  const saved = autoSessionStates.get(sessionId);
+  if (saved) {
+    autoSnapshot = saved.snapshot;
+    autoCaseId = saved.caseId;
+    autoTitle = saved.title;
+    autoAttached = saved.attached;
+    autoDeviceScene = saved.deviceScene;
+    autoSteps = structuredClone(saved.steps);
+    autoElements = structuredClone(saved.elements);
+    return;
+  }
+  autoSnapshot = 0;
+  autoCaseId = 'TC-EXPLORE';
+  autoTitle = '自动化探索路径';
+  autoAttached = false;
+  autoDeviceScene = 'normal_sample_a';
+  autoSteps = [];
+  autoElements = structuredClone(AUTO_ELEMENT_SEED);
+}
+
+function activateAutoSession(raw: unknown): string {
+  const sessionId = validateAutoSessionId(raw);
+  if (sessionId === activeAutoSessionId) return sessionId;
+  saveActiveAutoSession();
+  activeAutoSessionId = sessionId;
+  loadAutoSession(sessionId);
+  return sessionId;
+}
+
+function closeAutoSession(raw: unknown): boolean {
+  const sessionId = validateAutoSessionId(raw);
+  saveActiveAutoSession();
+  const existed = autoSessionStates.delete(sessionId)
+    || (activeAutoSessionId === sessionId);
+  if (activeAutoSessionId === sessionId) {
+    activeAutoSessionId = '';
+    loadAutoSession('default');
+  }
+  return existed;
+}
+
+function listAutoSessions(): Record<string, unknown>[] {
+  saveActiveAutoSession();
+  return Array.from(autoSessionStates.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([sessionId, state]) => ({
+      session_id: sessionId,
+      case_id: state.caseId,
+      title: state.title,
+      history_count: state.steps.length,
+      snapshot_id: state.snapshot,
+    }));
+}
+
+
 function recordAuto(tool: string, args: Record<string, unknown>, ok: boolean,
                     result?: Record<string, unknown>, error?: string): void {
   autoSteps.push({
@@ -444,8 +534,15 @@ function autoDraft(): Record<string, unknown> {
 
 async function rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
   switch (method) {
+    case 'automation.sessions':
+      return { sessions: listAutoSessions() };
+    case 'automation.closeSession': {
+      const sessionId = validateAutoSessionId(params.sessionId);
+      return { closed: closeAutoSession(sessionId), session_id: sessionId };
+    }
     case 'automation.tools':
-      return { snapshot_id: autoSnapshot, drivers: ['uia', 'vision'], emulator: true, tools: [
+      activateAutoSession(params.sessionId);
+      return { session_id: validateAutoSessionId(params.sessionId), snapshot_id: autoSnapshot, drivers: ['uia', 'vision'], emulator: true, tools: [
         { name: 'app.list' }, { name: 'app.attach' }, { name: 'app.launch' },
         { name: 'ui.observe' }, { name: 'ui.query' }, { name: 'ui.click' },
         { name: 'ui.read' }, { name: 'ui.input' }, { name: 'ui.set_value' },
@@ -455,6 +552,7 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         { name: 'assert.state' },
       ] };
     case 'automation.invoke': {
+      activateAutoSession(params.sessionId);
       const tool = String(params.tool ?? '');
       const args = (params.args ?? {}) as Record<string, unknown>;
       let result: Record<string, unknown>;
@@ -562,10 +660,12 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
       return { tool, result, history_count: autoSteps.length };
     }
     case 'automation.history':
+      activateAutoSession(params.sessionId);
       return { session: { case_id: autoCaseId, title: autoTitle, notes: '',
                           preconditions: [], steps: structuredClone(autoSteps) },
                snapshot_id: autoSnapshot };
     case 'automation.draft': {
+      activateAutoSession(params.sessionId);
       if (params.caseId) autoCaseId = String(params.caseId);
       if (params.title) autoTitle = String(params.title);
       const item = autoDraft();
@@ -573,6 +673,7 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
                history_count: autoSteps.length };
     }
     case 'automation.removeStep': {
+      activateAutoSession(params.sessionId);
       const index = Number(params.index);
       const pos = autoSteps.findIndex((step) => step.index === index);
       if (pos < 0) throw new Error('探索步骤不存在');
@@ -581,6 +682,7 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
       return { removed, history_count: autoSteps.length };
     }
     case 'automation.updateStep': {
+      activateAutoSession(params.sessionId);
       const index = Number(params.index);
       const step = autoSteps.find((item) => item.index === index);
       if (!step) throw new Error('探索步骤不存在');
@@ -591,6 +693,7 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
       return { step: structuredClone(step), history_count: autoSteps.length };
     }
     case 'automation.rerunStep': {
+      const sessionId = activateAutoSession(params.sessionId);
       const index = Number(params.index);
       const original = autoSteps.find((item) => item.index === index);
       if (!original) throw new Error('探索步骤不存在');
@@ -609,6 +712,7 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         if (!effective.key && target?.stable_key) effective.key = target.stable_key;
       }
       const rerun = await rpc('automation.invoke', {
+        sessionId,
         tool: original.tool,
         args: effective,
       }) as { result: Record<string, unknown>; history_count: number };
@@ -620,6 +724,7 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
       };
     }
     case 'automation.moveStep': {
+      activateAutoSession(params.sessionId);
       const index = Number(params.index);
       const toIndex = Math.max(1, Math.min(Number(params.toIndex), autoSteps.length));
       const pos = autoSteps.findIndex((item) => item.index === index);
@@ -630,6 +735,7 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
       return { steps: structuredClone(autoSteps), history_count: autoSteps.length };
     }
     case 'automation.restore': {
+      activateAutoSession(params.sessionId);
       const session = params.session as Record<string, unknown> | undefined;
       if (!session || typeof session !== 'object' || Array.isArray(session))
         throw new Error('session 必须是对象');
@@ -647,6 +753,7 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
       };
     }
     case 'automation.reset':
+      activateAutoSession(params.sessionId);
       autoSteps = []; autoSnapshot += 1; autoAttached = false;
       autoCaseId = String(params.caseId ?? 'TC-EXPLORE');
       autoTitle = String(params.title ?? '自动化探索路径');
