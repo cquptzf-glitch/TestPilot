@@ -5,6 +5,7 @@ AI 自动化测试平台：禅道测试用例 -> LLM 解析 DSL -> 双驱动（U
 > 设计基线：[docs/design/ai-autotest-design-v1.md](docs/design/ai-autotest-design-v1.md)（v1.5）
 > 开发计划：[docs/dev-plan-v1.md](docs/dev-plan-v1.md)
 > **接手必读**：[docs/handoff.md](docs/handoff.md)（当前进度快照 + 环境约束 + 下一步命令）
+> 自动化会话层增强：[docs/automation-runtime-ocu-2026-10-22.md](docs/automation-runtime-ocu-2026-10-22.md)（参考 open-computer-use：观察/查询/element_index/写后回读/MCP 会话安全）
 > 逐轮变更流水：[docs/dev-log.md](docs/dev-log.md) ｜ 打包/排障：[docs/build-and-verify.md](docs/build-and-verify.md)
 
 ## 核心能力
