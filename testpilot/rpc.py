@@ -54,7 +54,7 @@ class RpcService:
         self._local = threading.local()
         self._io_orchestrator = None
         self._case_orchestrator = None
-        self._automation_session = None
+        self._automation_sessions = {}
         self._automation_owner = None
         self._interaction_lock = threading.Lock()
         self._jobs = CaseJobs(self._dispatch_case_job)
@@ -167,6 +167,8 @@ class RpcService:
             "dsl.accept": self._dsl_accept,
             "dsl.reject": self._dsl_reject,
 
+            "automation.sessions": self._automation_sessions_list,
+            "automation.closeSession": self._automation_close_session,
             "automation.tools": self._automation_tools,
             "automation.invoke": self._automation_invoke,
             "automation.history": self._automation_history,
@@ -208,6 +210,7 @@ class RpcService:
             "kb.caseCtxList", "kb.caseCtxSave", "kb.caseCtxDelete",
             "kb.envCompat",
             "dsl.review", "dsl.save", "dsl.accept", "dsl.reject",
+            "automation.sessions", "automation.closeSession",
             "automation.tools", "automation.invoke", "automation.history",
             "automation.draft", "automation.removeStep", "automation.updateStep",
             "automation.rerunStep", "automation.moveStep",
@@ -611,22 +614,70 @@ class RpcService:
 
     # ---------- 自动化探索（桌面 UI / Agent 共用） ----------
 
-    def _automation(self):
-        """懒创建探索会话；IO orchestrator 变化时主动失效旧 UI 句柄。"""
+    def _automation_session_id(self, p: dict | None = None) -> str:
+        raw = str((p or {}).get("sessionId") or "default").strip()
+        if not raw or len(raw) > 64:
+            raise RpcError(INVALID_PARAMS, "automation.sessionId 长度需为 1..64")
+        if any(not (ch.isalnum() or ch in "._-") for ch in raw):
+            raise RpcError(INVALID_PARAMS,
+                           "automation.sessionId 只允许字母、数字、点、下划线和连字符")
+        return raw
+
+    def _automation_pool(self):
+        """返回当前 orchestrator 对应的探索会话池；owner 变化时整体失效。"""
+        orch = self._orch
+        owner = id(orch)
+        if self._automation_owner != owner:
+            for session in self._automation_sessions.values():
+                try:
+                    session.reset()
+                except Exception:
+                    pass
+            self._automation_sessions = {}
+            self._automation_owner = owner
+        return self._automation_sessions
+
+    def _automation(self, p: dict | None = None):
+        """按 sessionId 懒创建探索会话；默认 sessionId=default 保持旧调用兼容。"""
         from testpilot.explore.session import ExplorationSession
         from testpilot.explore.toolbox import ToolBox
 
-        orch = self._orch
-        owner = id(orch)
-        if self._automation_session is None or self._automation_owner != owner:
+        session_id = self._automation_session_id(p)
+        pool = self._automation_pool()
+        session = pool.get(session_id)
+        if session is None:
+            if len(pool) >= 16:
+                raise RpcError(INVALID_PARAMS, "探索会话过多（上限 16），请先关闭不用的会话")
+            orch = self._orch
             toolbox = ToolBox(
                 orch.drivers,
                 emulator=getattr(orch, "emulator", None),
                 verifier=getattr(orch, "verifier", None),
             )
-            self._automation_session = ExplorationSession(toolbox)
-            self._automation_owner = owner
-        return self._automation_session
+            session = ExplorationSession(toolbox)
+            pool[session_id] = session
+        return session
+
+    def _automation_sessions_list(self, _p):
+        pool = self._automation_pool()
+        return {"sessions": [
+            {
+                "session_id": session_id,
+                "case_id": session.case_id,
+                "title": session.title,
+                "history_count": len(session.steps),
+                "snapshot_id": session.toolbox.computer.snapshot_id,
+            }
+            for session_id, session in sorted(pool.items())
+        ]}
+
+    def _automation_close_session(self, p):
+        session_id = self._automation_session_id(p)
+        pool = self._automation_pool()
+        session = pool.pop(session_id, None)
+        if session is not None:
+            session.reset()
+        return {"closed": session is not None, "session_id": session_id}
 
     def _automation_guard(self) -> None:
         """回归执行期间禁止探索动作，避免两条链路同时抢 UI/输入设备。"""
@@ -636,8 +687,8 @@ class RpcService:
             raise RpcError(INVALID_PARAMS, "测试任务执行中，自动化探索暂不可操作界面")
 
     def _automation_tools(self, _p):
-        session = self._automation()
-        return {"tools": session.toolbox.list_tools(),
+        session = self._automation(_p)
+        return {"session_id": self._automation_session_id(_p), "tools": session.toolbox.list_tools(),
                 "drivers": sorted(session.toolbox.drivers),
                 "emulator": session.toolbox.emulator is not None,
                 "snapshot_id": session.toolbox.computer.snapshot_id}
@@ -651,7 +702,7 @@ class RpcService:
             args = p.get("args") or {}
             if not isinstance(args, dict):
                 raise RpcError(INVALID_PARAMS, "automation.invoke 的 args 需为对象")
-            session = self._automation()
+            session = self._automation(p)
             known = {item["name"] for item in session.toolbox.list_tools()}
             if tool not in known:
                 raise RpcError(INVALID_PARAMS, f"当前环境不可用的自动化工具: {tool}")
@@ -664,12 +715,12 @@ class RpcService:
             self._interaction_lock.release()
 
     def _automation_history(self, _p):
-        session = self._automation()
+        session = self._automation(_p)
         return {"session": session.to_dict(),
                 "snapshot_id": session.toolbox.computer.snapshot_id}
 
     def _automation_draft(self, p):
-        session = self._automation()
+        session = self._automation(p)
         if p.get("caseId") is not None:
             session.case_id = str(p["caseId"]).strip() or "TC-EXPLORE"
         if p.get("title") is not None:
@@ -685,12 +736,12 @@ class RpcService:
                 "history_count": len(session.steps)}
 
     def _automation_remove_step(self, p):
-        session = self._automation()
+        session = self._automation(p)
         removed = session.remove_step(_to_int(p, "index"))
         return {"removed": removed.to_dict(), "history_count": len(session.steps)}
 
     def _automation_update_step(self, p):
-        session = self._automation()
+        session = self._automation(p)
         args = p.get("args")
         if not isinstance(args, dict):
             raise RpcError(INVALID_PARAMS, "automation.updateStep 的 args 需为对象")
@@ -706,7 +757,7 @@ class RpcService:
             if args is not None and not isinstance(args, dict):
                 raise RpcError(INVALID_PARAMS, "automation.rerunStep 的 args 需为对象")
             index = _to_int(p, "index")
-            session = self._automation()
+            session = self._automation(p)
             result = session.rerun_step(index, args)
             return {"rerun_of": index, "result": result,
                     "history_count": len(session.steps)}
@@ -714,7 +765,7 @@ class RpcService:
             self._interaction_lock.release()
 
     def _automation_move_step(self, p):
-        session = self._automation()
+        session = self._automation(p)
         steps = session.move_step(_to_int(p, "index"), _to_int(p, "toIndex"))
         return {"steps": [step.to_dict() for step in steps],
                 "history_count": len(steps)}
@@ -731,17 +782,17 @@ class RpcService:
         if len(raw_steps) > 2000:
             raise RpcError(INVALID_PARAMS, "探索会话步骤过多（上限 2000）")
 
-        current = self._automation()
+        current = self._automation(p)
         # 历史可以恢复，短生命周期 UI 句柄绝不能恢复；恢复后必须重新 observe/query。
         current.toolbox.reset_session()
         restored = ExplorationSession.from_dict(data, toolbox=current.toolbox)
-        self._automation_session = restored
+        self._automation_pool()[self._automation_session_id(p)] = restored
         return {"session": restored.to_dict(),
                 "history_count": len(restored.steps),
                 "snapshot_id": restored.toolbox.computer.snapshot_id}
 
     def _automation_reset(self, p):
-        session = self._automation()
+        session = self._automation(p)
         session.reset()
         session.case_id = str(p.get("caseId") or "TC-EXPLORE")
         session.title = str(p.get("title") or "探索路径")
@@ -941,10 +992,13 @@ class RpcService:
             self._io_orchestrator.close()
         if self._case_orchestrator is not None:
             self._case_orchestrator.close()
-        if self._automation_session is not None:
-            self._automation_session.reset()
-            self._automation_session = None
-            self._automation_owner = None
+        for session in self._automation_sessions.values():
+            try:
+                session.reset()
+            except Exception:
+                pass
+        self._automation_sessions = {}
+        self._automation_owner = None
         self._executor.shutdown(wait=False)
         self._run_executor.shutdown(wait=False)
 
