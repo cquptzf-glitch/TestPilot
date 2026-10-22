@@ -202,6 +202,25 @@ def test_automation_sessions_are_isolated(svc):
         "sessionId": "agent-b"})["session"]["steps"]) == 1
 
 
+def test_automation_io_dispatch_uses_root_driver_factory(svc):
+    from tests.conftest import FakeDriver
+
+    service, root, _ = svc
+    # 先强制建立 IO orchestrator；它复用正式驱动，不允许成为 Explore driver 源。
+    service._dispatch_io("health", {})
+    assert service._io_orchestrator is not None
+
+    calls = []
+    root.create_explore_drivers = lambda: (
+        calls.append("root") or {"uia": FakeDriver("uia")})
+    service._io_orchestrator.create_explore_drivers = lambda: (
+        (_ for _ in ()).throw(AssertionError("不应从 IO orchestrator 创建 Explore 驱动")))
+
+    out = service._dispatch_io("automation.tools", {"sessionId": "io-source"})
+    assert calls == ["root"]
+    assert "uia" in out["drivers"]
+
+
 def test_automation_sessions_use_independent_driver_instances(svc):
     service, _, _ = svc
     session_a = service._automation({"sessionId": "driver-a"})
