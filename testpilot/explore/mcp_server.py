@@ -115,6 +115,7 @@ def build_server(cfg: dict | None = None) -> McpServer:
     from testpilot.config.settings import load_settings
     from testpilot.drivers.emulator_adapter import EmulatorAdapter
     from testpilot.drivers.vision_driver import VisionDriver
+    from testpilot.engine.verifier import Verifier
     from testpilot.explore.toolbox import ToolBox
 
     cfg = cfg or load_settings()
@@ -146,7 +147,8 @@ def build_server(cfg: dict | None = None) -> McpServer:
         log.warning("Explore MCP 模拟器装配失败（UI 能力仍可用）: %s", e)
         emulator = None
 
-    return McpServer(ToolBox(drivers, emulator=emulator))
+    verifier = Verifier(drivers, emulator, llm, cfg.get("driver", {}))
+    return McpServer(ToolBox(drivers, emulator=emulator, verifier=verifier))
 
 
 def _content_blocks(result) -> list[dict]:
