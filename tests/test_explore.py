@@ -94,6 +94,14 @@ def test_locator_field_requirements(toolbox):
     assert out["driver"] == "vision"
 
 
+def test_app_attach_prefers_window_handle(toolbox):
+    out = toolbox.invoke("app.attach", {
+        "handle": 123, "title_re": "^Fake App$", "timeout_s": 1,
+    })
+    assert out["handle"] == 123
+    assert ("attach_handle", 123) in toolbox.drivers["uia"].calls
+
+
 def test_device_tools_and_screen_grab(toolbox):
     emu = toolbox.emulator
     assert toolbox.invoke("device.scene", {"scene_id": "normal_sample_a"})["ok"]
