@@ -39,6 +39,24 @@ export function AutomationPage() {
     () => elements.find((e) => e.element_index === selectedIndex) ?? null,
     [elements, selectedIndex],
   );
+  const highlight = useMemo(() => {
+    if (queryResult || !selected || !observation) return null;
+    const base = observation.screenshot_rect ?? observation.window_rect;
+    const rect = selected.rect;
+    if (!base || base.length !== 4 || !rect || rect.length !== 4 || base[2] <= 0 || base[3] <= 0)
+      return null;
+    const left = ((rect[0] - base[0]) / base[2]) * 100;
+    const top = ((rect[1] - base[1]) / base[3]) * 100;
+    const width = (rect[2] / base[2]) * 100;
+    const height = (rect[3] / base[3]) * 100;
+    if (left > 100 || top > 100 || left + width < 0 || top + height < 0) return null;
+    return {
+      left: Math.max(0, left) + '%',
+      top: Math.max(0, top) + '%',
+      width: Math.max(0.4, Math.min(100 - Math.max(0, left), width)) + '%',
+      height: Math.max(0.4, Math.min(100 - Math.max(0, top), height)) + '%',
+    };
+  }, [queryResult, selected, observation]);
 
   const invoke = async <T,>(tool: string, args: Record<string, unknown> = {}): Promise<T> => {
     const out = await call<InvokeReply<T>>('automation.invoke', { tool, args });
@@ -150,6 +168,11 @@ export function AutomationPage() {
 
   const importDraft = () => run('正在保存待审用例…', async () => {
     if (!draft) throw new Error('请先生成 DSL 草稿');
+    if (!draft.case.steps.length) throw new Error('当前探索历史没有可固化的执行步骤');
+    const all = await call<{ cases: { case_id: string; status: string }[] }>('case.list');
+    const existing = all.cases.find((item) => item.case_id === draft.case.case_id);
+    if (existing?.status === 'active')
+      throw new Error('该用例 ID 已存在且已生效，请换一个用例 ID，避免覆盖正式回归用例');
     await call('case.import', {
       text: draft.text,
       format: 'json',
@@ -266,7 +289,12 @@ export function AutomationPage() {
             {observation?.screenshot_bytes ? <span className="chip">{Math.round(observation.screenshot_bytes / 1024)} KB</span> : null}
           </div>
           {!queryResult && observation?.png_base64
-            ? <img src={'data:image/png;base64,' + observation.png_base64} alt="被测窗口截图" />
+            ? <div className="automation-canvas">
+                <img src={'data:image/png;base64,' + observation.png_base64} alt="被测窗口截图" />
+                {highlight && <div className="automation-highlight" style={highlight}>
+                  <span>{selected?.name || selected?.automation_id || selected?.control_type || '元素'}</span>
+                </div>}
+              </div>
             : <div className="automation-preview-empty">{queryResult ? '查询模式不展示旧截图' : '暂无截图'}</div>}
         </div>
 
@@ -282,14 +310,20 @@ export function AutomationPage() {
             <input value={actionValue} onChange={(e) => setActionValue(e.target.value)}
                    placeholder="输入 / 选择 / 按键的值" />
             <div className="automation-action-grid">
-              <button className="btn primary" onClick={() => void action('ui.click')}>点击</button>
+              <button className="btn primary" disabled={!selected.actions.includes('click')}
+                      onClick={() => void action('ui.click')}>点击</button>
               <button className="btn" onClick={() => void action('ui.read', {}, false)}>读取</button>
-              <button className="btn" onClick={() => void action('ui.input', { text: actionValue, clear: true })}>输入</button>
-              <button className="btn" onClick={() => void action('ui.set_value', { value: actionValue })}>设值并校验</button>
-              <button className="btn" onClick={() => void action('ui.select', { value: actionValue })}>选择</button>
+              <button className="btn" disabled={!selected.actions.includes('input')}
+                      onClick={() => void action('ui.input', { text: actionValue, clear: true })}>输入</button>
+              <button className="btn" disabled={!selected.actions.includes('set_value')}
+                      onClick={() => void action('ui.set_value', { value: actionValue })}>设值并校验</button>
+              <button className="btn" disabled={!selected.actions.includes('select')}
+                      onClick={() => void action('ui.select', { value: actionValue })}>选择</button>
               <button className="btn" onClick={() => void action('ui.keypress', { keys: actionValue })}>发送按键</button>
-              <button className="btn" onClick={() => void action('ui.toggle', { checked: true })}>设为选中</button>
-              <button className="btn" onClick={() => void action('ui.toggle', { checked: false })}>设为未选中</button>
+              <button className="btn" disabled={!selected.actions.includes('toggle')}
+                      onClick={() => void action('ui.toggle', { checked: true })}>设为选中</button>
+              <button className="btn" disabled={!selected.actions.includes('toggle')}
+                      onClick={() => void action('ui.toggle', { checked: false })}>设为未选中</button>
             </div>
             {lastResult && <pre className="automation-result">{JSON.stringify(lastResult, null, 2)}</pre>}
           </> : <div className="automation-empty">从左侧选择元素后可执行动作。</div>}
@@ -325,7 +359,8 @@ export function AutomationPage() {
         </div>
         <div className="hstack">
           <button className="btn" disabled={!!busy || historyCount === 0} onClick={() => void generateDraft()}>生成草稿</button>
-          <button className="btn primary" disabled={!draft || !!busy} onClick={() => void importDraft()}>保存并进入审核</button>
+          <button className="btn primary" disabled={!draft || draft.case.steps.length === 0 || !!busy}
+                  onClick={() => void importDraft()}>保存并进入审核</button>
         </div>
         {draft && <textarea className="automation-draft-text" readOnly value={draft.text} />}
       </div>
