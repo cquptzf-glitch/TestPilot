@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 
 import { call } from '../bridge';
 import { Msg } from '../components/Bits';
@@ -62,6 +63,8 @@ export function AutomationPage() {
   const [visualTemplate, setVisualTemplate] = useState('');
   const [visualKey, setVisualKey] = useState('');
   const [visualRect, setVisualRect] = useState<number[] | null>(null);
+  const [visualRegion, setVisualRegion] = useState<number[] | null>(null);
+  const [visualRegionStart, setVisualRegionStart] = useState<[number, number] | null>(null);
   const [visionExpect, setVisionExpect] = useState('');
   const [visionResult, setVisionResult] = useState<Record<string, unknown> | null>(null);
 
@@ -109,6 +112,19 @@ export function AutomationPage() {
       height: Math.max(0.4, Math.min(100 - safeTop, height)) + '%',
     };
   }, [queryResult, selected, observation, exploreMode, visualRect]);
+
+  const visualRegionStyle = useMemo(() => {
+    const base = observation?.screenshot_rect ?? observation?.window_rect;
+    if (!visualRegion || !base || base.length !== 4 || base[2] <= 0 || base[3] <= 0)
+      return null;
+    return {
+      left: (visualRegion[0] / base[2]) * 100 + '%',
+      top: (visualRegion[1] / base[3]) * 100 + '%',
+      width: (visualRegion[2] / base[2]) * 100 + '%',
+      height: (visualRegion[3] / base[3]) * 100 + '%',
+    };
+  }, [observation, visualRegion]);
+
 
   const invoke = async <T,>(tool: string, args: Record<string, unknown> = {}): Promise<T> => {
     const out = await call<InvokeReply<T>>('automation.invoke', { tool, args });
@@ -253,6 +269,7 @@ export function AutomationPage() {
       key: visualKey.trim() || undefined,
       desc: desc || undefined,
       template: template || undefined,
+      region: visualRegion ?? undefined,
       timeout_ms: 10000,
     };
   };
@@ -369,6 +386,8 @@ export function AutomationPage() {
     setQueryResult(null);
     setSelectedIndex(null);
     setVisualRect(null);
+    setVisualRegion(null);
+    setVisualRegionStart(null);
     setHistory(null);
     setHistoryCount(0);
     setDraft(null);
@@ -380,8 +399,43 @@ export function AutomationPage() {
     try { localStorage.removeItem(AUTOMATION_SESSION_KEY); } catch { /* ignore */ }
   });
 
-  const selectElementFromScreenshot = (event: React.MouseEvent<HTMLImageElement>) => {
-    if (!observation?.elements?.length || queryResult) return;
+  const screenshotPoint = (
+    event: ReactMouseEvent<HTMLImageElement>,
+  ): [number, number] | null => {
+    const base = observation?.screenshot_rect ?? observation?.window_rect;
+    if (!base || base.length !== 4 || base[2] <= 0 || base[3] <= 0) return null;
+    const box = event.currentTarget.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return null;
+    const x = Math.max(0, Math.min(base[2],
+      ((event.clientX - box.left) / box.width) * base[2]));
+    const y = Math.max(0, Math.min(base[3],
+      ((event.clientY - box.top) / box.height) * base[3]));
+    return [Math.round(x), Math.round(y)];
+  };
+
+  const startVisualRegion = (event: ReactMouseEvent<HTMLImageElement>) => {
+    if (exploreMode !== 'vision' || queryResult) return;
+    const point = screenshotPoint(event);
+    if (point) setVisualRegionStart(point);
+  };
+
+  const finishVisualRegion = (event: ReactMouseEvent<HTMLImageElement>) => {
+    if (exploreMode !== 'vision' || !visualRegionStart || queryResult) return;
+    const end = screenshotPoint(event);
+    const start = visualRegionStart;
+    setVisualRegionStart(null);
+    if (!end) return;
+    const x = Math.min(start[0], end[0]);
+    const y = Math.min(start[1], end[1]);
+    const w = Math.abs(start[0] - end[0]);
+    const h = Math.abs(start[1] - end[1]);
+    if (w < 4 || h < 4) return;
+    setVisualRegion([x, y, w, h]);
+    setVisualRect(null);
+  };
+
+  const selectElementFromScreenshot = (event: ReactMouseEvent<HTMLImageElement>) => {
+    if (exploreMode !== 'uia' || !observation?.elements?.length || queryResult) return;
     const base = observation.screenshot_rect ?? observation.window_rect;
     if (!base || base.length !== 4) return;
     const box = event.currentTarget.getBoundingClientRect();
@@ -420,8 +474,17 @@ export function AutomationPage() {
     {!queryResult && observation?.png_base64
       ? <div className="automation-canvas">
           <img src={'data:image/png;base64,' + observation.png_base64}
-               alt="被测窗口截图" title="点击截图可反查并选择 UIA 元素"
-               onClick={selectElementFromScreenshot} />
+               alt="被测窗口截图"
+               title={exploreMode === 'vision'
+                 ? '拖拽框选 Vision 搜索区域'
+                 : '点击截图可反查并选择 UIA 元素'}
+               onClick={selectElementFromScreenshot}
+               onMouseDown={startVisualRegion}
+               onMouseUp={finishVisualRegion} />
+          {exploreMode === 'vision' && visualRegionStyle &&
+            <div className="automation-region" style={visualRegionStyle}>
+              <span>搜索区域</span>
+            </div>}
           {highlight && <div className="automation-highlight" style={highlight}>
             <span>{exploreMode === 'vision'
               ? (visualKey || visualDesc || visualTemplate || '视觉定位')
@@ -585,7 +648,16 @@ export function AutomationPage() {
             </div>}
             <input value={actionValue} onChange={(e) => setActionValue(e.target.value)}
                    placeholder="输入 / 选择 / 按键 / 文本断言值" />
-            <div className="automation-diff-option">
+            <div className="automation-region-control">
+          <span>{visualRegion
+            ? '当前搜索区域：' + visualRegion.join(', ')
+            : '可直接在右侧截图上拖拽框选搜索区域'}</span>
+          {visualRegion && <button className="btn ghost small"
+                                   onClick={() => setVisualRegion(null)}>
+            清除区域
+          </button>}
+        </div>
+        <div className="automation-diff-option">
               <label><input type="checkbox" checked={verifyDiff}
                             onChange={(e) => setVerifyDiff(e.target.checked)} />
                 验证画面发生变化
