@@ -159,6 +159,18 @@ class Driver(Protocol):
 
 
 @runtime_checkable
+class ObservationDriver(Protocol):
+    """可访问性观察的可选驱动端口（Explore/Computer Use 使用）。
+
+    正式回归只依赖 Driver；实现本端口的驱动额外允许探索层读取当前根节点与几何，
+    避免 Explore 直接访问具体驱动的私有字段。
+    """
+
+    def observation_root(self) -> Any: ...
+    def observation_rect(self, node: Any) -> Rect: ...
+
+
+@runtime_checkable
 class EmulatorPort(Protocol):
     def call(self, cmd: str, args: dict, timeout_s: float = 10.0) -> dict: ...
     def load_scene(self, scene_id: str) -> None: ...
