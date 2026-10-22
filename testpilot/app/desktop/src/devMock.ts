@@ -434,7 +434,7 @@ function autoDraft(): Record<string, unknown> {
 async function rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
   switch (method) {
     case 'automation.tools':
-      return { snapshot_id: autoSnapshot, tools: [
+      return { snapshot_id: autoSnapshot, drivers: ['uia', 'vision'], emulator: true, tools: [
         { name: 'app.list' }, { name: 'app.attach' }, { name: 'app.launch' },
         { name: 'ui.observe' }, { name: 'ui.query' }, { name: 'ui.click' },
         { name: 'ui.read' }, { name: 'ui.input' }, { name: 'ui.set_value' },
