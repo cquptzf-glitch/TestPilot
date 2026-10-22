@@ -18,6 +18,7 @@ import {
 } from './components/Icons';
 import { call } from './bridge';
 import { WorkflowPage } from './pages/WorkflowPage';
+import { AutomationPage } from './pages/AutomationPage';
 import { HomePage } from './pages/HomePage';
 import { Toaster } from './components/Ui';
 import { useEngine, useRoute, navigate, useEngineEvents } from './hooks';
@@ -33,6 +34,7 @@ import { TasksPage } from './pages/TasksPage';
 
 const NAV = [
   { key: 'home', label: '开始测试', icon: <IconRuns /> },
+  { key: 'automation', label: '自动化探索', icon: <IconCases /> },
   { key: 'cases', label: '用例与审核', icon: <IconCases /> },
   { key: 'suites', label: '测试方案', icon: <IconSuites /> },
   { key: 'runs', label: '测试执行', icon: <IconRuns /> },
@@ -79,7 +81,7 @@ export default function App() {
         setPaletteOpen((v) => !v);
         return;
       }
-      if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-6]$/.test(e.key)) {
+      if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-7]$/.test(e.key)) {
         const item = NAV[Number(e.key) - 1];
         if (item) { e.preventDefault(); navigate(item.key); }
         return;
@@ -127,6 +129,7 @@ export default function App() {
         {section === 'runs' && page !== 'run' && <div className="section-tabs"><a className={page === 'runs' ? 'on' : ''} href="#/runs">执行记录</a><a className={page === 'tasks' ? 'on' : ''} href="#/tasks">任务管理</a></div>}
         <CaseJobsPanel compact={page === 'home'} />
         {page === 'home' && <WorkflowPage key={route.params.get('selection') ?? 'default'} selection={route.params.get('selection') ?? undefined} running={running} />}
+        {page === 'automation' && <AutomationPage />}
         {page === 'overview' && <HomePage />}
 
       {page === 'cases' && <CasesPage selection={route.params.get('selection') ?? undefined} />}
