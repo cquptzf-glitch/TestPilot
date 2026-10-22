@@ -55,6 +55,11 @@ _LOCATE_PROPS = {
     "control_type": {"type": "string", "description": "Button/Edit/Table..."},
     "desc": {"type": "string", "description": "视觉语义描述（vision 驱动）"},
     "template": {"type": "string", "description": "模板图相对路径（template）"},
+    "region": {
+        "type": "array", "minItems": 4, "maxItems": 4,
+        "items": {"type": "integer"},
+        "description": "视觉搜索区域 [x,y,w,h]，相对被测窗口截图左上角",
+    },
     "index": {"type": "integer", "description": "多匹配时取第几个"},
     "timeout_ms": {"type": "integer"},
 }
@@ -640,6 +645,7 @@ class ToolBox:
             "control_type": loc.control_type,
             "desc": loc.desc,
             "template": loc.template,
+            "region": list(loc.region) if loc.region is not None else None,
         })
         return drv, el, meta
 
@@ -675,10 +681,24 @@ class ToolBox:
         if ltype == LocatorType.TEMPLATE and not args.get("template"):
             raise ToolError("template 定位需要 template")
 
+        region = args.get("region")
+        parsed_region = None
+        if region is not None:
+            if not isinstance(region, (list, tuple)) or len(region) != 4:
+                raise ToolError("region 必须是 [x,y,w,h]")
+            try:
+                rx, ry, rw, rh = (int(v) for v in region)
+            except (TypeError, ValueError):
+                raise ToolError("region 必须是 4 个整数") from None
+            if rx < 0 or ry < 0 or rw <= 0 or rh <= 0:
+                raise ToolError("region 要求 x/y>=0 且 w/h>0")
+            parsed_region = (rx, ry, rw, rh)
+
         loc = Locator(type=ltype, name=args.get("name"),
                       automation_id=args.get("automation_id"),
                       control_type=args.get("control_type"),
                       desc=args.get("desc"), template=args.get("template"),
+                      region=parsed_region,
                       index=int(args.get("index", 0) or 0))
         return drv, loc
 
@@ -687,7 +707,7 @@ def _stable_meta(data: dict | None) -> dict:
     data = data or {}
     out = {}
     for key in ("name", "automation_id", "control_type", "desc", "template",
-                "stable_key", "selector"):
+                "region", "stable_key", "selector"):
         value = data.get(key)
         if value not in (None, ""):
             out[key] = value
@@ -710,9 +730,15 @@ def _selector_from_meta(data: dict) -> dict | None:
             out["control_type"] = data["control_type"]
         return out
     if data.get("template"):
-        return {"type": "template", "template": data["template"]}
+        out = {"type": "template", "template": data["template"]}
+        if data.get("region"):
+            out["region"] = data["region"]
+        return out
     if data.get("desc"):
-        return {"type": "visual", "desc": data["desc"]}
+        out = {"type": "visual", "desc": data["desc"]}
+        if data.get("region"):
+            out["region"] = data["region"]
+        return out
     return None
 
 
