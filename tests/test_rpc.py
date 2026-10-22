@@ -202,6 +202,23 @@ def test_automation_sessions_are_isolated(svc):
         "sessionId": "agent-b"})["session"]["steps"]) == 1
 
 
+def test_automation_sessions_use_independent_driver_instances(svc):
+    service, _, _ = svc
+    session_a = service._automation({"sessionId": "driver-a"})
+    session_b = service._automation({"sessionId": "driver-b"})
+    driver_a = session_a.toolbox.drivers["uia"]
+    driver_b = session_b.toolbox.drivers["uia"]
+
+    assert driver_a is not driver_b
+    service.dispatch("automation.invoke", {
+        "sessionId": "driver-a",
+        "tool": "ui.click",
+        "args": {"name": "开始检测", "control_type": "Button"},
+    })
+    assert ("click", None) in driver_a.calls
+    assert ("click", None) not in driver_b.calls
+
+
 def test_automation_session_id_validation(svc):
     service, _, _ = svc
     with pytest.raises(RpcError) as e:
