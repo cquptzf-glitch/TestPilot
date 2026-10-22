@@ -62,6 +62,7 @@ export const RPC_METHODS = [
   'automation.draft',
   'automation.removeStep',
   'automation.updateStep',
+  'automation.rerunStep',
   'automation.moveStep',
   'automation.restore',
   'automation.reset',
