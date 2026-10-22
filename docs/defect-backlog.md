@@ -38,9 +38,9 @@
 
 | ID | 状态 | 缺口 | 影响 | 下一步 |
 |---|---|---|---|---|
-| A-107 | TODO | 同一 RPC service 只有一个全局 Explore session | 多窗口/多工作流并行探索会互相覆盖上下文 | 引入 sessionId，桌面默认一个，MCP/Agent 可创建多个逻辑 session。 |
-| A-108 | TODO | 视觉探索已有 desc/template，但还不能在截图上框选/点击生成 region 或模板 | 视觉 locator 仍需手填描述/模板路径 | 增加截图 click-to-target、框选 region、选区保存模板。 |
-| A-109 | TODO | 探索步骤参数编辑不会重新执行动作 | 参数修正后只有固化文本变化，执行证据仍是旧参数 | 提供“编辑并重跑”动作；保留旧证据并追加新 attempt，而不是覆盖历史。 |
+| A-107 | DONE | 多探索会话隔离 | RPC 按 sessionId 隔离 ToolBox/历史/snapshot（最多 16 个）；Desktop 支持新建、切换、关闭并按会话独立恢复。 |
+| A-108 | DONE | 视觉框选与模板保存 | 截图可拖拽生成 region，region 会固化到视觉 locator；选区可直接保存到 Vision template_dir 并回填模板名。 |
+| A-109 | DONE | 探索步骤编辑并重跑 | 历史支持直接重跑或“保存并重跑”；旧步骤证据保留，新执行追加记录并标记 rerun_of。 |
 
 ### P2 — 体验 / 性能 / 工程债
 
@@ -49,7 +49,7 @@
 | A-201 | TODO | 截图直接 base64 放 JSON-RPC，4K/高频观察开销大 | 大图改临时 asset 引用；UI 侧按需读取，保留小图 inline。 |
 | A-202 | TODO | Explore 直接依赖 UIADriver 的 _top/_rect_of 私有实现 | 抽出 ObservationDriver/AccessibilityDriver 可选协议。 |
 | A-203 | DONE | keypress 常用键预设 | Explore UI 提供 Enter、Tab、Esc、Ctrl+A/C/V/S、F5 快捷填充，并保留高级原文输入。 |
-| A-204 | TODO | 元素树缺少折叠、仅显示扁平层级缩进 | 增加节点折叠、只看可操作元素、按 action/control type 过滤。 |
+| A-204 | DONE | UIA 元素树筛选与折叠 | 支持父节点折叠、只看可操作元素、按 action/control type 过滤，并保留层级缩进。 |
 | A-205 | TODO | 截图缺少缩放/拖拽/点击截图反查元素 | 增加 zoom/pan 与坐标命中最近 UIA 元素。 |
 | A-206 | TODO | Workflow 被测程序路径/窗口配置仅 sessionStorage | 增加“最近目标/目标预设”，可按项目复用。 |
 
