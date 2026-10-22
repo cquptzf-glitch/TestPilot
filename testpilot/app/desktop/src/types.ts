@@ -489,6 +489,14 @@ export interface RunProgressPayload {
 
 /* ---------------------------------------------------------------- 自动化探索 */
 
+export interface AutomationSessionSummary {
+  session_id: string;
+  case_id: string;
+  title: string;
+  history_count: number;
+  snapshot_id: number;
+}
+
 export interface AutomationWindow {
   title: string;
   handle: number;
