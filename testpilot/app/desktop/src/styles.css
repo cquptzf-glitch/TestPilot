@@ -1563,6 +1563,7 @@ details.task-create { margin-bottom: 22px; }
 .flow-target .form-2col { margin-top: 18px; }
 .flow-target .form-2col > label { display: grid; gap: 8px; font-size: 12px; }
 .flow-target .form-2col > label.hstack { display: flex; }
+.flow-target .form-2col > .flow-target-launch-args { grid-column: 1 / -1; }
 .flow-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-top: 22px; border-top: 1px solid var(--c-border); padding-top: 22px; }
 .flow-review-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
 .embedded-review > .page-head .hint { display: none; }
