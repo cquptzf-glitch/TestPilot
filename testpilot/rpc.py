@@ -649,10 +649,18 @@ class RpcService:
             if len(pool) >= 16:
                 raise RpcError(INVALID_PARAMS, "探索会话过多（上限 16），请先关闭不用的会话")
             orch = self._orch
+            drivers = orch.create_explore_drivers()
+            from testpilot.engine.verifier import Verifier
+            verifier = Verifier(
+                drivers,
+                getattr(orch, "emulator", None),
+                getattr(orch, "llm", None),
+                orch.cfg.get("driver", {}),
+            )
             toolbox = ToolBox(
-                orch.drivers,
+                drivers,
                 emulator=getattr(orch, "emulator", None),
-                verifier=getattr(orch, "verifier", None),
+                verifier=verifier,
             )
             session = ExplorationSession(toolbox)
             pool[session_id] = session
