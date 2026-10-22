@@ -383,6 +383,11 @@ function autoDraft(): Record<string, unknown> {
       steps.push({ id: 's' + (steps.length + 1), action: visual ? 'vision.click' : 'ui.click',
         driver: visual ? 'vision_only' : undefined,
         target: { key: target?.stable_key ?? 'explore.target', primary: selector },
+        verify: item.args.verify_diff ? {
+          type: 'screenshot_diff',
+          expect: String(item.args.diff_threshold ?? 0.005),
+          timeout_ms: 5000,
+        } : undefined,
         source_text: '[探索] 点击 ' + (target?.name ?? target?.desc ?? 'target') });
     } else if ((item.tool === 'ui.input' || item.tool === 'ui.set_value') && selector) {
       const value = item.tool === 'ui.input' ? item.args.text : item.args.value;
@@ -391,11 +396,22 @@ function autoDraft(): Record<string, unknown> {
         driver: visual ? 'vision_only' : undefined,
         target: { key: target?.stable_key ?? 'explore.target', primary: selector },
         value: String(value ?? ''), args: visual ? {} : { clear: true },
+        verify: item.args.verify_diff ? {
+          type: 'screenshot_diff',
+          expect: String(item.args.diff_threshold ?? 0.005),
+          timeout_ms: 5000,
+        } : undefined,
         source_text: '[探索] 输入 ' + String(value ?? '') });
     } else if (item.tool === 'ui.toggle' && selector) {
       steps.push({ id: 's' + (steps.length + 1), action: 'ui.toggle',
         target: { key: target?.stable_key ?? 'explore.target', primary: selector },
-        value: item.args.checked ? 'true' : 'false', source_text: '[探索] 设置开关' });
+        value: item.args.checked ? 'true' : 'false',
+        verify: item.args.verify_diff ? {
+          type: 'screenshot_diff',
+          expect: String(item.args.diff_threshold ?? 0.005),
+          timeout_ms: 5000,
+        } : undefined,
+        source_text: '[探索] 设置开关' });
     } else if (item.tool === 'assert.ui' && selector) {
       steps.push({ id: 's' + (steps.length + 1), action: 'assert.ui',
         target: { key: target?.stable_key ?? 'explore.target', primary: selector },
@@ -483,12 +499,11 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         };
         result = { rect, driver: 'vision', confidence: 0.92, target, ms: 26 };
         if (tool === 'ui.input') result.read_back = String(args.text ?? '');
-      } else if (tool === 'assert.vision') {
-        const expect = String(args.expect ?? '');
-        if (!expect) throw new Error('视觉断言缺少 expect');
-        result = { expect, matched: true, detail: '开发态模拟视觉断言通过',
-                   confidence: 0.93, screenshot_bytes: 70,
-                   screenshot_rect: [120, 80, 1280, 800] };
+        if (args.verify_diff) {
+          result.diff_verified = true;
+          result.diff_threshold = Number(args.diff_threshold ?? 0.005);
+          result.diff_detail = '开发态模拟：变化像素比 0.12';
+        }
       } else if (tool === 'assert.vision') {
         const expect = String(args.expect ?? '');
         if (!expect) throw new Error('视觉断言缺少期望描述');
@@ -542,7 +557,10 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
                    expect: tool === 'assert.ui' ? args.expect : undefined,
                    matched: tool === 'assert.ui' ? true : undefined,
                    verified: tool === 'ui.set_value' ? true : undefined,
-                   actual: tool === 'ui.set_value' || tool === 'assert.ui' ? el.value : undefined };
+                   actual: tool === 'ui.set_value' || tool === 'assert.ui' ? el.value : undefined,
+                   diff_verified: args.verify_diff ? true : undefined,
+                   diff_threshold: args.verify_diff ? Number(args.diff_threshold ?? 0.005) : undefined,
+                   diff_detail: args.verify_diff ? '开发态模拟：变化像素比 0.12' : undefined };
       }
       recordAuto(tool, args, true, result);
       return { tool, result, history_count: autoSteps.length };
