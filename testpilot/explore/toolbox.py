@@ -129,11 +129,11 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec("ui.read", "读取控件当前文本/值",
              _locate_schema(), needs="uia", capability="read_text"),
     ToolSpec("ui.click", "定位/解析元素并点击控件",
-             _locate_schema(), needs="driver"),
+             _locate_schema(), needs="driver", capability="click"),
     ToolSpec("ui.input", "定位/解析元素并输入文本",
              _locate_schema({"text": {"type": "string"},
                              "clear": {"type": "boolean"}},
-                            required=("text",)), needs="driver"),
+                            required=("text",)), needs="driver", capability="input"),
     ToolSpec("ui.set_value", "通过 UIA 可访问值写入并写后回读校验",
              _locate_schema({
                  "value": {"type": "string"},
@@ -165,7 +165,7 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     }, needs="emulator"),
     ToolSpec("screen.grab", "截取当前画面（MCP 下会作为 image block 返回）", {
         "type": "object", "properties": {},
-    }, needs="driver"),
+    }, needs="driver", capability="grab"),
 )
 
 
