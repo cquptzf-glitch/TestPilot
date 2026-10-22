@@ -56,6 +56,8 @@ export const RPC_METHODS = [
   'dsl.save',
   'dsl.accept',
   'dsl.reject',
+  'automation.sessions',
+  'automation.closeSession',
   'automation.tools',
   'automation.invoke',
   'automation.history',
