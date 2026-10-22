@@ -85,7 +85,10 @@ class FakeUiaDriver:
         self._top = top
         self.clicked = []
 
-    def _rect_of(self, wrapper):
+    def observation_root(self):
+        return self._top
+
+    def observation_rect(self, wrapper):
         r = wrapper.rectangle()
         return (r.left, r.top, r.right - r.left, r.bottom - r.top)
 
@@ -93,7 +96,7 @@ class FakeUiaDriver:
         return SimpleNamespace(ok=True, detail="fake")
 
     def grab(self, rect, ctx):
-        return Screenshot(png=b"fake-png", rect=rect or self._rect_of(self._top))
+        return Screenshot(png=b"fake-png", rect=rect or self.observation_rect(self._top))
 
     def read_text(self, el):
         return el.handle._value
@@ -134,6 +137,18 @@ def _session(edit_cls=Node):
     driver = FakeUiaDriver(root)
     ctx = ExecContext(run_id=0, case_exec_id=0, window_rect=(0, 0, 800, 600))
     return ComputerUseSession({"uia": driver}, ctx), driver, edit, button
+
+
+def test_observation_requires_public_driver_port():
+    class LegacyDriver:
+        manifest = SimpleNamespace(capabilities=frozenset({"grab"}))
+
+    session = ComputerUseSession(
+        {"uia": LegacyDriver()},
+        ExecContext(run_id=0, case_exec_id=0),
+    )
+    with pytest.raises(ComputerUseError, match="ObservationDriver"):
+        session.observe(include_ax=True)
 
 
 def test_observe_builds_bounded_ax_snapshot_and_indexes():
