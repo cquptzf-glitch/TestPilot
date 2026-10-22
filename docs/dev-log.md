@@ -1528,3 +1528,95 @@ mss/OpenCV 齐备，仅 VLM 需内网模型）。**TC-9104（7 步）实机全 p
 - 当前会话环境无法直接 clone GitHub 执行 tools/verify.py；需在 Windows 开发机执行标准验证，并补 Qt Widgets / Qt Quick / 多 DPI / 双屏真实 smoke。
 
 下一步优先级详见 docs/automation-runtime-ocu-2026-10-22.md。
+
+
+---
+
+## 第二十四轮：自动化探索闭环与 UI 工作台增强（2026-10-22）
+
+开发策略：暂不以真机 smoke 为阻塞条件，优先完成可通过单元测试、契约测试与前端编译验证的功能。
+
+### 已完成
+
+- Computer Use / Explore 工具继续扩展：
+  - app.list + HWND 精确附加；
+  - ui.read / click / input / set_value / select / toggle / keypress；
+  - assert.ui / assert.state / assert.vision；
+  - UI 动作可选择 screenshot_diff，只有实际验证通过才固化。
+- UIA observation：
+  - 自动生成稳定 selector；
+  - selector_score / quality / reason；
+  - 重复控件自动补 ancestors 父级作用域链；
+  - 同父级仍重复时退到局部 index；
+  - root window 不写入 ancestors。
+- DSL：
+  - Locator 新增 ancestors；
+  - UIADriver 按父级 scope 逐层定位；
+  - 视觉动作固化为 vision_only，视觉点击固化为 vision.click。
+- Explore Session：
+  - 历史单步删除；
+  - 参数编辑；
+  - 上下移动重排；
+  - restore；
+  - 纯观察历史压缩，避免长期保存完整 screenshot base64 / AX tree；
+  - restore 时 fail-closed 清空旧 UI 句柄。
+- RPC：
+  - automation.tools / invoke / history / draft / removeStep / updateStep /
+    moveStep / restore / reset；
+  - automation.tools 返回驱动/模拟器能力元数据；
+  - Explore 与 task.run 共用 interaction mutex。
+- Desktop：
+  - 新增“自动化探索”顶层页面；
+  - UIA / Vision / Device 三类探索工作流；
+  - selector 稳定度展示；
+  - 截图 bbox 高亮；
+  - 点击截图反查 UIA 元素；
+  - “只看可操作控件”过滤；
+  - Vision desc/template 定位、点击、输入；
+  - 状态/视觉/文本断言；
+  - screenshot_diff 开关与阈值；
+  - 历史编辑/排序/删除；
+  - Session 自动保存/恢复；
+  - 生成 DSL 草稿后进入既有人审页面。
+- Workflow：
+  - 执行前增加驱动方式、失败用例复跑、禅道同步和执行摘要；
+  - 相关选择保留到 sessionStorage。
+- 工程门禁：
+  - 新增 Windows GitHub Actions；
+  - Python Ruff / Pytest；
+  - Desktop tsc + Vite build；
+  - 不执行真机 smoke / 打包。
+
+### 本轮发现并修复
+
+- whole-model retry budget 单测使用严格浮点边界，Windows runner 上出现
+  0.0800000000000125 > 0.08 的浮点抖动；改为 1e-6 容差。
+- pywinauto 多级父级定位必须保持 WindowSpecification 链，不能中途转 wrapper。
+- selector ancestors 不能包含顶层主窗口，否则执行时会在主窗口内再次查主窗口。
+- screenshot_diff 不能只凭调用参数固化，必须存在实际 diff_verified 证据。
+- Explore history 不能长期保存大 PNG base64/完整 UI Tree，否则会快速撑大内存与 localStorage。
+- restore 只能恢复历史，不能恢复 element_index / wrapper 等短生命周期句柄。
+
+### 自动验证
+
+GitHub Actions run 对提交：
+
+`287bdece1755acedfd3ba34d2c1f4829c412da0d`
+
+结果：
+
+- Python unit + ruff：success；
+- Desktop TypeScript build：success。
+
+后续 screenshot 点击反查与过滤属于纯前端增量，继续由同一 workflow 验证。
+
+### 下一步
+
+按 `docs/defect-backlog.md`：
+
+1. 多 Explore Session：必须隔离 UIA/Vision driver 实例，不能只加 sessionId；
+2. Vision 截图框选 / click-to-target / region / 选区生成 template；
+3. “编辑并重跑”探索步骤，保留旧证据并追加 attempt；
+4. 大截图从 JSON-RPC base64 改为临时 asset 引用；
+5. ObservationDriver / AccessibilityDriver 正式协议，下沉当前对 UIADriver 私有字段的依赖。
+
