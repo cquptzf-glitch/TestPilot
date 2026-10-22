@@ -173,6 +173,15 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         "type": "object", "properties": {"path": {"type": "string"}},
         "required": ["path"],
     }, needs="emulator"),
+    ToolSpec("assert.state", "查询模拟器状态并立即校验；成功后可固化为 DSL 状态断言", {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "expect": {"type": "string"},
+            "op": {"type": "string", "enum": ["equals", "regex"], "default": "equals"},
+        },
+        "required": ["path", "expect"],
+    }, needs="emulator"),
     ToolSpec("screen.grab", "截取当前画面（MCP 下会作为 image block 返回）", {
         "type": "object", "properties": {},
     }, needs="driver", capability="grab"),
@@ -439,6 +448,27 @@ class ToolBox:
         self._require_emulator()
         path = str(_req(args, "path"))
         return {"path": path, "state": self.emulator.query_state(path)}
+
+    def _assert_state(self, args) -> dict:
+        self._require_emulator()
+        path = str(_req(args, "path"))
+        expected = str(_req(args, "expect"))
+        op = str(args.get("op", "equals"))
+        actual = self.emulator.query_state(path)
+        if op == "regex":
+            try:
+                matched = re.search(expected, str(actual)) is not None
+            except re.error as e:
+                raise ToolError(f"非法正则表达式: {e}") from e
+        elif op == "equals":
+            matched = str(actual) == expected
+        else:
+            raise ToolError(f"未知状态断言操作: {op}")
+        if not matched:
+            raise ToolError(
+                f"状态断言失败: path={path} op={op} expect={expected!r} actual={actual!r}")
+        return {"path": path, "expect": expected, "actual": actual,
+                "op": op, "matched": True}
 
     def _screen_grab(self, args) -> dict:
         if args.get("driver"):
