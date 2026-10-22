@@ -75,6 +75,12 @@ export function AutomationPage() {
   const [treeControlFilter, setTreeControlFilter] = useState('');
   const [collapsedElements, setCollapsedElements] = useState<Set<number>>(new Set());
   const [actionValue, setActionValue] = useState('');
+  const [scrollDirection, setScrollDirection] =
+    useState<'up' | 'down' | 'left' | 'right'>('down');
+  const [scrollAmount, setScrollAmount] = useState(3);
+  const [dragDx, setDragDx] = useState(80);
+  const [dragDy, setDragDy] = useState(0);
+  const [dragDuration, setDragDuration] = useState(300);
   const [verifyDiff, setVerifyDiff] = useState(false);
   const [diffThreshold, setDiffThreshold] = useState('0.005');
   const [history, setHistory] = useState<AutomationHistory | null>(null);
@@ -404,10 +410,24 @@ export function AutomationPage() {
     };
   };
 
-  const visualAction = (tool: 'ui.locate' | 'ui.click' | 'ui.input') =>
+  const visualAction = (
+    tool: 'ui.locate' | 'ui.click' | 'ui.input' | 'ui.scroll' | 'ui.drag',
+  ) =>
     run('正在执行视觉自动化…', async () => {
-      const args = { ...visualArgs(), ...(tool === 'ui.locate' ? {} : diffArgs()) };
+      const args: Record<string, unknown> = {
+        ...visualArgs(),
+        ...(tool === 'ui.locate' ? {} : diffArgs()),
+      };
       if (tool === 'ui.input') args.text = actionValue;
+      if (tool === 'ui.scroll') {
+        args.direction = scrollDirection;
+        args.amount = scrollAmount;
+      }
+      if (tool === 'ui.drag') {
+        args.dx = dragDx;
+        args.dy = dragDy;
+        args.duration_ms = dragDuration;
+      }
       const result = await invoke<Record<string, unknown>>(tool, args);
       const rect = result.rect;
       setVisualRect(Array.isArray(rect) ? rect.map(Number) : null);
@@ -962,6 +982,41 @@ export function AutomationPage() {
                 title={"填入 pywinauto 键序列：" + preset.keys}
                 onClick={() => setActionValue(preset.keys)}>{preset.label}</button>)}
             </div>
+            <div className="automation-gesture-controls">
+              <label>滚动方向
+                <select value={scrollDirection} onChange={(e) =>
+                  setScrollDirection(e.target.value as 'up' | 'down' | 'left' | 'right')}>
+                  <option value="up">向上</option>
+                  <option value="down">向下</option>
+                  <option value="left">向左</option>
+                  <option value="right">向右</option>
+                </select>
+              </label>
+              <label>滚动格数
+                <input type="number" min={1} max={20} value={scrollAmount}
+                       onChange={(e) => setScrollAmount(Number(e.target.value))} />
+              </label>
+              <button className="btn" disabled={!toolNames.has('ui.scroll')}
+                      onClick={() => void action('ui.scroll', {
+                        direction: scrollDirection, amount: scrollAmount,
+                      })}>滚动</button>
+              <label>拖拽 X
+                <input type="number" value={dragDx}
+                       onChange={(e) => setDragDx(Number(e.target.value))} />
+              </label>
+              <label>Y
+                <input type="number" value={dragDy}
+                       onChange={(e) => setDragDy(Number(e.target.value))} />
+              </label>
+              <label>耗时 ms
+                <input type="number" min={0} max={10000} value={dragDuration}
+                       onChange={(e) => setDragDuration(Number(e.target.value))} />
+              </label>
+              <button className="btn" disabled={!toolNames.has('ui.drag') || (dragDx === 0 && dragDy === 0)}
+                      onClick={() => void action('ui.drag', {
+                        dx: dragDx, dy: dragDy, duration_ms: dragDuration,
+                      })}>拖拽</button>
+            </div>
             <div className="automation-action-grid">
               <button className="btn primary" disabled={!selected.actions.includes('click')}
                       onClick={() => void action('ui.click')}>点击</button>
@@ -1027,6 +1082,26 @@ export function AutomationPage() {
                   onClick={() => void saveVisualTemplate()}>
             保存选区为模板
           </button>
+        </div>
+        <div className="automation-gesture-controls compact">
+          <label>滚动
+            <select value={scrollDirection} onChange={(e) =>
+              setScrollDirection(e.target.value as 'up' | 'down' | 'left' | 'right')}>
+              <option value="up">上</option><option value="down">下</option>
+              <option value="left">左</option><option value="right">右</option>
+            </select>
+          </label>
+          <label>格数<input type="number" min={1} max={20} value={scrollAmount}
+                          onChange={(e) => setScrollAmount(Number(e.target.value))} /></label>
+          <button className="btn" disabled={!!busy || !toolNames.has('ui.scroll')}
+                  onClick={() => void visualAction('ui.scroll')}>视觉滚动</button>
+          <label>拖 X<input type="number" value={dragDx}
+                           onChange={(e) => setDragDx(Number(e.target.value))} /></label>
+          <label>Y<input type="number" value={dragDy}
+                         onChange={(e) => setDragDy(Number(e.target.value))} /></label>
+          <button className="btn" disabled={!!busy || !toolNames.has('ui.drag')
+                    || (dragDx === 0 && dragDy === 0)}
+                  onClick={() => void visualAction('ui.drag')}>视觉拖拽</button>
         </div>
         <div className="hstack">
           <button className="btn" disabled={!!busy}
