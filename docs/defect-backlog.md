@@ -46,7 +46,7 @@
 
 | ID | 状态 | 缺口 | 下一步 |
 |---|---|---|---|
-| A-201 | TODO | 截图直接 base64 放 JSON-RPC，4K/高频观察开销大 | 大图改临时 asset 引用；UI 侧按需读取，保留小图 inline。 |
+| A-201 | DONE | 大截图资产化传输 | 128KB 以下继续 inline；大图写入 screenshot_root/_explore/<sessionId> 并返回 asset_path，Desktop 走壳白名单读取；会话 reset/close 自动清理。 |
 | A-202 | DONE | ObservationDriver 公共协议 | core 定义可选 ObservationDriver；UIADriver 提供 observation_root/observation_rect，Explore 不再读取 _top/_rect_of 私有字段。 |
 | A-203 | DONE | keypress 常用键预设 | Explore UI 提供 Enter、Tab、Esc、Ctrl+A/C/V/S、F5 快捷填充，并保留高级原文输入。 |
 | A-204 | DONE | UIA 元素树筛选与折叠 | 支持父节点折叠、只看可操作元素、按 action/control type 过滤，并保留层级缩进。 |
