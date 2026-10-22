@@ -480,7 +480,7 @@ export function AutomationPage() {
   const rerunHistoryStep = (index: number, args?: Record<string, unknown>) =>
     run('正在重新执行探索步骤…', async () => {
       const result = await call<{ result: Record<string, unknown> }>('automation.rerunStep', {
-        index, ...(args ? { args } : {}),
+        sessionId, index, ...(args ? { args } : {}),
       });
       setLastResult(result.result);
       setDraft(null);
@@ -501,10 +501,12 @@ export function AutomationPage() {
     }
     void run('正在保存并重新执行探索步骤…', async () => {
       await call('automation.updateStep', {
+        sessionId,
         index: editingIndex,
         args: parsed as Record<string, unknown>,
       });
       const out = await call<{ result: Record<string, unknown> }>('automation.rerunStep', {
+        sessionId,
         index: editingIndex,
         args: parsed as Record<string, unknown>,
       });
