@@ -653,17 +653,21 @@ class RpcService:
             if len(pool) >= 16:
                 raise RpcError(INVALID_PARAMS, "探索会话过多（上限 16），请先关闭不用的会话")
             orch = self._orch
-            drivers = orch.create_explore_drivers()
+            # RPC IO 线程会创建一个复用正式驱动的 _io_orchestrator；Explore
+            # 必须从根 orchestrator 创建独立驱动，不能 deepcopy 真实 UIA wrapper。
+            source = self.orchestrator or orch
+            create_drivers = getattr(source, "create_explore_drivers", None)
+            drivers = create_drivers() if callable(create_drivers)                 else orch.create_explore_drivers()
             from testpilot.engine.verifier import Verifier
             verifier = Verifier(
                 drivers,
-                getattr(orch, "emulator", None),
-                getattr(orch, "llm", None),
-                orch.cfg.get("driver", {}),
+                getattr(source, "emulator", getattr(orch, "emulator", None)),
+                getattr(source, "llm", getattr(orch, "llm", None)),
+                source.cfg.get("driver", {}),
             )
             toolbox = ToolBox(
                 drivers,
-                emulator=getattr(orch, "emulator", None),
+                emulator=getattr(source, "emulator", getattr(orch, "emulator", None)),
                 verifier=verifier,
             )
             session = ExplorationSession(toolbox)
