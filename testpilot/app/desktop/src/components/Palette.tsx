@@ -31,6 +31,9 @@ interface Cmd {
 const PAGES: Cmd[] = [
   { key: 'p-home', icon: <IconRuns />, label: '工作台', keywords: 'home 首页 概览',
     group: '页面', action: () => navigate('home') },
+  { key: 'p-automation', icon: <IconDsl />, label: '自动化探索',
+    keywords: 'automation explore computer use UIA 自动化 探索 录制',
+    group: '页面', action: () => navigate('automation') },
   { key: 'p-cases', icon: <IconCases />, label: '用例管理', keywords: 'cases 拉取 同步 用例',
     group: '页面', action: () => navigate('cases') },
   { key: 'p-suites', icon: <IconSuites />, label: '测试方案', keywords: 'suites 方案 套件',
@@ -206,7 +209,7 @@ export function ShortcutsHelp({ open, onClose }: { open: boolean; onClose: () =>
   if (!open) return null;
   const rows: [string, string][] = [
     ['Ctrl + K', '命令面板：搜索页面 / run / 用例 / 动作'],
-    ['Alt + 1 ~ 6', '按顺序切换左侧导航'],
+    ['Alt + 1 ~ 7', '按顺序切换左侧导航'],
     ['?', '打开本速查'],
     ['A / R', '知识库审阅：通过 / 驳回（失败待审 Tab）'],
     ['J / K', '知识库待审队列 · RunDetail 轨迹上/下一步'],
