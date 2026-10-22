@@ -1037,8 +1037,13 @@ class RpcService(Protocol):
 | `app.close` | 关闭被测程序 | `mode: graceful\|kill` | UIA |
 | `app.wait_ready` | 等就绪信号 | `timeout_ms` | UIA/测试端口 |
 | `ui.click` | 点击控件 | `target` | UIA/视觉 |
-| `ui.input` | 输入文本 | `target`, `value`, `clear: bool` | UIA |
+| `ui.right_click` | 右键 / 上下文菜单 | `target` | UIA/视觉 |
+| `ui.input` | 输入文本 | `target`, `value`, `clear: bool` | UIA/视觉 |
 | `ui.select` | 下拉/列表选择 | `target`, `value` | UIA |
+| `ui.toggle` | 确定性设置勾选状态 | `target`, `value=true\|false` | UIA |
+| `ui.keypress` | 向目标发送键序列 | `target`, `value` | UIA |
+| `ui.scroll` | 在目标区域滚动 | `target`, `direction`, `amount` | UIA/视觉 |
+| `ui.drag` | 从目标中心相对拖拽 | `target`, `dx`, `dy`, `duration_ms` | UIA/视觉 |
 | `ui.wait` | 等待控件出现/消失 | `target`, `state: exists\|gone` | UIA/视觉 |
 | `vision.click` | 视觉专属点击 | `target(visual)` | 视觉 |
 | `device.call` | 模拟器指令 | `cmd`, `args` | 模拟器 |
