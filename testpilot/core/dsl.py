@@ -82,7 +82,8 @@ class TestCase(BaseModel):
 
 KNOWN_ACTIONS = frozenset({
     "app.launch", "app.close", "app.wait_ready", "ui.click", "ui.input",
-    "ui.select", "ui.toggle", "ui.keypress", "ui.wait", "vision.click", "device.call", "device.scene",
+    "ui.select", "ui.toggle", "ui.keypress", "ui.scroll", "ui.drag", "ui.wait",
+    "vision.click", "device.call", "device.scene",
     "assert.ui", "assert.state", "assert.vision", "sleep",
 })
 
@@ -112,6 +113,28 @@ def execution_errors(step: Step) -> list[str]:
         errors.append("ui.toggle 的 value 必须是 true 或 false")
     if step.action == "ui.keypress" and not step.value:
         errors.append("ui.keypress 缺少 value 键序列")
+    if step.action == "ui.scroll":
+        direction = str(step.args.get("direction") or "").lower()
+        if direction not in ("up", "down", "left", "right"):
+            errors.append("ui.scroll args.direction 必须是 up/down/left/right")
+        try:
+            amount = int(step.args.get("amount", 0))
+        except (TypeError, ValueError):
+            amount = 0
+        if not 1 <= amount <= 20:
+            errors.append("ui.scroll args.amount 必须在 1..20")
+    if step.action == "ui.drag":
+        try:
+            dx = int(step.args.get("dx", 0))
+            dy = int(step.args.get("dy", 0))
+            duration_ms = int(step.args.get("duration_ms", 300))
+        except (TypeError, ValueError):
+            dx = dy = 0
+            duration_ms = -1
+        if dx == 0 and dy == 0:
+            errors.append("ui.drag 的 dx/dy 不能同时为 0")
+        if not 0 <= duration_ms <= 10000:
+            errors.append("ui.drag duration_ms 必须在 0..10000")
     for loc in (step.target.primary if step.target else None, step.verify.target):
         if loc is not None and (loc.row is None) != (loc.column is None):
             errors.append("表格定位必须同时提供 row 和 column")
