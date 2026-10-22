@@ -689,6 +689,7 @@ class RpcService:
         session = pool.pop(session_id, None)
         if session is not None:
             session.reset()
+        self._clear_automation_assets(session_id)
         return {"closed": session is not None, "session_id": session_id}
 
     def _automation_guard(self) -> None:
@@ -761,6 +762,24 @@ class RpcService:
             log.warning(f"探索截图临时资产写入失败，回退 inline: {e}")
             out["screenshot_transport"] = "inline"
         return out
+
+    def _clear_automation_assets(self, session_id: str) -> None:
+        root = Path(self._orch.cfg["app"]["screenshot_root"]).expanduser().resolve()
+        folder = root / "_explore" / session_id
+        try:
+            if not folder.exists():
+                return
+            for path in folder.glob("*.png"):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+            try:
+                folder.rmdir()
+            except OSError:
+                pass
+        except OSError:
+            pass
 
     @staticmethod
     def _cleanup_automation_assets(folder: Path) -> None:
@@ -857,6 +876,7 @@ class RpcService:
         session.case_id = str(p.get("caseId") or "TC-EXPLORE")
         session.title = str(p.get("title") or "探索路径")
         session.notes = str(p.get("notes") or "")
+        self._clear_automation_assets(self._automation_session_id(p))
         return {"ok": True, "snapshot_id": session.toolbox.computer.snapshot_id}
 
     # ---------- 配置（设置页） ----------
