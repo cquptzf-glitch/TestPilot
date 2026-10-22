@@ -1845,6 +1845,48 @@ details.task-create { margin-bottom: 22px; }
   font: var(--fs-xs)/1.5 var(--c-mono);
 }
 
+.automation-device-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, .7fr) minmax(280px, 1fr) minmax(300px, 1.15fr) minmax(260px, .9fr);
+  gap: var(--sp-4);
+  align-items: stretch;
+}
+
+.automation-device-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+  padding: var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-panel-soft);
+}
+
+.automation-device-card > strong {
+  margin-bottom: 2px;
+  font-size: var(--fs-sm);
+}
+
+.automation-device-card.command textarea {
+  min-height: 80px;
+  resize: vertical;
+  font: var(--fs-xs)/1.45 var(--c-mono);
+}
+
+.automation-device-result {
+  min-height: 140px;
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  padding: var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-bg-sunken);
+  color: var(--c-text-dim);
+  font: var(--fs-xs)/1.5 var(--c-mono);
+}
+
 .automation-bottom {
   display: grid;
   grid-template-columns: minmax(460px, 1.1fr) minmax(390px, .9fr);
@@ -1888,6 +1930,7 @@ details.task-create { margin-bottom: 22px; }
 
 @media (max-width: 1180px) {
   .automation-target-grid { grid-template-columns: 1fr 1fr; }
+  .automation-device-grid { grid-template-columns: 1fr 1fr; }
   .automation-workspace { grid-template-columns: 1fr; }
   .automation-bottom { grid-template-columns: 1fr; }
   .automation-element-list { max-height: 440px; }
@@ -1896,7 +1939,8 @@ details.task-create { margin-bottom: 22px; }
 @media (max-width: 760px) {
   .automation-target-grid,
   .automation-query,
-  .automation-action-grid { grid-template-columns: 1fr; }
+  .automation-action-grid,
+  .automation-device-grid { grid-template-columns: 1fr; }
 }
 
 
