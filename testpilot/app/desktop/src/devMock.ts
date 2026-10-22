@@ -586,6 +586,23 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
       autoSteps.forEach((item, i) => { item.index = i + 1; });
       return { steps: structuredClone(autoSteps), history_count: autoSteps.length };
     }
+    case 'automation.restore': {
+      const session = params.session as Record<string, unknown> | undefined;
+      if (!session || typeof session !== 'object' || Array.isArray(session))
+        throw new Error('session 必须是对象');
+      const steps = session.steps;
+      if (!Array.isArray(steps)) throw new Error('session.steps 必须是数组');
+      autoCaseId = String(session.case_id ?? 'TC-EXPLORE');
+      autoTitle = String(session.title ?? '自动化探索路径');
+      autoSteps = structuredClone(steps) as any[];
+      autoSteps.forEach((item, i) => { item.index = i + 1; });
+      return {
+        session: { ...structuredClone(session), case_id: autoCaseId,
+                   title: autoTitle, steps: structuredClone(autoSteps) },
+        history_count: autoSteps.length,
+        snapshot_id: autoSnapshot,
+      };
+    }
     case 'automation.reset':
       autoSteps = []; autoSnapshot += 1; autoAttached = false;
       autoCaseId = String(params.caseId ?? 'TC-EXPLORE');
