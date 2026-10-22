@@ -181,6 +181,14 @@ def test_manifest_is_module_level_and_complete():
 
 # ---------------------------------------------------------------- 启动 / 关闭
 
+def test_list_windows_returns_visible_native_windows(uia):
+    rows = uia.list_windows(limit=10)
+    assert len(rows) == 1
+    assert rows[0]["title"] == "已运行窗口"
+    assert rows[0]["handle"] == 12345
+    assert rows[0]["rect"] == [10, 20, 100, 30]
+
+
 def test_launch_with_exe_and_args_returns_physical_rect(uia):
     rect = uia.launch({"exe": "target.exe", "args": "--test-mode"}, timeout_s=5)
     assert rect == (10, 20, 100, 30)          # width/height 由边界相减得出
