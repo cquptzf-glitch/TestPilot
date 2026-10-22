@@ -10,6 +10,7 @@ from testpilot.core.contracts import DriverManifest, ExecContext, Screenshot
 from testpilot.core.errors import ActionError
 from testpilot.explore.computer_use import ComputerUseError, ComputerUseSession
 from testpilot.explore.mcp_server import McpServer
+from testpilot.explore.session import ExplorationSession
 from testpilot.explore.toolbox import ToolBox
 
 
@@ -144,6 +145,10 @@ def test_observe_builds_bounded_ax_snapshot_and_indexes():
     assert state["window_rect"] == [0, 0, 800, 600]
     assert [e["name"] for e in state["elements"]] == ["主窗口", "样本号", "开始检测"]
     assert state["elements"][1]["automation_id"] == "sampleId"
+    assert state["elements"][1]["selector"] == {
+        "type": "uia", "automation_id": "sampleId", "control_type": "Edit"}
+    assert state["elements"][1]["stable_key"] == "edit.sampleId"
+    assert state["window_title"] == "主窗口"
     assert "set_value" in state["elements"][1]["actions"]
     assert state["truncated"] is False
 
@@ -269,3 +274,32 @@ def test_mcp_returns_image_block_and_turn_end_invalidates_index():
         },
     })
     assert stale["result"]["isError"] is True
+
+
+def test_element_index_action_solidifies_to_stable_dsl_locator():
+    root, _, button = _tree()
+    driver = FakeUiaDriver(root)
+    box = ToolBox({"uia": driver},
+                  ctx=ExecContext(run_id=0, case_exec_id=0,
+                                  window_rect=(0, 0, 800, 600)))
+    session = ExplorationSession(box, case_id="TC-AUTO", title="自动探索")
+    state = session.call("ui.observe", {"include_ax": True})
+    index = next(e["element_index"] for e in state["elements"]
+                 if e["automation_id"] == "startButton")
+
+    session.call("ui.click", {
+        "element_index": index,
+        "snapshot_id": state["snapshot_id"],
+    })
+    case = session.to_case()
+    assert len(case["steps"]) == 1
+    step = case["steps"][0]
+    assert step["action"] == "ui.click"
+    assert step["target"]["key"] == "button.startButton"
+    assert step["target"]["primary"] == {
+        "type": "uia",
+        "automation_id": "startButton",
+        "control_type": "Button",
+    }
+    assert "element_index" not in str(step)
+    assert button.clicks == 1
