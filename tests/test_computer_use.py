@@ -168,6 +168,7 @@ def test_observe_builds_bounded_ax_snapshot_and_indexes():
     assert "AutomationId" in state["elements"][1]["selector_reason"]
     assert state["window_title"] == "主窗口"
     assert "set_value" in state["elements"][1]["actions"]
+    assert "right_click" in state["elements"][2]["actions"]
     assert state["truncated"] is False
 
     el, meta = session.resolve(3, snapshot_id=state["snapshot_id"])
@@ -214,6 +215,24 @@ def test_duplicate_names_gain_stability_from_parent_scope():
     assert buttons[1]["selector"]["ancestors"][-1] == {
         "automation_id": "rightPanel", "control_type": "Pane"}
     assert all("父级作用域链" in item["selector_reason"] for item in buttons)
+
+
+def test_observe_advertises_scroll_and_drag_affordances():
+    slider = Node("阈值", "Slider", "threshold")
+    tree = Node("样本树", "Tree", "sampleTree")
+    item = Node("样本 A", "TreeItem", "sampleA")
+    root = Node("主窗口", "Window", "mainWindow", children=[slider, tree, item])
+    session = ComputerUseSession(
+        {"uia": FakeUiaDriver(root)},
+        ExecContext(run_id=0, case_exec_id=0, window_rect=(0, 0, 800, 600)),
+    )
+
+    state = session.observe()
+    by_id = {item["automation_id"]: item for item in state["elements"]}
+    assert "drag" in by_id["threshold"]["actions"]
+    assert "scroll" in by_id["sampleTree"]["actions"]
+    assert "drag" in by_id["sampleA"]["actions"]
+    assert "right_click" in by_id["sampleA"]["actions"]
 
 
 def test_query_registers_matches_without_screenshot():
