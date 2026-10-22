@@ -274,7 +274,14 @@ class UIADriver:
         while True:
             ctx.abort.check()
             try:
-                el = self._top.child_window(**crit)
+                scope = self._top
+                for ancestor in loc.ancestors:
+                    acrit = self._crit_segment(ancestor)
+                    parent = scope.child_window(**acrit)
+                    if not parent.exists(timeout=0):
+                        raise LocateError(f"UIA 父级作用域未命中: {ancestor}")
+                    scope = parent.wrapper_object()
+                el = scope.child_window(**crit)
                 if el.exists(timeout=0):
                     wrapper = el.wrapper_object()
                     if loc.row is not None or loc.column is not None:
@@ -339,6 +346,22 @@ class UIADriver:
             if not in_view(cell):
                 raise LocateError(f"滚动后单元格仍不在视口内: ({row}, {column})")
         return cell
+
+    @staticmethod
+    def _crit_segment(segment: dict[str, str]) -> dict:
+        crit: dict = {}
+        automation_id = str(segment.get("automation_id") or "").strip()
+        name = str(segment.get("name") or "").strip()
+        control_type = str(segment.get("control_type") or "").strip()
+        if automation_id:
+            crit["auto_id"] = automation_id
+        if name:
+            crit["predicate_func"] = lambda info, wanted=name: info.name == wanted
+        if control_type:
+            crit["control_type"] = control_type
+        if not crit:
+            raise LocateError("UIA 父级作用域缺少 name/automation_id/control_type")
+        return crit
 
     @staticmethod
     def _crit(loc: Locator) -> dict:
