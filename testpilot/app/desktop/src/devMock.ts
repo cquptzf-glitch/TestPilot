@@ -402,6 +402,11 @@ function autoDraft(): Record<string, unknown> {
         verify: { type: 'text', expect: String(item.args.expect ?? ''),
                   op: String(item.args.op ?? 'equals'), timeout_ms: 5000 },
         source_text: '[探索] 文本断言' });
+    } else if (item.tool === 'assert.vision') {
+      steps.push({ id: 's' + (steps.length + 1), action: 'assert.vision',
+        verify: { type: 'vision', expect: String(item.args.expect ?? ''),
+                  timeout_ms: Number(item.args.timeout_ms ?? 10000) },
+        source_text: '[探索] 视觉断言' });
     } else if (item.tool === 'device.scene') {
       steps.push({ id: 's' + (steps.length + 1), action: 'device.scene',
         args: { scene_id: item.args.scene_id }, source_text: '[探索] 加载设备场景' });
@@ -482,6 +487,12 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         const expect = String(args.expect ?? '');
         if (!expect) throw new Error('视觉断言缺少 expect');
         result = { expect, matched: true, detail: '开发态模拟视觉断言通过',
+                   confidence: 0.93, screenshot_bytes: 70,
+                   screenshot_rect: [120, 80, 1280, 800] };
+      } else if (tool === 'assert.vision') {
+        const expect = String(args.expect ?? '');
+        if (!expect) throw new Error('视觉断言缺少期望描述');
+        result = { expect, status: 'pass', detail: '开发态模拟：视觉语义匹配',
                    confidence: 0.93, screenshot_bytes: 70,
                    screenshot_rect: [120, 80, 1280, 800] };
       } else if (tool === 'device.scene') {
