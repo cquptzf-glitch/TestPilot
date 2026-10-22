@@ -13,7 +13,7 @@ from testpilot.explore.toolbox import ToolBox, ToolError
 DSL_TOOLS = (
     "app.launch", "app.attach", "app.wait_ready", "app.close",
     "ui.locate", "ui.click", "ui.input", "ui.set_value", "ui.select",
-    "ui.toggle", "ui.keypress", "assert.ui",
+    "ui.toggle", "ui.keypress", "assert.ui", "assert.state",
     "device.scene", "device.call",
 )
 
@@ -241,6 +241,26 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
                 "timeout_ms": int(args.get("timeout_ms", 5000)),
             },
             "source_text": f"[探索] 断言 {_describe(tool, args, result)}",
+        }
+
+    if tool == "assert.state":
+        path = str(args.get("path") or "")
+        expect = str(args.get("expect") or "")
+        if not path or not expect:
+            return None
+        return {
+            "action": "assert.state",
+            "args": {"path": path, "expect": expect},
+            "verify": {
+                "type": "state",
+                "expect": expect,
+                "op": str(args.get("op") or "equals"),
+                "timeout_ms": int(args.get("timeout_ms", 5000)),
+            },
+            "source_text": (
+                f"[探索] 断言设备状态 {path} "
+                f"{args.get('op', 'equals')} {expect!r}"
+            ),
         }
 
     if tool == "device.scene":
