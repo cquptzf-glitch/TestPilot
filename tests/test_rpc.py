@@ -94,6 +94,11 @@ def test_automation_rpc_session_history_and_draft(svc):
     assert draft["case"]["steps"][0]["action"] == "ui.click"
     assert draft["case"]["steps"][0]["target"]["primary"]["name"] == "开始检测"
 
+    removed = service.dispatch("automation.removeStep", {"index": 1})
+    assert removed["removed"]["tool"] == "ui.click"
+    assert removed["history_count"] == 0
+    assert service.dispatch("automation.history", {})["session"]["steps"] == []
+
     reset = service.dispatch("automation.reset", {"title": "新探索"})
     assert reset["ok"] is True
     assert service.dispatch("automation.history", {})["session"]["steps"] == []
@@ -237,6 +242,32 @@ def test_task_create_run_and_drilldown(svc):
     assert service.dispatch("task.list", {})["tasks"][0]["id"] == created["task_id"]
     assert service.dispatch("task.detail",
                             {"taskId": created["task_id"]})["name"] == "RPC任务"
+
+
+def test_task_run_rejects_when_explore_interaction_lock_is_busy(svc):
+    service, _, ids = svc
+    created = service.dispatch("task.create", {"name": "互斥", "caseIds": ids})
+    assert service._interaction_lock.acquire(blocking=False)
+    try:
+        with pytest.raises(RpcError) as e:
+            service.dispatch("task.run", {"taskId": created["task_id"]})
+        assert e.value.code == INVALID_PARAMS
+    finally:
+        service._interaction_lock.release()
+
+
+def test_task_run_releases_interaction_lock_on_error(svc):
+    service, orch, ids = svc
+    created = service.dispatch("task.create", {"name": "异常释放锁", "caseIds": ids})
+    original = orch.run_task
+    orch.run_task = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
+    try:
+        with pytest.raises(RuntimeError, match="boom"):
+            service.dispatch("task.run", {"taskId": created["task_id"]})
+        assert service._interaction_lock.acquire(blocking=False)
+        service._interaction_lock.release()
+    finally:
+        orch.run_task = original
 
 
 def test_task_abort_and_sync_pending(svc):
