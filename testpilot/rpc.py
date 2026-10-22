@@ -54,6 +54,8 @@ class RpcService:
         self._local = threading.local()
         self._io_orchestrator = None
         self._case_orchestrator = None
+        self._automation_session = None
+        self._automation_owner = None
         self._jobs = CaseJobs(self._dispatch_case_job)
         self._run_reserved = threading.Event()
         self._subs: set = set()
@@ -164,6 +166,12 @@ class RpcService:
             "dsl.accept": self._dsl_accept,
             "dsl.reject": self._dsl_reject,
 
+            "automation.tools": self._automation_tools,
+            "automation.invoke": self._automation_invoke,
+            "automation.history": self._automation_history,
+            "automation.draft": self._automation_draft,
+            "automation.reset": self._automation_reset,
+
             "config.describe": self._config_describe,
             "config.apply": self._config_apply,
             "config.reset": self._config_reset,
@@ -194,6 +202,8 @@ class RpcService:
             "kb.caseCtxList", "kb.caseCtxSave", "kb.caseCtxDelete",
             "kb.envCompat",
             "dsl.review", "dsl.save", "dsl.accept", "dsl.reject",
+            "automation.tools", "automation.invoke", "automation.history",
+            "automation.draft", "automation.reset",
             "config.describe", "config.apply", "config.reset",
             "config.overrideText",
         })
@@ -586,6 +596,79 @@ class RpcService:
     def _dsl_reject(self, p):
         return self._orch.cases.reject(_require(p, "caseId"))
 
+    # ---------- 自动化探索（桌面 UI / Agent 共用） ----------
+
+    def _automation(self):
+        """懒创建探索会话；IO orchestrator 变化时主动失效旧 UI 句柄。"""
+        from testpilot.explore.session import ExplorationSession
+        from testpilot.explore.toolbox import ToolBox
+
+        orch = self._orch
+        owner = id(orch)
+        if self._automation_session is None or self._automation_owner != owner:
+            toolbox = ToolBox(orch.drivers, emulator=getattr(orch, "emulator", None))
+            self._automation_session = ExplorationSession(toolbox)
+            self._automation_owner = owner
+        return self._automation_session
+
+    def _automation_guard(self) -> None:
+        """回归执行期间禁止探索动作，避免两条链路同时抢 UI/输入设备。"""
+        root = self.orchestrator
+        running = getattr(root, "_in_run", None)
+        if running is not None and running.is_set():
+            raise RpcError(INVALID_PARAMS, "测试任务执行中，自动化探索暂不可操作界面")
+
+    def _automation_tools(self, _p):
+        session = self._automation()
+        return {"tools": session.toolbox.list_tools(),
+                "snapshot_id": session.toolbox.computer.snapshot_id}
+
+    def _automation_invoke(self, p):
+        self._automation_guard()
+        tool = str(_require(p, "tool"))
+        args = p.get("args") or {}
+        if not isinstance(args, dict):
+            raise RpcError(INVALID_PARAMS, "automation.invoke 的 args 需为对象")
+        session = self._automation()
+        known = {item["name"] for item in session.toolbox.list_tools()}
+        if tool not in known:
+            raise RpcError(INVALID_PARAMS, f"当前环境不可用的自动化工具: {tool}")
+        try:
+            return {"tool": tool, "result": session.call(tool, args),
+                    "history_count": len(session.steps)}
+        except TestPilotError:
+            # ExplorationSession 已经把失败调用写入 history；保留原业务异常语义。
+            raise
+
+    def _automation_history(self, _p):
+        session = self._automation()
+        return {"session": session.to_dict(),
+                "snapshot_id": session.toolbox.computer.snapshot_id}
+
+    def _automation_draft(self, p):
+        session = self._automation()
+        if p.get("caseId") is not None:
+            session.case_id = str(p["caseId"]).strip() or "TC-EXPLORE"
+        if p.get("title") is not None:
+            session.title = str(p["title"]).strip() or "探索路径"
+        if p.get("notes") is not None:
+            session.notes = str(p["notes"])
+        if p.get("preconditions") is not None:
+            if not isinstance(p["preconditions"], list):
+                raise RpcError(INVALID_PARAMS, "preconditions 需为字符串数组")
+            session.preconditions = [str(v) for v in p["preconditions"] if str(v).strip()]
+        case = session.to_case()
+        return {"case": case, "text": session.to_draft_text(p.get("format", "json")),
+                "history_count": len(session.steps)}
+
+    def _automation_reset(self, p):
+        session = self._automation()
+        session.reset()
+        session.case_id = str(p.get("caseId") or "TC-EXPLORE")
+        session.title = str(p.get("title") or "探索路径")
+        session.notes = str(p.get("notes") or "")
+        return {"ok": True, "snapshot_id": session.toolbox.computer.snapshot_id}
+
     # ---------- 配置（设置页） ----------
 
     def _config_service(self):
@@ -779,6 +862,10 @@ class RpcService:
             self._io_orchestrator.close()
         if self._case_orchestrator is not None:
             self._case_orchestrator.close()
+        if self._automation_session is not None:
+            self._automation_session.reset()
+            self._automation_session = None
+            self._automation_owner = None
         self._executor.shutdown(wait=False)
         self._run_executor.shutdown(wait=False)
 
