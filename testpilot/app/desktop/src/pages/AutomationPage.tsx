@@ -4,8 +4,7 @@ import { call } from '../bridge';
 import { Msg } from '../components/Bits';
 import { msg, navigate } from '../hooks';
 import type {
-  AutomationDraft, AutomationElement, AutomationHistory, AutomationObservation,
-  AutomationWindow,
+  AutomationDraft, AutomationHistory, AutomationObservation, AutomationWindow,
 } from '../types';
 
 type InvokeReply<T> = { tool: string; result: T; history_count: number };
