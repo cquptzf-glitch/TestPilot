@@ -449,6 +449,23 @@ class Executor:
         elif step.action == "ui.keypress":
             self._require(drv, "keypress")
             drv.keypress(el, step.value or "", ctx)
+        elif step.action == "ui.scroll":
+            self._require(drv, "scroll")
+            drv.scroll(
+                el,
+                str(step.args.get("direction") or ""),
+                int(step.args.get("amount", 1)),
+                ctx,
+            )
+        elif step.action == "ui.drag":
+            self._require(drv, "drag")
+            drv.drag(
+                el,
+                int(step.args.get("dx", 0)),
+                int(step.args.get("dy", 0)),
+                int(step.args.get("duration_ms", 300)),
+                ctx,
+            )
         elif step.action == "ui.wait":
             state = str(step.args.get("state", "exists"))
             if state == "gone":
