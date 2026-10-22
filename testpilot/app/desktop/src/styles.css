@@ -1560,6 +1560,36 @@ details.task-create { margin-bottom: 22px; }
 
 /* ---------------------------------------------------------------- 自动化探索 */
 
+.automation-session-switcher {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.automation-session-switcher select {
+  min-width: 150px;
+  max-width: 220px;
+}
+
+.automation-session-switcher input {
+  width: 130px;
+}
+
+@media (max-width: 980px) {
+  .automation-session-switcher {
+    width: 100%;
+    order: 3;
+    flex-wrap: wrap;
+  }
+  .automation-session-switcher select,
+  .automation-session-switcher input {
+    flex: 1 1 150px;
+    max-width: none;
+  }
+}
+
+
 .automation-page {
   display: grid;
   gap: var(--sp-5);
