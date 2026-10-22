@@ -132,21 +132,37 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec("ui.read", "读取控件当前文本/值",
              _locate_schema(), needs="uia", capability="read_text"),
     ToolSpec("ui.click", "定位/解析元素并点击控件",
-             _locate_schema(), needs="driver", capability="click"),
+             _locate_schema({
+                 "verify_diff": {"type": "boolean", "default": False},
+                 "diff_threshold": {"type": "number", "minimum": 0, "maximum": 1,
+                                    "default": 0.005},
+             }), needs="driver", capability="click"),
     ToolSpec("ui.input", "定位/解析元素并输入文本",
              _locate_schema({"text": {"type": "string"},
-                             "clear": {"type": "boolean"}},
+                             "clear": {"type": "boolean"},
+                             "verify_diff": {"type": "boolean", "default": False},
+                             "diff_threshold": {"type": "number", "minimum": 0,
+                                                "maximum": 1, "default": 0.005}},
                             required=("text",)), needs="driver", capability="input"),
     ToolSpec("ui.set_value", "通过 UIA 可访问值写入并写后回读校验",
              _locate_schema({
                  "value": {"type": "string"},
                  "verify_timeout_ms": {"type": "integer", "default": 800},
+                 "verify_diff": {"type": "boolean", "default": False},
+                 "diff_threshold": {"type": "number", "minimum": 0,
+                                    "maximum": 1, "default": 0.005},
              }, required=("value",)), needs="uia"),
     ToolSpec("ui.select", "定位/解析元素并选择下拉项",
-             _locate_schema({"value": {"type": "string"}},
+             _locate_schema({"value": {"type": "string"},
+                             "verify_diff": {"type": "boolean", "default": False},
+                             "diff_threshold": {"type": "number", "minimum": 0,
+                                                "maximum": 1, "default": 0.005}},
                             required=("value",)), needs="uia", capability="select"),
     ToolSpec("ui.toggle", "设置复选/开关控件状态并验证最终状态",
-             _locate_schema({"checked": {"type": "boolean"}},
+             _locate_schema({"checked": {"type": "boolean"},
+                             "verify_diff": {"type": "boolean", "default": False},
+                             "diff_threshold": {"type": "number", "minimum": 0,
+                                                "maximum": 1, "default": 0.005}},
                             required=("checked",)), needs="uia", capability="toggle"),
     ToolSpec("ui.keypress", "向目标控件发送 pywinauto 键序列",
              _locate_schema({"keys": {"type": "string"}},
@@ -360,12 +376,15 @@ class ToolBox:
 
     def _ui_click(self, args) -> dict:
         drv, el, meta = self._resolve(args)
+        before = self._diff_before(args)
         drv.click(el, self.ctx)
         return {"rect": list(el.rect), "driver": drv.manifest.name,
-                "target": meta, **_session_ref(args)}
+                "target": meta, **_session_ref(args),
+                **self._diff_after(args, before, "ui.click")}
 
     def _ui_input(self, args) -> dict:
         drv, el, meta = self._resolve(args)
+        before = self._diff_before(args)
         if args.get("clear"):
             clear = getattr(drv, "select_all_and_delete", None)
             if not callable(clear):
@@ -376,10 +395,12 @@ class ToolBox:
                "target": meta, **_session_ref(args)}
         if drv.manifest.name == "uia":
             out["read_back"] = _try_read(drv, el)
+        out.update(self._diff_after(args, before, "ui.input"))
         return out
 
     def _ui_set_value(self, args) -> dict:
         drv, el, meta = self._resolve(args, force_driver="uia")
+        before = self._diff_before(args)
         if drv.manifest.name != "uia":
             raise ToolError("ui.set_value 仅支持 UIA 驱动")
         out = self.computer.set_value(
@@ -388,17 +409,21 @@ class ToolBox:
             timeout_ms=int(args.get("verify_timeout_ms", 800)),
         )
         return {"rect": list(el.rect), "driver": "uia", "target": meta,
-                **_session_ref(args), **out}
+                **_session_ref(args), **out,
+                **self._diff_after(args, before, "ui.input")}
 
     def _ui_select(self, args) -> dict:
         drv, el, meta = self._resolve(args, force_driver="uia")
+        before = self._diff_before(args)
         drv.select(el, str(_req(args, "value")), self.ctx)
         return {"rect": list(el.rect), "driver": drv.manifest.name,
                 "target": meta, "read_back": _try_read(drv, el),
-                **_session_ref(args)}
+                **_session_ref(args),
+                **self._diff_after(args, before, "ui.select")}
 
     def _ui_toggle(self, args) -> dict:
         drv, el, meta = self._resolve(args, force_driver="uia")
+        before = self._diff_before(args)
         toggle = getattr(drv, "toggle", None)
         if not callable(toggle):
             raise ToolError("UIA 驱动不支持 toggle")
@@ -406,7 +431,8 @@ class ToolBox:
         toggle(el, checked, self.ctx)
         return {"rect": list(el.rect), "driver": "uia", "target": meta,
                 "checked": checked, "read_back": _try_read(drv, el),
-                **_session_ref(args)}
+                **_session_ref(args),
+                **self._diff_after(args, before, "ui.toggle")}
 
     def _ui_keypress(self, args) -> dict:
         drv, el, meta = self._resolve(args, force_driver="uia")
@@ -443,6 +469,48 @@ class ToolBox:
         return {"rect": list(el.rect), "driver": "uia", "target": meta,
                 "expect": expected, "actual": actual, "op": op, "matched": True,
                 **_session_ref(args)}
+
+    def _diff_before(self, args):
+        if not bool(args.get("verify_diff", False)):
+            return None
+        if self.verifier is None:
+            raise ToolError("画面变化验证需要 Verifier")
+        return self._grab_current()
+
+    def _diff_after(self, args, before, action: str) -> dict:
+        if before is None:
+            return {}
+        threshold = float(args.get("diff_threshold", 0.005))
+        if not 0 <= threshold <= 1:
+            raise ToolError("diff_threshold 必须在 0..1 之间")
+        after = self._grab_current()
+        step = Step(
+            id="explore-diff",
+            action=action,
+            verify=VerifySpec(
+                type="screenshot_diff",
+                expect=str(threshold),
+                timeout_ms=int(args.get("timeout_ms", 5000)),
+            ),
+        )
+        result = self.verifier.verify(step, self.ctx, before, after)
+        if result.status != "pass":
+            raise ToolError(
+                f"画面变化验证未通过: status={result.status} detail={result.detail}")
+        return {"diff_verified": True, "diff_threshold": threshold,
+                "diff_detail": result.detail,
+                "before_bytes": len(before.png), "after_bytes": len(after.png)}
+
+    def _grab_current(self):
+        drv = next(
+            (driver for driver in self.drivers.values()
+             if "grab" in getattr(getattr(driver, "manifest", None),
+                                  "capabilities", frozenset())),
+            None,
+        )
+        if drv is None:
+            raise ToolError("没有具备截图能力（grab）的驱动")
+        return drv.grab(self.ctx.window_rect, self.ctx)
 
     # ---------- device.* / screen.* ----------
 
