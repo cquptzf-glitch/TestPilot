@@ -43,6 +43,7 @@ export function AutomationPage() {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [query, setQuery] = useState('');
   const [controlType, setControlType] = useState('');
+  const [actionableOnly, setActionableOnly] = useState(false);
   const [actionValue, setActionValue] = useState('');
   const [verifyDiff, setVerifyDiff] = useState(false);
   const [diffThreshold, setDiffThreshold] = useState('0.005');
@@ -77,6 +78,12 @@ export function AutomationPage() {
 
   const current = queryResult ?? observation;
   const elements = current?.matches ?? current?.elements ?? [];
+  const visibleElements = useMemo(
+    () => actionableOnly
+      ? elements.filter((item) => (item.actions ?? []).length > 0)
+      : elements,
+    [actionableOnly, elements],
+  );
   const selected = useMemo(
     () => elements.find((item) => item.element_index === selectedIndex) ?? null,
     [elements, selectedIndex],
@@ -373,6 +380,36 @@ export function AutomationPage() {
     try { localStorage.removeItem(AUTOMATION_SESSION_KEY); } catch { /* ignore */ }
   });
 
+  const selectElementFromScreenshot = (event: React.MouseEvent<HTMLImageElement>) => {
+    if (!observation?.elements?.length || queryResult) return;
+    const base = observation.screenshot_rect ?? observation.window_rect;
+    if (!base || base.length !== 4) return;
+    const box = event.currentTarget.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return;
+
+    const x = base[0] + ((event.clientX - box.left) / box.width) * base[2];
+    const y = base[1] + ((event.clientY - box.top) / box.height) * base[3];
+    const hits = observation.elements
+      .filter((item) => {
+        const rect = item.rect;
+        return rect?.length === 4
+          && x >= rect[0] && x <= rect[0] + rect[2]
+          && y >= rect[1] && y <= rect[1] + rect[3];
+      })
+      .sort((a, b) => {
+        if (a.depth !== b.depth) return b.depth - a.depth;
+        const areaA = Math.max(1, a.rect[2] * a.rect[3]);
+        const areaB = Math.max(1, b.rect[2] * b.rect[3]);
+        return areaA - areaB;
+      });
+    const hit = hits[0];
+    if (!hit) return;
+    setExploreMode('uia');
+    setQueryResult(null);
+    setSelectedIndex(hit.element_index);
+    setActionValue(hit.value ?? '');
+  };
+
   const preview = <div className="panel automation-preview">
     <div className="automation-section-head">
       <div><strong>界面预览</strong><span className="muted">{observation?.window_title || '当前窗口'}</span></div>
@@ -382,7 +419,9 @@ export function AutomationPage() {
     </div>
     {!queryResult && observation?.png_base64
       ? <div className="automation-canvas">
-          <img src={'data:image/png;base64,' + observation.png_base64} alt="被测窗口截图" />
+          <img src={'data:image/png;base64,' + observation.png_base64}
+               alt="被测窗口截图" title="点击截图可反查并选择 UIA 元素"
+               onClick={selectElementFromScreenshot} />
           {highlight && <div className="automation-highlight" style={highlight}>
             <span>{exploreMode === 'vision'
               ? (visualKey || visualDesc || visualTemplate || '视觉定位')
@@ -486,6 +525,11 @@ export function AutomationPage() {
           <input value={controlType} onChange={(e) => setControlType(e.target.value)}
                  placeholder="控件类型，如 Button" />
           <button className="btn" disabled={!!busy} onClick={() => void doQuery()}>查询</button>
+          <label className="automation-filter-check">
+            <input type="checkbox" checked={actionableOnly}
+                   onChange={(e) => setActionableOnly(e.target.checked)} />
+            只看可操作
+          </label>
           {queryResult && <button className="btn ghost" onClick={() => {
             setQueryResult(null);
             setSelectedIndex(null);
@@ -495,7 +539,7 @@ export function AutomationPage() {
           当前是定向查询结果；旧截图属于前一个 snapshot，因此不与当前元素坐标混用。
         </div>}
         <div className="automation-element-list">
-          {elements.map((item) => <button key={item.element_index}
+          {visibleElements.map((item) => <button key={item.element_index}
             className={selectedIndex === item.element_index
               ? 'automation-element selected' : 'automation-element'}
             style={{ paddingLeft: 10 + Math.min(item.depth, 8) * 12 }}
@@ -516,7 +560,7 @@ export function AutomationPage() {
             </span>}
             {item.value && <span className="automation-value">{item.value}</span>}
           </button>)}
-          {!elements.length && <div className="automation-empty">
+          {!visibleElements.length && <div className="automation-empty">
             暂无 UI 元素。附加窗口后会自动观察界面。
           </div>}
         </div>
