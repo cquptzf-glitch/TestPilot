@@ -479,6 +479,17 @@ function autoDraft(): Record<string, unknown> {
           timeout_ms: 5000,
         } : undefined,
         source_text: '[探索] 点击 ' + (target?.name ?? target?.desc ?? 'target') });
+    } else if (item.tool === 'ui.right_click' && selector) {
+      const visual = item.result?.driver === 'vision' || item.args.driver === 'vision';
+      steps.push({ id: 's' + (steps.length + 1), action: 'ui.right_click',
+        driver: visual ? 'vision_only' : undefined,
+        target: { key: target?.stable_key ?? 'explore.target', primary: selector },
+        verify: item.args.verify_diff ? {
+          type: 'screenshot_diff',
+          expect: String(item.args.diff_threshold ?? 0.005),
+          timeout_ms: 5000,
+        } : undefined,
+        source_text: '[探索] 右键 ' + (target?.name ?? target?.desc ?? 'target') });
     } else if ((item.tool === 'ui.input' || item.tool === 'ui.set_value') && selector) {
       const value = item.tool === 'ui.input' ? item.args.text : item.args.value;
       const visual = item.result?.driver === 'vision' || item.args.driver === 'vision';
@@ -563,7 +574,8 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         { name: 'ui.observe' }, { name: 'ui.query' }, { name: 'ui.click' },
         { name: 'ui.read' }, { name: 'ui.input' }, { name: 'ui.set_value' },
         { name: 'ui.toggle' }, { name: 'ui.keypress' }, { name: 'ui.select' },
-        { name: 'ui.scroll' }, { name: 'ui.drag' }, { name: 'assert.ui' }, { name: 'assert.vision' },
+        { name: 'ui.right_click' }, { name: 'ui.scroll' }, { name: 'ui.drag' },
+        { name: 'assert.ui' }, { name: 'assert.vision' },
         { name: 'device.scene' }, { name: 'device.call' }, { name: 'device.state' },
         { name: 'assert.state' }, { name: 'screen.save_template' },
       ] };
@@ -593,8 +605,8 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
           (!ct || String(e.control_type).toLowerCase() === ct));
         result = { snapshot_id: autoSnapshot, matches: structuredClone(matches),
                    truncated: false, visited_nodes: autoElements.length, limit: 100 };
-      } else if ((tool === 'ui.locate' || tool === 'ui.click' || tool === 'ui.input'
-                    || tool === 'ui.scroll' || tool === 'ui.drag')
+      } else if ((tool === 'ui.locate' || tool === 'ui.click' || tool === 'ui.right_click'
+                    || tool === 'ui.input' || tool === 'ui.scroll' || tool === 'ui.drag')
                  && args.driver === 'vision') {
         const desc = String(args.desc ?? '');
         const template = String(args.template ?? '');
