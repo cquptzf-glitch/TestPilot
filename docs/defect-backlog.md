@@ -51,7 +51,7 @@
 | A-203 | DONE | keypress 常用键预设 | Explore UI 提供 Enter、Tab、Esc、Ctrl+A/C/V/S、F5 快捷填充，并保留高级原文输入。 |
 | A-204 | DONE | UIA 元素树筛选与折叠 | 支持父节点折叠、只看可操作元素、按 action/control type 过滤，并保留层级缩进。 |
 | A-205 | DONE | 截图缩放/平移/反查元素 | 预览支持 50%~250% 缩放、Alt+拖拽平移；UIA 模式点击截图反查最深层元素，Vision 模式拖拽框选区域。 |
-| A-206 | TODO | Workflow 被测程序路径/窗口配置仅 sessionStorage | 增加“最近目标/目标预设”，可按项目复用。 |
+| A-206 | DONE | 被测软件目标预设 | Workflow 可保存最多 12 个常用目标（名称/窗口标题/EXE），支持套用、更新、删除并通过 localStorage 跨重启复用。 |
 
 ## 环境验证项（当前不阻塞功能开发）
 
