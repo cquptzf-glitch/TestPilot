@@ -82,7 +82,8 @@ class TestCase(BaseModel):
 
 KNOWN_ACTIONS = frozenset({
     "app.launch", "app.close", "app.wait_ready", "ui.click", "ui.input",
-    "ui.select", "ui.toggle", "ui.keypress", "ui.scroll", "ui.drag", "ui.wait",
+    "ui.select", "ui.toggle", "ui.keypress", "ui.right_click",
+    "ui.scroll", "ui.drag", "ui.wait",
     "vision.click", "device.call", "device.scene",
     "assert.ui", "assert.state", "assert.vision", "sleep",
 })
