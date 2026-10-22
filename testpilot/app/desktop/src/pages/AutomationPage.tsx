@@ -6,14 +6,15 @@ import { Msg } from '../components/Bits';
 import { msg, navigate } from '../hooks';
 import type {
   AutomationDraft, AutomationHistory, AutomationHistoryStep, AutomationObservation,
-  AutomationWindow,
+  AutomationSessionSummary, AutomationWindow,
 } from '../types';
 
 type InvokeReply<T> = { tool: string; result: T; history_count: number };
 type ExploreMode = 'uia' | 'vision' | 'device';
 
-const AUTOMATION_SESSION_ID = 'desktop-default';
-const AUTOMATION_SESSION_KEY = 'tp-automation-session-v1';
+const DEFAULT_sessionId = 'desktop-default';
+const AUTOMATION_SESSION_KEY_PREFIX = 'tp-automation-session-v2:';
+const LEGACY_AUTOMATION_SESSION_KEY = 'tp-automation-session-v1';
 
 const KEY_PRESETS = [
   { label: 'Enter', keys: '{ENTER}' },
@@ -26,9 +27,15 @@ const KEY_PRESETS = [
   { label: 'F5', keys: '{F5}' },
 ] as const;
 
-function readSavedSession(): AutomationHistory | null {
+function savedSessionKey(sessionId: string): string {
+  return AUTOMATION_SESSION_KEY_PREFIX + sessionId;
+}
+
+function readSavedSession(sessionId: string): AutomationHistory | null {
   try {
-    const raw = localStorage.getItem(AUTOMATION_SESSION_KEY);
+    let raw = localStorage.getItem(savedSessionKey(sessionId));
+    if (!raw && sessionId === DEFAULT_sessionId)
+      raw = localStorage.getItem(LEGACY_AUTOMATION_SESSION_KEY);
     if (!raw) return null;
     const value = JSON.parse(raw) as AutomationHistory;
     return value && Array.isArray(value.steps) ? value : null;
@@ -37,9 +44,13 @@ function readSavedSession(): AutomationHistory | null {
   }
 }
 
-function saveSession(session: AutomationHistory): void {
-  try { localStorage.setItem(AUTOMATION_SESSION_KEY, JSON.stringify(session)); }
+function saveSession(sessionId: string, session: AutomationHistory): void {
+  try { localStorage.setItem(savedSessionKey(sessionId), JSON.stringify(session)); }
   catch { /* localStorage quota/private mode: engine session still works */ }
+}
+
+function removeSavedSession(sessionId: string): void {
+  try { localStorage.removeItem(savedSessionKey(sessionId)); } catch { /* ignore */ }
 }
 
 function exactTitle(title: string): string {
@@ -47,6 +58,9 @@ function exactTitle(title: string): string {
 }
 
 export function AutomationPage() {
+  const [sessionId, setSessionId] = useState(DEFAULT_sessionId);
+  const [sessions, setSessions] = useState<AutomationSessionSummary[]>([]);
+  const [newSessionId, setNewSessionId] = useState('');
   const [windows, setWindows] = useState<AutomationWindow[]>([]);
   const [selectedWindow, setSelectedWindow] = useState('');
   const [exe, setExe] = useState('');
@@ -169,56 +183,110 @@ export function AutomationPage() {
 
   const invoke = async <T,>(tool: string, args: Record<string, unknown> = {}): Promise<T> => {
     const out = await call<InvokeReply<T>>('automation.invoke', {
-      sessionId: AUTOMATION_SESSION_ID, tool, args,
+      sessionId, tool, args,
     });
     setHistoryCount(out.history_count);
     return out.result;
   };
 
-  const applyHistory = (session: AutomationHistory) => {
+  const refreshSessions = async () => {
+    const out = await call<{ sessions: AutomationSessionSummary[] }>('automation.sessions');
+    setSessions(out.sessions);
+  };
+
+  const applyHistory = (session: AutomationHistory, targetSessionId = sessionId) => {
     setHistory(session);
     setHistoryCount(session.steps.length);
     setCaseId(session.case_id || 'TC-EXPLORE');
     setCaseTitle(session.title || '自动化探索路径');
-    saveSession(session);
+    saveSession(targetSessionId, session);
   };
 
-  const refreshHistory = async () => {
+  const refreshHistory = async (targetSessionId = sessionId) => {
     const out = await call<{ session: AutomationHistory }>('automation.history', {
-      sessionId: AUTOMATION_SESSION_ID,
+      sessionId: targetSessionId,
     });
-    applyHistory(out.session);
+    applyHistory(out.session, targetSessionId);
+    await refreshSessions();
+  };
+
+  const clearLiveAutomationState = () => {
+    setObservation(null);
+    setQueryResult(null);
+    setSelectedIndex(null);
+    setVisualRect(null);
+    setVisualRegion(null);
+    setVisualRegionStart(null);
+    setDraft(null);
+    setLastResult(null);
+    setDeviceResult(null);
+    setVisionResult(null);
+    setEditingIndex(null);
+    setEditingArgs('');
+  };
+
+  const switchAutomationSession = async (targetSessionId: string) => {
+    const target = targetSessionId.trim();
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(target)) {
+      setError('会话 ID 仅允许 1~64 位字母、数字、点、下划线和连字符');
+      return;
+    }
+    if (busy) return;
+    setBusy('正在切换探索会话…');
+    setError('');
+    try {
+      let out = await call<{ session: AutomationHistory }>('automation.history', {
+        sessionId: target,
+      });
+      const saved = readSavedSession(target);
+      if (out.session.steps.length === 0 && saved?.steps.length) {
+        out = await call<{ session: AutomationHistory }>('automation.restore', {
+          sessionId: target,
+          session: saved,
+        });
+      }
+      const tools = await call<{ tools: { name: string }[] }>('automation.tools', {
+        sessionId: target,
+      });
+      setSessionId(target);
+      clearLiveAutomationState();
+      applyHistory(out.session, target);
+      setToolNames(new Set(tools.tools.map((item) => item.name)));
+      await refreshSessions();
+    } catch (e) {
+      setError(msg(e));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const createAutomationSession = () => {
+    const target = newSessionId.trim();
+    if (!target) {
+      setError('请输入新的会话 ID');
+      return;
+    }
+    setNewSessionId('');
+    void switchAutomationSession(target);
+  };
+
+  const closeAutomationSession = async () => {
+    if (sessionId === DEFAULT_AUTOMATION_SESSION_ID) return;
+    if (busy) return;
+    setBusy('正在关闭探索会话…');
+    setError('');
+    try {
+      await call('automation.closeSession', { sessionId });
+      removeSavedSession(sessionId);
+      await switchAutomationSession(DEFAULT_AUTOMATION_SESSION_ID);
+    } catch (e) {
+      setError(msg(e));
+      setBusy('');
+    }
   };
 
   useEffect(() => {
-    const initialize = async () => {
-      try {
-        const current = await call<{ session: AutomationHistory }>('automation.history', {
-          sessionId: AUTOMATION_SESSION_ID,
-        });
-        let session = current.session;
-        const saved = readSavedSession();
-        if (session.steps.length === 0 && saved?.steps.length) {
-          const restored = await call<{ session: AutomationHistory }>('automation.restore', {
-            sessionId: AUTOMATION_SESSION_ID,
-            session: saved,
-          });
-          session = restored.session;
-        }
-        applyHistory(session);
-      } catch {
-        // 引擎尚未就绪时由后续用户操作/全局 engine-ready 触发正常 RPC 错误提示。
-      }
-      try {
-        const out = await call<{ tools: { name: string }[] }>('automation.tools', {
-          sessionId: AUTOMATION_SESSION_ID,
-        });
-        setToolNames(new Set(out.tools.map((item) => item.name)));
-      } catch {
-        setToolNames(new Set());
-      }
-    };
-    void initialize();
+    void switchAutomationSession(DEFAULT_AUTOMATION_SESSION_ID);
   }, []);
 
   const run = async (label: string, fn: () => Promise<void>) => {
@@ -392,7 +460,7 @@ export function AutomationPage() {
     if (!args || typeof args !== 'object' || Array.isArray(args))
       throw new Error('步骤参数必须是 JSON 对象');
     await call('automation.updateStep', {
-      sessionId: AUTOMATION_SESSION_ID,
+      sessionId: sessionId,
       index: editingIndex,
       args: args as Record<string, unknown>,
     });
@@ -404,7 +472,7 @@ export function AutomationPage() {
   const moveHistoryStep = (index: number, toIndex: number) =>
     run('正在调整步骤顺序…', async () => {
       await call('automation.moveStep', {
-        sessionId: AUTOMATION_SESSION_ID, index, toIndex,
+        sessionId: sessionId, index, toIndex,
       });
       setDraft(null);
     });
@@ -450,7 +518,7 @@ export function AutomationPage() {
   const removeHistoryStep = (index: number) =>
     run('正在移除探索步骤…', async () => {
       await call('automation.removeStep', {
-        sessionId: AUTOMATION_SESSION_ID, index,
+        sessionId: sessionId, index,
       });
       if (editingIndex === index) {
         setEditingIndex(null);
@@ -461,7 +529,7 @@ export function AutomationPage() {
 
   const generateDraft = () => run('正在生成 DSL 草稿…', async () => {
     const out = await call<AutomationDraft>('automation.draft', {
-      sessionId: AUTOMATION_SESSION_ID,
+      sessionId: sessionId,
       caseId: caseId.trim() || 'TC-EXPLORE',
       title: caseTitle.trim() || '自动化探索路径',
       format: 'json',
@@ -486,7 +554,7 @@ export function AutomationPage() {
 
   const reset = () => run('正在清空探索会话…', async () => {
     await call('automation.reset', {
-      sessionId: AUTOMATION_SESSION_ID,
+      sessionId: sessionId,
       caseId: caseId.trim() || 'TC-EXPLORE',
       title: caseTitle.trim() || '自动化探索路径',
     });
@@ -504,7 +572,7 @@ export function AutomationPage() {
     setVisionResult(null);
     setEditingIndex(null);
     setEditingArgs('');
-    try { localStorage.removeItem(AUTOMATION_SESSION_KEY); } catch { /* ignore */ }
+    removeSavedSession(sessionId);
   });
 
   const screenshotPoint = (
@@ -621,6 +689,26 @@ export function AutomationPage() {
         <p className="muted">观察、操作、断言并把成功路径固化为待审 DSL；临时索引不会进入正式用例。</p>
       </div>
       <span className="spacer" />
+      <div className="automation-session-switcher">
+        <select value={sessionId} disabled={!!busy}
+                aria-label="自动化探索会话"
+                onChange={(e) => void switchAutomationSession(e.target.value)}>
+          {!sessions.some((item) => item.session_id === sessionId) &&
+            <option value={sessionId}>{sessionId}</option>}
+          {sessions.map((item) => <option key={item.session_id} value={item.session_id}>
+            {item.session_id} · {item.history_count} 步
+          </option>)}
+        </select>
+        <input value={newSessionId} disabled={!!busy}
+               onChange={(e) => setNewSessionId(e.target.value)}
+               onKeyDown={(e) => { if (e.key === 'Enter') createAutomationSession(); }}
+               placeholder="新会话 ID" />
+        <button className="btn ghost" disabled={!!busy || !newSessionId.trim()}
+                onClick={createAutomationSession}>新建/切换</button>
+        <button className="btn ghost"
+                disabled={!!busy || sessionId === DEFAULT_AUTOMATION_SESSION_ID}
+                onClick={() => void closeAutomationSession()}>关闭会话</button>
+      </div>
       <span className="chip">会话 {historyCount} 步</span>
       <button className="btn ghost" disabled={!!busy} onClick={() => void reset()}>清空会话</button>
     </div>
