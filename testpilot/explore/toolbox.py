@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 
 from testpilot.core.contracts import ExecContext
-from testpilot.core.dsl import Locator, LocatorType
+from testpilot.core.dsl import Locator, LocatorType, Step, VerifySpec
 from testpilot.core.errors import ActionError, TestPilotError
 from testpilot.explore.computer_use import ComputerUseSession
 
@@ -192,15 +192,22 @@ class ToolBox:
     """工具容器：驱动 + 模拟器 + ComputerUse 会话。"""
 
     def __init__(self, drivers: dict | None = None, emulator=None,
-                 ctx: ExecContext | None = None):
+                 ctx: ExecContext | None = None, verifier=None):
         self.drivers = dict(drivers or {})
         self.emulator = emulator
+        self.verifier = verifier
         self.ctx = ctx or ExecContext(run_id=0, case_exec_id=0)
         self.computer = ComputerUseSession(self.drivers, self.ctx)
 
     def available(self, spec: ToolSpec) -> bool:
         if spec.needs == "emulator":
             return self.emulator is not None
+        if spec.needs == "verifier":
+            if self.verifier is None:
+                return False
+            return any("grab" in getattr(getattr(d, "manifest", None),
+                                         "capabilities", frozenset())
+                       for d in self.drivers.values())
         if spec.needs == "uia":
             drv = self.drivers.get("uia")
             if drv is None:
