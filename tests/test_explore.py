@@ -287,6 +287,19 @@ def test_attach_solidifies_as_app_launch(toolbox):
     assert case["steps"][0]["args"] == {"title_re": ".*主窗口.*"}
 
 
+def test_observation_history_is_compact_and_restore_reindexes(toolbox):
+    session = ExplorationSession(toolbox)
+    live = session.call("screen.grab", {})
+    assert live["png_base64"]
+    assert "png_base64" not in session.steps[0].result
+    assert session.steps[0].result["bytes"] == live["bytes"]
+
+    data = session.to_dict()
+    data["steps"][0]["index"] = 99
+    restored = ExplorationSession.from_dict(data, toolbox=toolbox)
+    assert restored.steps[0].index == 1
+
+
 def test_session_roundtrip_and_draft_text(toolbox):
     s = _recorded_session(toolbox)
     restored = ExplorationSession.from_dict(json.loads(json.dumps(s.to_dict())))
