@@ -84,6 +84,31 @@ def test_health_warns_when_vlm_missing(tmp_path):
     assert rep.ok is True and "VLM 未装配" in rep.detail
 
 
+def test_vision_scroll_and_drag_delegate_to_wininput(driver, monkeypatch):
+    from testpilot.infra import wininput
+
+    seen = []
+    monkeypatch.setattr(
+        wininput, "scroll_at",
+        lambda x, y, direction, amount, abort=None:
+            seen.append(("scroll", x, y, direction, amount)),
+    )
+    monkeypatch.setattr(
+        wininput, "drag_from",
+        lambda x, y, dx, dy, duration_ms, abort=None:
+            (seen.append(("drag", x, y, dx, dy, duration_ms)) or (x + dx, y + dy)),
+    )
+    el = LocatedElement(driver=None, handle=None, rect=(20, 30, 80, 40))
+    ctx = _ctx((0, 0, 300, 200))
+    driver.scroll(el, "up", 2, ctx)
+    driver.drag(el, 30, 10, 180, ctx)
+
+    assert seen == [
+        ("scroll", 60, 50, "up", 2),
+        ("drag", 60, 50, 30, 10, 180),
+    ]
+
+
 # ---------------------------------------------------------------- 模板库
 
 def test_learn_template_writes_file_and_returns_relative_name(driver):
