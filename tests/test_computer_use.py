@@ -148,6 +148,9 @@ def test_observe_builds_bounded_ax_snapshot_and_indexes():
     assert state["elements"][1]["selector"] == {
         "type": "uia", "automation_id": "sampleId", "control_type": "Edit"}
     assert state["elements"][1]["stable_key"] == "edit.sampleId"
+    assert state["elements"][1]["selector_quality"] == "high"
+    assert state["elements"][1]["selector_score"] >= 0.95
+    assert "AutomationId" in state["elements"][1]["selector_reason"]
     assert state["window_title"] == "主窗口"
     assert "set_value" in state["elements"][1]["actions"]
     assert state["truncated"] is False
@@ -155,6 +158,22 @@ def test_observe_builds_bounded_ax_snapshot_and_indexes():
     el, meta = session.resolve(3, snapshot_id=state["snapshot_id"])
     assert el.rect == (20, 140, 120, 36)
     assert meta["name"] == "开始检测"
+
+
+def test_duplicate_accessible_names_get_lower_selector_score():
+    a = Node("确认", "Button", "")
+    b = Node("确认", "Button", "")
+    root = Node("主窗口", "Window", "mainWindow", children=[a, b])
+    session = ComputerUseSession(
+        {"uia": FakeUiaDriver(root)},
+        ExecContext(run_id=0, case_exec_id=0, window_rect=(0, 0, 800, 600)),
+    )
+    state = session.observe()
+    buttons = [item for item in state["elements"] if item["name"] == "确认"]
+    assert len(buttons) == 2
+    assert all(item["selector_quality"] == "low" for item in buttons)
+    assert all(item["selector_score"] < 0.65 for item in buttons)
+    assert all("重复" in item["selector_reason"] for item in buttons)
 
 
 def test_query_registers_matches_without_screenshot():
