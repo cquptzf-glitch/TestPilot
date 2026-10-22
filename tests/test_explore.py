@@ -27,7 +27,8 @@ def toolbox():
 def test_list_tools_is_capability_whitelist(toolbox):
     names = [t["name"] for t in toolbox.list_tools()]
     assert {"app.list", "app.launch", "app.attach", "ui.click", "ui.input",
-            "ui.read", "ui.set_value", "ui.toggle", "ui.keypress", "assert.ui",
+            "ui.read", "ui.set_value", "ui.toggle", "ui.keypress",
+            "ui.scroll", "ui.drag", "assert.ui",
             "device.call", "device.scene", "device.state", "assert.state",
             "screen.grab"} <= set(names)
     # 每个工具都带头描述与 JSON Schema（MCP tools/list 形态）
@@ -160,6 +161,26 @@ def test_device_tools_and_screen_grab(toolbox):
 
     shot = toolbox.invoke("screen.grab", {})
     assert shot["bytes"] > 0 and shot["png_base64"]
+
+
+def test_scroll_and_drag_solidify_to_dsl(toolbox):
+    session = ExplorationSession(toolbox, case_id="TC-GESTURE")
+    session.call("ui.scroll", {
+        "key": "panel.list", "name": "结果列表", "control_type": "List",
+        "direction": "down", "amount": 4,
+    })
+    session.call("ui.drag", {
+        "key": "slider.threshold", "name": "阈值", "control_type": "Slider",
+        "dx": 60, "dy": 0, "duration_ms": 200,
+    })
+
+    case = session.to_case()
+    assert [step["action"] for step in case["steps"]] == ["ui.scroll", "ui.drag"]
+    assert case["steps"][0]["args"] == {"direction": "down", "amount": 4}
+    assert case["steps"][1]["args"] == {
+        "dx": 60, "dy": 0, "duration_ms": 200,
+    }
+    DslCase.model_validate(case)
 
 
 def test_assert_ui_verifies_and_solidifies(toolbox):
