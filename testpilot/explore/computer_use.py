@@ -294,6 +294,8 @@ class ComputerUseSession:
 
         return {
             "window_rect": list(root_rect) if root_rect else None,
+            "window_title": _safe_window_text(top),
+            "window_handle": int(getattr(top, "handle", 0) or 0),
             "elements": elements,
             "truncated": bool(queue) or depth_limited,
             "max_nodes": max_nodes,
@@ -318,6 +320,8 @@ class ComputerUseSession:
             "enabled": _safe_call_bool(wrapper, "is_enabled"),
         }
         record["actions"] = _actions_for(record, wrapper)
+        record["selector"] = _selector_for(record)
+        record["stable_key"] = _stable_key(record)
         return record
 
     @staticmethod
@@ -450,3 +454,43 @@ def _values_equal(actual: str, expected: str) -> bool:
         return math.isfinite(a) and math.isfinite(b) and a == b
     except (TypeError, ValueError):
         return False
+
+
+def _selector_for(record: dict) -> dict | None:
+    """从观察记录生成可持久化的首选 locator 候选。
+
+    AutomationId 优先；没有时退到 accessibleName + control_type。
+    只有 control_type 不足以稳定定位，因此返回 None。
+    """
+    automation_id = str(record.get("automation_id") or "").strip()
+    control_type = str(record.get("control_type") or "").strip()
+    name = str(record.get("name") or "").strip()
+    if automation_id:
+        out = {"type": "uia", "automation_id": automation_id}
+        if control_type:
+            out["control_type"] = control_type
+        return out
+    if name:
+        out = {"type": "uia", "name": name}
+        if control_type:
+            out["control_type"] = control_type
+        return out
+    return None
+
+
+def _stable_key(record: dict) -> str:
+    """生成探索期语义键候选；真正写入正式 DSL 前仍需人审。"""
+    automation_id = str(record.get("automation_id") or "").strip()
+    control_type = str(record.get("control_type") or "element").strip().lower()
+    name = str(record.get("name") or "").strip()
+    raw = automation_id or name or f"element_{record.get('element_index', 0)}"
+    cleaned = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in raw)
+    cleaned = cleaned.strip("._-") or f"element_{record.get('element_index', 0)}"
+    return f"{control_type}.{cleaned}"[:120]
+
+
+def _safe_window_text(wrapper) -> str:
+    try:
+        return str(wrapper.window_text() or "").strip()
+    except Exception:
+        return ""
