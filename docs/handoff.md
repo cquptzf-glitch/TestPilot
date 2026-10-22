@@ -6,6 +6,35 @@
 
 ---
 
+## 2026-10-22 自动化探索第二阶段收口
+
+当前开发策略仍是“功能优先 + 单元测试/契约测试/前端编译门禁”，真机 smoke 暂不阻塞提交。
+
+本阶段已完成：
+
+- Desktop 自动化探索工作台扩展为 **UIA / Vision / Device** 三种模式；
+- UIA observation 增加 selector 稳定度评分；
+- 重复控件自动生成 **ancestors 父级作用域链**，同父级仍重复时才退到局部 index；
+- UIA Driver 支持 ancestors 作用域逐级定位；
+- screenshot 点击可反查 UIA 元素，并可筛选“只看可操作控件”；
+- Vision 支持 desc/template 定位、点击、输入，并固化为 vision_only DSL；
+- assert.ui / assert.state / assert.vision 均可探索期立即验证并固化；
+- UI 动作可选择 **screenshot_diff**，只有 before/after 实际验证通过才写进 DSL；
+- 探索历史支持删除、排序、参数编辑；
+- Explore Session 可恢复，恢复时强制清空旧 element_index/UI 句柄；
+- observe/query/screenshot 历史证据做摘要压缩，避免 PNG base64 / UI 树长期占用内存和 localStorage；
+- Desktop 会把压缩后的探索 session 保存到 localStorage，引擎空会话时自动恢复；
+- Explore 与正式 task.run 使用同一 UI interaction mutex，避免争抢桌面输入；
+- 新增 Windows GitHub Actions 门禁：Python Ruff + Pytest、Desktop TypeScript/Vite build，不执行 smoke/打包。
+
+验证证据：
+
+- GitHub Actions run 对提交 `287bdece1755acedfd3ba34d2c1f4829c412da0d`：**Python unit + ruff = success；Desktop TypeScript build = success**。
+- 后续截图点选/过滤属于前端增量，仍由同一 CI workflow 持续校验。
+- 当前不把 Qt Widgets / Qt Quick / DPI / 干净机安装 smoke 作为功能开发阻塞项。
+
+当前剩余重点统一见 `docs/defect-backlog.md`，其中优先项是：真正隔离驱动实例的多 Explore Session、视觉截图框选生成 region/template、编辑后重跑并保留新证据，以及大截图 asset 化降低 JSON-RPC base64 开销。
+
 ## 2026-10-22 当前开发策略（覆盖下文旧“下一步”顺序）
 
 用户当前明确要求：
