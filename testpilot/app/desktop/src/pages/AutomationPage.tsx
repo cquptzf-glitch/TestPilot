@@ -32,6 +32,13 @@ export function AutomationPage() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [lastResult, setLastResult] = useState<Record<string, unknown> | null>(null);
+  const [toolNames, setToolNames] = useState<string[]>([]);
+  const [sceneId, setSceneId] = useState('normal_sample_a');
+  const [devicePath, setDevicePath] = useState('/state/run');
+  const [deviceExpect, setDeviceExpect] = useState('completed');
+  const [deviceCmd, setDeviceCmd] = useState('query_state');
+  const [deviceArgs, setDeviceArgs] = useState('{"path":"/state/run"}');
+  const [deviceResult, setDeviceResult] = useState<Record<string, unknown> | null>(null);
 
   const current = queryResult ?? observation;
   const elements = current?.matches ?? current?.elements ?? [];
@@ -70,7 +77,12 @@ export function AutomationPage() {
     setHistoryCount(out.session.steps.length);
   };
 
-  useEffect(() => { void refreshHistory().catch(() => {}); }, []);
+  useEffect(() => {
+    void refreshHistory().catch(() => {});
+    void call<{ tools: { name: string }[] }>('automation.tools')
+      .then((out) => setToolNames(out.tools.map((item) => item.name)))
+      .catch(() => setToolNames([]));
+  }, []);
 
   const run = async (label: string, fn: () => Promise<void>) => {
     if (busy) return;
@@ -161,6 +173,26 @@ export function AutomationPage() {
       await call('automation.removeStep', { index });
       setDraft(null);
     });
+
+  const deviceAction = (tool: string, args: Record<string, unknown>) =>
+    run('正在执行 ' + tool + '…', async () => {
+      const result = await invoke<Record<string, unknown>>(tool, args);
+      setDeviceResult(result);
+    });
+
+  const callDevice = () => {
+    let args: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(deviceArgs || '{}') as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+        throw new Error('设备指令参数必须是 JSON 对象');
+      args = parsed as Record<string, unknown>;
+    } catch (e) {
+      setError('设备指令参数不是合法 JSON 对象：' + msg(e));
+      return;
+    }
+    void deviceAction('device.call', { cmd: deviceCmd.trim(), args });
+  };
 
   const generateDraft = () => run('正在生成 DSL 草稿…', async () => {
     const out = await call<AutomationDraft>('automation.draft', {
@@ -339,10 +371,60 @@ export function AutomationPage() {
       </div>
     </section>
 
+    <section className="panel automation-device">
+      <div className="automation-section-head">
+        <div><strong>4. 设备与状态</strong><span className="muted">模拟器场景、指令、状态查询与可固化断言</span></div>
+        {!toolNames.includes('device.state') && <span className="badge blocked">模拟器不可用</span>}
+      </div>
+      <div className="automation-device-grid">
+        <div className="automation-device-card">
+          <strong>场景</strong>
+          <input value={sceneId} onChange={(e) => setSceneId(e.target.value)}
+                 placeholder="normal_sample_a" />
+          <button className="btn" disabled={!!busy || !toolNames.includes('device.scene') || !sceneId.trim()}
+                  onClick={() => void deviceAction('device.scene', { scene_id: sceneId.trim() })}>
+            加载场景
+          </button>
+        </div>
+        <div className="automation-device-card">
+          <strong>状态</strong>
+          <input value={devicePath} onChange={(e) => setDevicePath(e.target.value)}
+                 placeholder="/state/run" />
+          <input value={deviceExpect} onChange={(e) => setDeviceExpect(e.target.value)}
+                 placeholder="期望值，如 completed" />
+          <div className="hstack">
+            <button className="btn" disabled={!!busy || !toolNames.includes('device.state') || !devicePath.trim()}
+                    onClick={() => void deviceAction('device.state', { path: devicePath.trim() })}>
+              查询状态
+            </button>
+            <button className="btn primary"
+                    disabled={!!busy || !toolNames.includes('assert.state') || !devicePath.trim()}
+                    onClick={() => void deviceAction('assert.state', {
+                      path: devicePath.trim(), expect: deviceExpect, op: 'equals',
+                    })}>
+              断言并记录
+            </button>
+          </div>
+        </div>
+        <div className="automation-device-card command">
+          <strong>设备指令</strong>
+          <input value={deviceCmd} onChange={(e) => setDeviceCmd(e.target.value)}
+                 placeholder="指令名" />
+          <textarea value={deviceArgs} onChange={(e) => setDeviceArgs(e.target.value)}
+                    placeholder='{"key":"value"}' />
+          <button className="btn" disabled={!!busy || !toolNames.includes('device.call') || !deviceCmd.trim()}
+                  onClick={callDevice}>执行指令</button>
+        </div>
+        <pre className="automation-device-result">
+          {deviceResult ? JSON.stringify(deviceResult, null, 2) : '执行设备操作后在这里查看结果。'}
+        </pre>
+      </div>
+    </section>
+
     <section className="automation-bottom">
       <div className="panel automation-history">
         <div className="automation-section-head">
-          <div><strong>4. 操作历史</strong><span className="muted">观察步骤保留证据，但不会写入正式 DSL</span></div>
+          <div><strong>5. 操作历史</strong><span className="muted">观察步骤保留证据，但不会写入正式 DSL</span></div>
           <button className="btn ghost" onClick={() => void refreshHistory()}>刷新</button>
         </div>
         <div className="automation-history-list">
@@ -359,7 +441,7 @@ export function AutomationPage() {
 
       <div className="panel automation-draft">
         <div className="automation-section-head">
-          <div><strong>5. 固化为 DSL</strong><span className="muted">临时 element_index 会转换成稳定 locator 候选</span></div>
+          <div><strong>6. 固化为 DSL</strong><span className="muted">临时 element_index 会转换成稳定 locator 候选</span></div>
         </div>
         <div className="form-2col">
           <label>用例 ID<input value={caseId} onChange={(e) => setCaseId(e.target.value)} /></label>
