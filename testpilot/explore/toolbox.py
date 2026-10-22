@@ -28,7 +28,7 @@ class ToolSpec:
     name: str
     description: str
     params: dict = field(default_factory=dict)
-    needs: str = ""            # "" | "uia" | "driver" | "emulator"
+    needs: str = ""            # "" | "uia" | "vision" | "driver" | "emulator"
     capability: str = ""       # 非空时按 DriverManifest.capabilities 精确裁剪
 
     def to_dict(self) -> dict:
@@ -220,6 +220,18 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec("screen.grab", "截取当前画面（MCP 下会作为 image block 返回）", {
         "type": "object", "properties": {},
     }, needs="driver", capability="grab"),
+    ToolSpec("screen.save_template", "把当前窗口截图选区保存为视觉模板", {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "模板语义名/文件名"},
+            "region": {
+                "type": "array", "minItems": 4, "maxItems": 4,
+                "items": {"type": "integer"},
+                "description": "相对当前窗口截图的 [x,y,w,h]",
+            },
+        },
+        "required": ["name", "region"],
+    }, needs="vision"),
 )
 
 
@@ -243,6 +255,8 @@ class ToolBox:
             return any("grab" in getattr(getattr(d, "manifest", None),
                                          "capabilities", frozenset())
                        for d in self.drivers.values())
+        if spec.needs == "vision":
+            return self.drivers.get("vision") is not None
         if spec.needs == "uia":
             drv = self.drivers.get("uia")
             if drv is None:
@@ -591,6 +605,45 @@ class ToolBox:
         return {"path": path, "expect": expected, "actual": actual,
                 "op": op, "matched": True}
 
+    def _screen_save_template(self, args) -> dict:
+        """把当前窗口截图的相对选区保存到 VisionDriver.template_dir。
+
+        region 坐标与视觉 locator 一致：相对当前窗口截图左上角，而不是全屏绝对坐标。
+        文件名强制清洗且只允许落在模板目录根下，避免路径穿越。
+        """
+        from testpilot.drivers.vision_driver import sanitize_key
+        from testpilot.infra.imaging import decode_png, imwrite
+
+        vision = self.drivers.get("vision")
+        template_dir = getattr(vision, "template_dir", None)
+        if template_dir is None:
+            raise ToolError("视觉驱动未提供 template_dir，无法保存模板")
+        region = _validated_region(args.get("region"))
+        name = sanitize_key(str(_req(args, "name")))
+        filename = name if name.lower().endswith(".png") else name + ".png"
+
+        shot = self._grab_current()
+        img = decode_png(shot.png)
+        if img is None:
+            raise ToolError("当前截图无法解码，模板保存失败")
+        x, y, w, h = region
+        height, width = img.shape[:2]
+        if x < 0 or y < 0 or x + w > width or y + h > height:
+            raise ToolError(
+                f"模板区域超出截图范围: region={region} image={width}x{height}")
+        crop = img[y:y + h, x:x + w]
+        path = template_dir / filename
+        if not imwrite(path, crop):
+            raise ToolError(f"模板写入失败: {path}")
+        return {
+            "template": filename,
+            "path": str(path),
+            "region": region,
+            "width": w,
+            "height": h,
+            "bytes": path.stat().st_size,
+        }
+
     def _screen_grab(self, args) -> dict:
         shot = self._grab_shot(args.get("driver"))
         return {"png_base64": base64.b64encode(shot.png).decode("ascii"),
@@ -779,3 +832,15 @@ def _req_bool(args: dict, key: str) -> bool:
     if key not in args or not isinstance(args[key], bool):
         raise ToolError(f"参数 {key} 必须是 boolean")
     return args[key]
+
+
+def _validated_region(value) -> list[int]:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        raise ToolError("region 必须是 [x,y,w,h]")
+    try:
+        region = [int(v) for v in value]
+    except (TypeError, ValueError):
+        raise ToolError("region 必须是整数 [x,y,w,h]") from None
+    if region[0] < 0 or region[1] < 0 or region[2] <= 0 or region[3] <= 0:
+        raise ToolError("region 要求 x/y>=0 且 w/h>0")
+    return region
