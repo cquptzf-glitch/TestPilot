@@ -259,6 +259,35 @@ def test_automation_large_screenshot_uses_asset_transport(svc):
     assert not path.exists()
 
 
+def test_automation_rerun_large_screenshot_keeps_asset_transport(svc):
+    from pathlib import Path
+
+    from testpilot.core.contracts import Screenshot
+
+    service, _, _ = svc
+    session = service._automation({"sessionId": "asset-rerun"})
+    driver = session.toolbox.drivers["uia"]
+    driver.grab = lambda rect, ctx: Screenshot(
+        png=b"y" * (128 * 1024 + 64),
+        rect=(0, 0, 800, 600),
+    )
+
+    first = service.dispatch("automation.invoke", {
+        "sessionId": "asset-rerun",
+        "tool": "screen.grab",
+        "args": {},
+    })
+    assert first["result"]["screenshot_transport"] == "asset"
+
+    rerun = service.dispatch("automation.rerunStep", {
+        "sessionId": "asset-rerun",
+        "index": 1,
+    })["result"]
+    assert rerun["screenshot_transport"] == "asset"
+    assert "png_base64" not in rerun
+    assert Path(rerun["asset_path"]).exists()
+
+
 def test_automation_small_screenshot_stays_inline(svc):
     service, _, _ = svc
     out = service.dispatch("automation.invoke", {
