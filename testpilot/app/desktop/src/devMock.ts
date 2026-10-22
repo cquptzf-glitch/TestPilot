@@ -298,8 +298,163 @@ async function runMockJob(job: MockJob, params: Record<string, unknown>): Promis
   } catch (e) { job.status = 'failed'; job.error = String(e); }
 }
 
+
+const AUTO_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==';
+const AUTO_WINDOWS = [
+  { title: '仪器控制软件 - Demo', handle: 1001, pid: 5522, rect: [120, 80, 1280, 800] },
+  { title: 'TestPilot Device Simulator', handle: 1002, pid: 6688, rect: [1420, 120, 900, 720] },
+];
+let autoSnapshot = 0;
+let autoCaseId = 'TC-EXPLORE';
+let autoTitle = '自动化探索路径';
+let autoAttached = false;
+let autoSteps: any[] = [];
+let autoElements: any[] = [
+  { element_index: 1, depth: 0, parent_index: null, name: '仪器控制软件', automation_id: 'mainWindow',
+    control_type: 'Window', class_name: 'QWindow', framework_id: 'Qt', value: '',
+    rect: [0, 0, 1280, 800], visible: true, enabled: true, actions: ['click'],
+    stable_key: 'window.mainWindow',
+    selector: { type: 'uia', automation_id: 'mainWindow', control_type: 'Window' } },
+  { element_index: 2, depth: 1, parent_index: 1, name: '样本号', automation_id: 'sampleId',
+    control_type: 'Edit', class_name: 'QLineEdit', framework_id: 'Qt', value: 'S001',
+    rect: [80, 120, 240, 34], visible: true, enabled: true,
+    actions: ['click', 'input', 'set_value'], stable_key: 'edit.sampleId',
+    selector: { type: 'uia', automation_id: 'sampleId', control_type: 'Edit' } },
+  { element_index: 3, depth: 1, parent_index: 1, name: '开始检测', automation_id: 'startButton',
+    control_type: 'Button', class_name: 'QPushButton', framework_id: 'Qt', value: '',
+    rect: [80, 180, 130, 38], visible: true, enabled: true, actions: ['click'],
+    stable_key: 'button.startButton',
+    selector: { type: 'uia', automation_id: 'startButton', control_type: 'Button' } },
+  { element_index: 4, depth: 1, parent_index: 1, name: '自动保存', automation_id: 'autoSave',
+    control_type: 'CheckBox', class_name: 'QCheckBox', framework_id: 'Qt', value: 'false',
+    rect: [80, 240, 120, 30], visible: true, enabled: true, actions: ['click', 'toggle'],
+    stable_key: 'checkbox.autoSave',
+    selector: { type: 'uia', automation_id: 'autoSave', control_type: 'CheckBox' } },
+];
+
+function autoTarget(index: number): any {
+  return autoElements.find((e) => e.element_index === index);
+}
+
+function recordAuto(tool: string, args: Record<string, unknown>, ok: boolean,
+                    result?: Record<string, unknown>, error?: string): void {
+  autoSteps.push({
+    index: autoSteps.length + 1, tool, args: structuredClone(args), ok,
+    ms: Math.max(1, Math.round(4 + Math.random() * 28)),
+    driver: tool.startsWith('ui.') ? 'uia' : null, result, error,
+  });
+}
+
+function autoObservation(elements = autoElements): Record<string, unknown> {
+  autoSnapshot += 1;
+  return {
+    snapshot_id: autoSnapshot, include_ax: true, include_screenshot: true,
+    window_rect: [120, 80, 1280, 800], window_title: '仪器控制软件 - Demo',
+    window_handle: 1001, screenshot_rect: [120, 80, 1280, 800],
+    screenshot_bytes: 70, png_base64: AUTO_PNG,
+    elements: structuredClone(elements), truncated: false, max_nodes: 500, max_depth: 16,
+  };
+}
+
+function autoDraft(): Record<string, unknown> {
+  const steps: any[] = [];
+  for (const item of autoSteps) {
+    if (!item.ok) continue;
+    const target = item.result?.target as Record<string, unknown> | undefined;
+    const selector = target?.selector as Record<string, unknown> | undefined;
+    if (item.tool === 'app.attach') {
+      steps.push({ id: 's' + (steps.length + 1), action: 'app.launch',
+        args: { title_re: item.args.title_re }, source_text: '[探索] 附加被测窗口' });
+    } else if (item.tool === 'ui.click' && selector) {
+      steps.push({ id: 's' + (steps.length + 1), action: 'ui.click',
+        target: { key: target?.stable_key ?? 'explore.target', primary: selector },
+        source_text: '[探索] 点击 ' + (target?.name ?? 'target') });
+    } else if ((item.tool === 'ui.input' || item.tool === 'ui.set_value') && selector) {
+      const value = item.tool === 'ui.input' ? item.args.text : item.args.value;
+      steps.push({ id: 's' + (steps.length + 1), action: 'ui.input',
+        target: { key: target?.stable_key ?? 'explore.target', primary: selector },
+        value: String(value ?? ''), args: { clear: true },
+        source_text: '[探索] 输入 ' + String(value ?? '') });
+    } else if (item.tool === 'ui.toggle' && selector) {
+      steps.push({ id: 's' + (steps.length + 1), action: 'ui.toggle',
+        target: { key: target?.stable_key ?? 'explore.target', primary: selector },
+        value: item.args.checked ? 'true' : 'false', source_text: '[探索] 设置开关' });
+    }
+  }
+  return { case_id: autoCaseId, title: autoTitle, preconditions: [], steps,
+           notes: '开发态 Mock：由自动化探索会话生成，需人审确认。' };
+}
+
 async function rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
   switch (method) {
+    case 'automation.tools':
+      return { snapshot_id: autoSnapshot, tools: [
+        { name: 'app.list' }, { name: 'app.attach' }, { name: 'app.launch' },
+        { name: 'ui.observe' }, { name: 'ui.query' }, { name: 'ui.click' },
+        { name: 'ui.read' }, { name: 'ui.input' }, { name: 'ui.set_value' },
+        { name: 'ui.toggle' }, { name: 'ui.keypress' }, { name: 'ui.select' },
+      ] };
+    case 'automation.invoke': {
+      const tool = String(params.tool ?? '');
+      const args = (params.args ?? {}) as Record<string, unknown>;
+      let result: Record<string, unknown>;
+      if (tool === 'app.list') {
+        result = { windows: structuredClone(AUTO_WINDOWS), count: AUTO_WINDOWS.length };
+      } else if (tool === 'app.attach' || tool === 'app.launch') {
+        autoAttached = true;
+        autoSnapshot += 1;
+        result = { window_rect: [120, 80, 1280, 800],
+                   mode: tool === 'app.attach' ? 'attach' : 'launch',
+                   title_re: args.title_re };
+      } else if (tool === 'ui.observe') {
+        if (!autoAttached) throw new Error('尚未附加被测窗口');
+        result = autoObservation();
+      } else if (tool === 'ui.query') {
+        if (!autoAttached) throw new Error('尚未附加被测窗口');
+        autoSnapshot += 1;
+        const q = String(args.text ?? '').toLowerCase();
+        const ct = String(args.control_type ?? '').toLowerCase();
+        const matches = autoElements.filter((e) =>
+          (!q || String(e.name + ' ' + e.value + ' ' + e.automation_id).toLowerCase().includes(q)) &&
+          (!ct || String(e.control_type).toLowerCase() === ct));
+        result = { snapshot_id: autoSnapshot, matches: structuredClone(matches),
+                   truncated: false, visited_nodes: autoElements.length, limit: 100 };
+      } else {
+        const el = autoTarget(Number(args.element_index));
+        if (!el) throw new Error('element_index 已失效，请重新观察');
+        if (args.snapshot_id != null && Number(args.snapshot_id) !== autoSnapshot)
+          throw new Error('snapshot_id 已过期，请重新观察');
+        const target = { name: el.name, automation_id: el.automation_id,
+          control_type: el.control_type, stable_key: el.stable_key, selector: el.selector };
+        if (tool === 'ui.input' || tool === 'ui.set_value') {
+          el.value = String(tool === 'ui.input' ? args.text ?? '' : args.value ?? '');
+        } else if (tool === 'ui.toggle') {
+          el.value = args.checked ? 'true' : 'false';
+        }
+        result = { rect: el.rect, driver: 'uia', target, element_index: el.element_index,
+                   snapshot_id: autoSnapshot, value: el.value, read_back: el.value,
+                   verified: tool === 'ui.set_value' ? true : undefined,
+                   actual: tool === 'ui.set_value' ? el.value : undefined };
+      }
+      recordAuto(tool, args, true, result);
+      return { tool, result, history_count: autoSteps.length };
+    }
+    case 'automation.history':
+      return { session: { case_id: autoCaseId, title: autoTitle, notes: '',
+                          preconditions: [], steps: structuredClone(autoSteps) },
+               snapshot_id: autoSnapshot };
+    case 'automation.draft': {
+      if (params.caseId) autoCaseId = String(params.caseId);
+      if (params.title) autoTitle = String(params.title);
+      const item = autoDraft();
+      return { case: item, text: JSON.stringify(item, null, 2),
+               history_count: autoSteps.length };
+    }
+    case 'automation.reset':
+      autoSteps = []; autoSnapshot += 1; autoAttached = false;
+      autoCaseId = String(params.caseId ?? 'TC-EXPLORE');
+      autoTitle = String(params.title ?? '自动化探索路径');
+      return { ok: true, snapshot_id: autoSnapshot };
     case 'job.start': {
       if (mockJobs.some(j => j.status === 'queued' || j.status === 'running')) throw new Error('已有用例后台任务');
       const method = String(params.method);
