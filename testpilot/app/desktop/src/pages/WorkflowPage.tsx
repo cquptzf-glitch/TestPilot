@@ -73,6 +73,9 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
   const [windowTitle, setWindowTitle] = useState(() => restored('tp-flow-window-title', ''));
   const [exe, setExe] = useState(() => restored('tp-flow-exe', ''));
   const [targetPresets, setTargetPresets] = useState<AppTargetPreset[]>(loadTargetPresets);
+  const [selectedTargetPreset, setSelectedTargetPreset] = useState('');
+  const [targetPresetName, setTargetPresetName] = useState('');
+  const [targetPresets, setTargetPresets] = useState<AppTargetPreset[]>(loadTargetPresets);
   const [targetPresetId, setTargetPresetId] = useState('');
   const [targetPresetName, setTargetPresetName] = useState('');
   const [busy, setBusy] = useState('');
@@ -163,6 +166,7 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
   });
   const prepare = () => action('正在准备所选用例…', async () => {
     if (!chosen.length || chosen.length !== selected.length) throw new Error('请先选择用例');
+    rememberRecentTarget();
     if (chosen.length > 500) throw new Error('每批最多选择 500 条用例');
     let appTarget: Record<string, string> | undefined;
     if (windowTitle.trim() || exe.trim()) {
