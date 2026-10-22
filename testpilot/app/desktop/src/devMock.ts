@@ -485,9 +485,10 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
         const template = String(args.template ?? '');
         if (!desc && !template) throw new Error('视觉定位需要 desc 或 template');
         const rect = [650, 180, 180, 52];
+        const region = Array.isArray(args.region) ? args.region.map(Number) : undefined;
         const selector = template
-          ? { type: 'template', template }
-          : { type: 'visual', desc };
+          ? { type: 'template', template, region }
+          : { type: 'visual', desc, region };
         const target = {
           desc, template, stable_key: 'vision.' + (desc || template || 'target'),
           selector,
