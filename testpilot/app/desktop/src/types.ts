@@ -512,6 +512,9 @@ export interface AutomationElement {
   actions: string[];
   stable_key?: string;
   selector?: Record<string, unknown> | null;
+  selector_score?: number;
+  selector_quality?: 'high' | 'medium' | 'low';
+  selector_reason?: string;
 }
 
 export interface AutomationObservation {
