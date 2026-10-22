@@ -28,6 +28,7 @@ class ToolSpec:
     description: str
     params: dict = field(default_factory=dict)
     needs: str = ""            # "" | "uia" | "driver" | "emulator"
+    capability: str = ""       # 非空时按 DriverManifest.capabilities 精确裁剪
 
     def to_dict(self) -> dict:
         return {"name": self.name, "description": self.description,
@@ -70,7 +71,7 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         "properties": {
             "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
         },
-    }, needs="uia"),
+    }, needs="uia", capability="list_windows"),
     ToolSpec("app.launch", "启动被测程序；也允许仅 title_re 附加到已运行窗口", {
         "type": "object",
         "properties": {
@@ -79,7 +80,7 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
             "title_re": {"type": "string", "description": "主窗口标题正则"},
             "timeout_s": {"type": "number"},
         },
-    }, needs="uia"),
+    }, needs="uia", capability="launch"),
     ToolSpec("app.attach", "按窗口标题正则附加到已运行程序", {
         "type": "object",
         "properties": {
@@ -87,14 +88,14 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
             "timeout_s": {"type": "number", "default": 10},
         },
         "required": ["title_re"],
-    }, needs="uia"),
+    }, needs="uia", capability="attach"),
     ToolSpec("app.wait_ready", "等待被测窗口就绪", {
         "type": "object", "properties": {"timeout_ms": {"type": "integer"}},
-    }, needs="uia"),
+    }, needs="uia", capability="wait_ready"),
     ToolSpec("app.close", "关闭被测程序", {
         "type": "object",
         "properties": {"mode": {"type": "string", "enum": ["graceful", "force"]}},
-    }, needs="uia"),
+    }, needs="uia", capability="close"),
 
     ToolSpec("ui.observe", "读取当前 UI 状态；AX 与截图可按需选择", {
         "type": "object",
@@ -126,7 +127,7 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec("ui.locate", "定位控件（返回矩形、命中驱动与耗时）",
              _locate_schema(), needs="driver"),
     ToolSpec("ui.read", "读取控件当前文本/值",
-             _locate_schema(), needs="uia"),
+             _locate_schema(), needs="uia", capability="read_text"),
     ToolSpec("ui.click", "定位/解析元素并点击控件",
              _locate_schema(), needs="driver"),
     ToolSpec("ui.input", "定位/解析元素并输入文本",
@@ -140,13 +141,13 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
              }, required=("value",)), needs="uia"),
     ToolSpec("ui.select", "定位/解析元素并选择下拉项",
              _locate_schema({"value": {"type": "string"}},
-                            required=("value",)), needs="uia"),
+                            required=("value",)), needs="uia", capability="select"),
     ToolSpec("ui.toggle", "设置复选/开关控件状态并验证最终状态",
              _locate_schema({"checked": {"type": "boolean"}},
-                            required=("checked",)), needs="uia"),
+                            required=("checked",)), needs="uia", capability="toggle"),
     ToolSpec("ui.keypress", "向目标控件发送 pywinauto 键序列",
              _locate_schema({"keys": {"type": "string"}},
-                            required=("keys",)), needs="uia"),
+                            required=("keys",)), needs="uia", capability="keypress"),
 
     ToolSpec("device.scene", "加载模拟器场景（前置依赖）", {
         "type": "object", "properties": {"scene_id": {"type": "string"}},
@@ -182,9 +183,20 @@ class ToolBox:
         if spec.needs == "emulator":
             return self.emulator is not None
         if spec.needs == "uia":
-            return "uia" in self.drivers
+            drv = self.drivers.get("uia")
+            if drv is None:
+                return False
+            if spec.capability:
+                caps = getattr(getattr(drv, "manifest", None), "capabilities", frozenset())
+                return spec.capability in caps
+            return True
         if spec.needs == "driver":
-            return any(n in self.drivers for n in ("uia", "vision"))
+            candidates = [self.drivers.get(n) for n in ("uia", "vision")]
+            if not spec.capability:
+                return any(d is not None for d in candidates)
+            return any(spec.capability in getattr(getattr(d, "manifest", None),
+                                                  "capabilities", frozenset())
+                       for d in candidates if d is not None)
         return True
 
     def list_tools(self) -> list[dict]:
