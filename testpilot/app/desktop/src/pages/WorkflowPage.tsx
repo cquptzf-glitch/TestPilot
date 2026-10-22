@@ -14,6 +14,7 @@ interface AppTargetPreset {
   name: string;
   windowTitle: string;
   exe: string;
+  launchArgs: string;
   kind: 'preset' | 'recent';
   updatedAt: number;
 }
@@ -27,16 +28,24 @@ function loadTargetPresets(): AppTargetPreset[] {
     if (!raw) return [];
     const value = JSON.parse(raw) as unknown;
     if (!Array.isArray(value)) return [];
-    return value
-      .filter((item): item is AppTargetPreset => !!item && typeof item === 'object'
-        && typeof item.id === 'string' && typeof item.name === 'string'
-        && typeof item.windowTitle === 'string' && typeof item.exe === 'string'
-        && typeof item.updatedAt === 'number')
-      .map((item) => ({
-        ...item,
-        kind: item.kind === 'recent' ? 'recent' as const : 'preset' as const,
-      }))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+    const items: AppTargetPreset[] = [];
+    for (const item of value) {
+      if (!item || typeof item !== 'object') continue;
+      const row = item as Record<string, unknown>;
+      if (typeof row.id !== 'string' || typeof row.name !== 'string'
+        || typeof row.windowTitle !== 'string' || typeof row.exe !== 'string'
+        || typeof row.updatedAt !== 'number') continue;
+      items.push({
+        id: row.id,
+        name: row.name,
+        windowTitle: row.windowTitle,
+        exe: row.exe,
+        launchArgs: typeof row.launchArgs === 'string' ? row.launchArgs : '',
+        kind: row.kind === 'recent' ? 'recent' : 'preset',
+        updatedAt: row.updatedAt,
+      });
+    }
+    return items.sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, TARGET_PRESET_LIMIT);
   } catch {
     return [];
@@ -77,6 +86,7 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
   const [pullIds, setPullIds] = useState('');
   const [windowTitle, setWindowTitle] = useState(() => restored('tp-flow-window-title', ''));
   const [exe, setExe] = useState(() => restored('tp-flow-exe', ''));
+  const [launchArgs, setLaunchArgs] = useState(() => restored('tp-flow-launch-args', ''));
   const [targetPresets, setTargetPresets] = useState<AppTargetPreset[]>(loadTargetPresets);
   const [targetPresetId, setTargetPresetId] = useState('');
   const [targetPresetName, setTargetPresetName] = useState('');
@@ -102,6 +112,8 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
   useEffect(() => { sessionStorage.setItem('tp-flow-task', JSON.stringify(task)); }, [task]);
   useEffect(() => { sessionStorage.setItem('tp-flow-window-title', JSON.stringify(windowTitle)); }, [windowTitle]);
   useEffect(() => { sessionStorage.setItem('tp-flow-exe', JSON.stringify(exe)); }, [exe]);
+  useEffect(() => { sessionStorage.setItem('tp-flow-launch-args', JSON.stringify(launchArgs)); },
+    [launchArgs]);
   useEffect(() => { sessionStorage.setItem('tp-flow-remote', JSON.stringify(remote)); }, [remote]);
   useEffect(() => { sessionStorage.setItem('tp-flow-mode', JSON.stringify(mode)); }, [mode]);
   useEffect(() => { sessionStorage.setItem('tp-flow-case-retry', JSON.stringify(caseRetry)); }, [caseRetry]);
@@ -115,12 +127,14 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
     if (!preset) return;
     setWindowTitle(preset.windowTitle);
     setExe(preset.exe);
+    setLaunchArgs(preset.launchArgs);
     setTargetPresetName(preset.kind === 'preset' ? preset.name : '');
   };
 
   const saveTargetPreset = () => {
     const title = windowTitle.trim();
     const appExe = exe.trim();
+    const args = launchArgs.trim();
     if (!title && !appExe) {
       setError('请先填写窗口标题或程序路径，再保存目标预设');
       return;
@@ -132,7 +146,8 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
       : undefined;
     const id = existing?.id ?? ('target-' + now.toString(36));
     const next: AppTargetPreset = {
-      id, name, windowTitle: title, exe: appExe, kind: 'preset', updatedAt: now,
+      id, name, windowTitle: title, exe: appExe, launchArgs: args,
+      kind: 'preset', updatedAt: now,
     };
     const items = [next, ...targetPresets.filter((item) => item.id !== id)]
       .slice(0, TARGET_PRESET_LIMIT);
@@ -155,11 +170,12 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
   const rememberRecentTarget = () => {
     const title = windowTitle.trim();
     const appExe = exe.trim();
+    const args = launchArgs.trim();
     if (!title && !appExe) return;
 
     const now = Date.now();
     const sameTarget = (item: AppTargetPreset) =>
-      item.windowTitle === title && item.exe === appExe;
+      item.windowTitle === title && item.exe === appExe && item.launchArgs === args;
     const presets = targetPresets.filter((item) => item.kind === 'preset');
     const recents = [
       {
@@ -167,6 +183,7 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
         name: presetDefaultName(title, appExe),
         windowTitle: title,
         exe: appExe,
+        launchArgs: args,
         kind: 'recent' as const,
         updatedAt: now,
       },
@@ -200,7 +217,10 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
     let appTarget: Record<string, string> | undefined;
     if (windowTitle.trim() || exe.trim()) {
       appTarget = {};
-      if (exe.trim()) appTarget.exe = exe.trim();
+      if (exe.trim()) {
+        appTarget.exe = exe.trim();
+        if (launchArgs.trim()) appTarget.args = launchArgs.trim();
+      }
       if (windowTitle.trim()) appTarget.title_re = '.*' + windowTitle.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '.*';
     }
     const ids = (appTarget ? chosen : chosen.filter(needsAnalysis)).map(c => c.case_id);
@@ -311,8 +331,17 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
         {targetPresets.length > 0 && <p className="hint">
           常用预设与最近 5 个目标保存在本机；切换后会自动填入窗口标题和程序路径。
         </p>}
-        <div className="form-2col"><label>窗口标题<input aria-label="被测窗口标题" value={windowTitle} onChange={e => setWindowTitle(e.target.value)} placeholder="例如：仪器控制软件" /></label>
-          <label>程序路径（可选）<input aria-label="被测程序路径" value={exe} onChange={e => setExe(e.target.value)} placeholder="D:\\Software\\Instrument.exe" /></label></div>
+        <div className="form-2col"><label>窗口标题<input aria-label="被测窗口标题"
+          value={windowTitle} onChange={e => setWindowTitle(e.target.value)}
+          placeholder="例如：仪器控制软件" /></label>
+          <label>程序路径（可选）<input aria-label="被测程序路径"
+            value={exe} onChange={e => setExe(e.target.value)}
+            placeholder="D:\\Software\\Instrument.exe" /></label>
+          <label className="flow-target-launch-args">启动参数（可选）
+            <input aria-label="被测程序启动参数" value={launchArgs}
+              onChange={e => setLaunchArgs(e.target.value)}
+              placeholder='例如：--test-mode --config "D:\\Config\\test.yaml"' />
+          </label></div>
       </details>
       <div className="flow-footer"><span className="muted">{chosen.filter(needsAnalysis).length} 条待生成 · {chosen.filter(c => !approved(c) && !needsAnalysis(c)).length} 条待确认 · {chosen.filter(approved).length} 条可执行</span>
         <button className="btn primary large" disabled={locked || chosen.length === 0 || cases.loading} onClick={() => void prepare()}>
