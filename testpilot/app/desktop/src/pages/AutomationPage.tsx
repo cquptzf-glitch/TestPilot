@@ -57,6 +57,9 @@ export function AutomationPage() {
   const [query, setQuery] = useState('');
   const [controlType, setControlType] = useState('');
   const [actionableOnly, setActionableOnly] = useState(false);
+  const [treeActionFilter, setTreeActionFilter] = useState('');
+  const [treeControlFilter, setTreeControlFilter] = useState('');
+  const [collapsedElements, setCollapsedElements] = useState<Set<number>>(new Set());
   const [actionValue, setActionValue] = useState('');
   const [verifyDiff, setVerifyDiff] = useState(false);
   const [diffThreshold, setDiffThreshold] = useState('0.005');
@@ -93,12 +96,38 @@ export function AutomationPage() {
 
   const current = queryResult ?? observation;
   const elements = current?.matches ?? current?.elements ?? [];
-  const visibleElements = useMemo(
-    () => actionableOnly
-      ? elements.filter((item) => (item.actions ?? []).length > 0)
-      : elements,
-    [actionableOnly, elements],
+  const elementByIndex = useMemo(
+    () => new Map(elements.map((item) => [item.element_index, item])),
+    [elements],
   );
+  const childCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const item of elements) {
+      if (item.parent_index != null)
+        counts.set(item.parent_index, (counts.get(item.parent_index) ?? 0) + 1);
+    }
+    return counts;
+  }, [elements]);
+  const controlTypes = useMemo(
+    () => Array.from(new Set(elements.map((item) => item.control_type).filter(Boolean))).sort(),
+    [elements],
+  );
+  const actionTypes = useMemo(
+    () => Array.from(new Set(elements.flatMap((item) => item.actions ?? []))).sort(),
+    [elements],
+  );
+  const visibleElements = useMemo(() => elements.filter((item) => {
+    if (actionableOnly && !(item.actions ?? []).length) return false;
+    if (treeActionFilter && !(item.actions ?? []).includes(treeActionFilter)) return false;
+    if (treeControlFilter && item.control_type !== treeControlFilter) return false;
+    let parent = item.parent_index;
+    while (parent != null) {
+      if (collapsedElements.has(parent)) return false;
+      parent = elementByIndex.get(parent)?.parent_index ?? null;
+    }
+    return true;
+  }), [actionableOnly, collapsedElements, elementByIndex, elements,
+       treeActionFilter, treeControlFilter]);
   const selected = useMemo(
     () => elements.find((item) => item.element_index === selectedIndex) ?? null,
     [elements, selectedIndex],
@@ -215,6 +244,7 @@ export function AutomationPage() {
     });
     setObservation(out);
     setQueryResult(null);
+    setCollapsedElements(new Set());
     const replacement = preserveKey
       ? (out.elements ?? []).find((item) => item.stable_key === preserveKey)
       : undefined;
@@ -255,6 +285,7 @@ export function AutomationPage() {
       limit: 100,
     });
     setQueryResult(out);
+    setCollapsedElements(new Set());
     setSelectedIndex(null);
   });
 
@@ -670,6 +701,18 @@ export function AutomationPage() {
                    onChange={(e) => setActionableOnly(e.target.checked)} />
             只看可操作
           </label>
+          <select value={treeControlFilter}
+                  aria-label="元素树控件类型过滤"
+                  onChange={(e) => setTreeControlFilter(e.target.value)}>
+            <option value="">全部控件类型</option>
+            {controlTypes.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+          <select value={treeActionFilter}
+                  aria-label="元素树动作过滤"
+                  onChange={(e) => setTreeActionFilter(e.target.value)}>
+            <option value="">全部动作</option>
+            {actionTypes.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
           {queryResult && <button className="btn ghost" onClick={() => {
             setQueryResult(null);
             setSelectedIndex(null);
@@ -679,27 +722,47 @@ export function AutomationPage() {
           当前是定向查询结果；旧截图属于前一个 snapshot，因此不与当前元素坐标混用。
         </div>}
         <div className="automation-element-list">
-          {visibleElements.map((item) => <button key={item.element_index}
-            className={selectedIndex === item.element_index
-              ? 'automation-element selected' : 'automation-element'}
-            style={{ paddingLeft: 10 + Math.min(item.depth, 8) * 12 }}
-            onClick={() => {
-              setSelectedIndex(item.element_index);
-              setActionValue(item.value ?? '');
-            }}>
-            <span className="automation-index">{item.element_index}</span>
-            <span className="automation-element-main">
-              <strong>{item.name || item.automation_id || '(未命名元素)'}</strong>
-              <small>{(item.control_type || 'Unknown')
-                + (item.automation_id ? ' · #' + item.automation_id : '')}</small>
-            </span>
-            {item.selector_quality && <span
-              className={'selector-quality ' + item.selector_quality}
-              title={item.selector_reason || '定位稳定性'}>
-              {item.selector_score != null ? Math.round(item.selector_score * 100) : '—'}
-            </span>}
-            {item.value && <span className="automation-value">{item.value}</span>}
-          </button>)}
+          {visibleElements.map((item) => {
+            const childCount = childCounts.get(item.element_index) ?? 0;
+            const collapsed = collapsedElements.has(item.element_index);
+            return <div key={item.element_index}
+              className={selectedIndex === item.element_index
+                ? 'automation-element selected' : 'automation-element'}
+              style={{ paddingLeft: 6 + Math.min(item.depth, 8) * 12 }}>
+              {childCount > 0
+                ? <button type="button" className="automation-tree-toggle"
+                    aria-label={(collapsed ? '展开' : '折叠') + (item.name || item.control_type)}
+                    title={collapsed ? '展开子元素' : '折叠子元素'}
+                    onClick={() => setCollapsedElements((current) => {
+                      const next = new Set(current);
+                      if (next.has(item.element_index)) next.delete(item.element_index);
+                      else next.add(item.element_index);
+                      return next;
+                    })}>
+                    {collapsed ? '▸' : '▾'}
+                  </button>
+                : <span className="automation-tree-toggle placeholder" />}
+              <button type="button" className="automation-element-select"
+                onClick={() => {
+                  setSelectedIndex(item.element_index);
+                  setActionValue(item.value ?? '');
+                }}>
+                <span className="automation-index">{item.element_index}</span>
+                <span className="automation-element-main">
+                  <strong>{item.name || item.automation_id || '(未命名元素)'}</strong>
+                  <small>{(item.control_type || 'Unknown')
+                    + (item.automation_id ? ' · #' + item.automation_id : '')
+                    + (childCount ? ' · ' + childCount + ' 子项' : '')}</small>
+                </span>
+                {item.selector_quality && <span
+                  className={'selector-quality ' + item.selector_quality}
+                  title={item.selector_reason || '定位稳定性'}>
+                  {item.selector_score != null ? Math.round(item.selector_score * 100) : '—'}
+                </span>}
+                {item.value && <span className="automation-value">{item.value}</span>}
+              </button>
+            </div>;
+          })}
           {!visibleElements.length && <div className="automation-empty">
             暂无 UI 元素。附加窗口后会自动观察界面。
           </div>}
