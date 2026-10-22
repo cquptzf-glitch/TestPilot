@@ -95,7 +95,8 @@ class FakeDriver:
             kind="interaction", name=name, version="test",
             capabilities=frozenset(capabilities or {
                 "click", "input", "select", "grab", "wait_ready", "wait_gone",
-                "launch", "close", "read_text"}),
+                "launch", "attach", "close", "read_text", "toggle", "keypress",
+                "list_windows"}),
             entry="")
         self.fail_locate = fail_locate
         self.fail_action = fail_action
@@ -157,6 +158,23 @@ class FakeDriver:
         self.calls.append(("launch", spec))
         self.launched = spec
         return (0, 0, 800, 600)
+
+    def attach(self, title_re, timeout_s=10):
+        self.calls.append(("attach", title_re))
+        self.launched = {"title_re": title_re}
+        return (0, 0, 800, 600)
+
+    def list_windows(self, limit=100):
+        return [{"title": "Fake App", "handle": 1, "pid": 123,
+                 "rect": [0, 0, 800, 600]}][:limit]
+
+    def toggle(self, el, checked, ctx):
+        ctx.abort.check()
+        self._act("toggle", el, bool(checked))
+
+    def keypress(self, el, keys, ctx):
+        ctx.abort.check()
+        self._act("keypress", el, keys)
 
     def close(self, mode="graceful"):
         self.calls.append(("close", mode))
