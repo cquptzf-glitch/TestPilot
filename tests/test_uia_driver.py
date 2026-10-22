@@ -189,6 +189,28 @@ def test_list_windows_returns_visible_native_windows(uia):
     assert rows[0]["rect"] == [10, 20, 100, 30]
 
 
+def test_locate_walks_ancestor_scope_chain(uia):
+    button = FakeWindow(text="确认")
+    panel = FakeWindow(text="结果面板", child=button)
+    root = FakeWindow(text="主窗口", child=panel)
+    uia._top = root
+
+    loc = Locator.model_validate({
+        "type": "uia",
+        "name": "确认",
+        "control_type": "Button",
+        "ancestors": [
+            {"automation_id": "resultPanel", "control_type": "Pane"},
+        ],
+    })
+    out = uia.locate(loc, _ctx(), timeout_ms=50)
+
+    assert out.handle is button
+    assert root.crits[0]["auto_id"] == "resultPanel"
+    assert root.crits[0]["control_type"] == "Pane"
+    assert panel.crits[0]["control_type"] == "Button"
+
+
 def test_attach_handle_uses_exact_native_window(uia):
     rect = uia.attach_handle(12345, timeout_s=0.2)
     assert rect == (10, 20, 100, 30)
