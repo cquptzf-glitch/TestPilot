@@ -27,7 +27,10 @@ class Locator(BaseModel):
     desc: str | None = None            # 语义描述（visual）
     template: str | None = None        # 模板图相对路径（template）
     region: tuple[int, int, int, int] | None = None  # 限定搜索区域 x,y,w,h
-    index: int = Field(default=0, ge=0)  # 多匹配时取第几个
+    ancestors: list[dict[str, str]] = Field(default_factory=list)
+    # UIA 父级作用域链（根 -> 最近父级），每段支持 name/automation_id/control_type。
+    # 用于同名/重复控件稳定定位；视觉 locator 忽略此字段。
+    index: int = Field(default=0, ge=0)  # 当前作用域内多匹配时取第几个
     row: int | None = Field(default=None, ge=0)  # 表格行（0 起）
     column: int | None = Field(default=None, ge=0)  # 表格列（0 起）
 
