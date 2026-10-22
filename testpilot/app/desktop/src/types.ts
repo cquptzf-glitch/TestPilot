@@ -485,3 +485,78 @@ export interface RunProgressPayload {
   phase?: string;
   stats?: RunStats;
 }
+
+
+/* ---------------------------------------------------------------- 自动化探索 */
+
+export interface AutomationWindow {
+  title: string;
+  handle: number;
+  pid: number | null;
+  rect: number[] | null;
+}
+
+export interface AutomationElement {
+  element_index: number;
+  depth: number;
+  parent_index: number | null;
+  name: string;
+  automation_id: string;
+  control_type: string;
+  class_name: string;
+  framework_id: string;
+  value: string;
+  rect: number[];
+  visible: boolean | null;
+  enabled: boolean | null;
+  actions: string[];
+  stable_key?: string;
+  selector?: Record<string, unknown> | null;
+}
+
+export interface AutomationObservation {
+  snapshot_id: number;
+  include_ax?: boolean;
+  include_screenshot?: boolean;
+  window_rect?: number[] | null;
+  window_title?: string;
+  window_handle?: number;
+  screenshot_rect?: number[];
+  screenshot_bytes?: number;
+  png_base64?: string;
+  elements?: AutomationElement[];
+  matches?: AutomationElement[];
+  truncated?: boolean;
+  visited_nodes?: number;
+}
+
+export interface AutomationHistoryStep {
+  index: number;
+  tool: string;
+  args: Record<string, unknown>;
+  ok: boolean;
+  ms: number;
+  driver?: string | null;
+  result?: Record<string, unknown> | null;
+  error?: string | null;
+}
+
+export interface AutomationHistory {
+  case_id: string;
+  title: string;
+  notes?: string;
+  preconditions?: string[];
+  steps: AutomationHistoryStep[];
+}
+
+export interface AutomationDraft {
+  case: {
+    case_id: string;
+    title: string;
+    notes?: string;
+    preconditions?: string[];
+    steps: unknown[];
+  };
+  text: string;
+  history_count: number;
+}
