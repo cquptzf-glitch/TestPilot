@@ -13,7 +13,8 @@ from testpilot.explore.toolbox import ToolBox, ToolError
 DSL_TOOLS = (
     "app.launch", "app.attach", "app.wait_ready", "app.close",
     "ui.locate", "ui.click", "ui.input", "ui.set_value", "ui.select",
-    "ui.toggle", "ui.keypress", "assert.ui", "assert.state", "assert.vision",
+    "ui.toggle", "ui.keypress", "ui.scroll", "ui.drag",
+    "assert.ui", "assert.state", "assert.vision",
     "device.scene", "device.call",
 )
 
@@ -258,7 +259,7 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
                 "source_text": "[探索] 关闭被测程序"}
 
     if tool in ("ui.locate", "ui.click", "ui.input", "ui.set_value",
-                "ui.select", "ui.toggle", "ui.keypress"):
+                "ui.select", "ui.toggle", "ui.keypress", "ui.scroll", "ui.drag"):
         target = _target_of(args, result)
         if target is None:
             return None
@@ -270,6 +271,8 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
             "ui.select": "ui.select",
             "ui.toggle": "ui.toggle",
             "ui.keypress": "ui.keypress",
+            "ui.scroll": "ui.scroll",
+            "ui.drag": "ui.drag",
         }[tool]
         driver_name = str(result.get("driver") or args.get("driver") or "")
         if tool == "ui.click" and driver_name == "vision":
@@ -295,6 +298,17 @@ def _to_dsl_step(step: ExploreStep) -> dict | None:
             out["value"] = "true" if bool(args.get("checked")) else "false"
         elif tool == "ui.keypress":
             out["value"] = str(args.get("keys") or "")
+        elif tool == "ui.scroll":
+            out["args"] = {
+                "direction": str(args.get("direction") or ""),
+                "amount": int(args.get("amount", 3)),
+            }
+        elif tool == "ui.drag":
+            out["args"] = {
+                "dx": int(args.get("dx", 0)),
+                "dy": int(args.get("dy", 0)),
+                "duration_ms": int(args.get("duration_ms", 300)),
+            }
 
         # 只有探索现场的 before/after 真正验证通过，才把 screenshot_diff
         # 写进正式 DSL；不能只信调用方传入 verify_diff=true。
@@ -444,6 +458,11 @@ def _describe(tool: str, args: dict, result: dict | None = None) -> str:
         return f"设置 {key} 为 {'选中' if args.get('checked') else '未选中'}"
     if tool == "ui.keypress":
         return f"在 {key} 发送按键 {args.get('keys')!r}"
+    if tool == "ui.scroll":
+        return f"在 {key} 向 {args.get('direction')} 滚动 {args.get('amount', 3)} 格"
+    if tool == "ui.drag":
+        return (f"从 {key} 拖拽 dx={args.get('dx', 0)} "
+                f"dy={args.get('dy', 0)}")
     if tool == "ui.locate":
         return f"等待 {key} 出现"
     if tool == "assert.ui":
