@@ -25,7 +25,7 @@ MANIFEST = DriverManifest(
     version="1.1.0",
     capabilities=frozenset({"click", "input", "select", "grab", "wait_ready",
                             "wait_gone", "launch", "attach", "close", "read_text",
-                            "toggle", "keypress", "list_windows"}),
+                            "toggle", "keypress", "scroll", "drag", "list_windows"}),
     config_schema={"type": "object", "properties": {
         "backend": {"type": "string", "default": "uia"},
         "uia_timeout_ms": {"type": "integer", "default": 3000},
@@ -435,6 +435,55 @@ class UIADriver:
             el.handle.click_input()  # 真实鼠标事件（走完整消息链）
         except Exception as e:
             raise ActionError(f"点击失败: {e}") from e
+
+    def scroll(self, el: LocatedElement, direction: str, amount: int,
+               ctx: ExecContext) -> None:
+        """在目标控件中心发送物理滚轮；用于列表/面板等滚动区域。"""
+        ctx.abort.check()
+        try:
+            from testpilot.infra.wininput import scroll_at
+            self._focus_window()
+            cx, cy = self._action_center(el)
+            scroll_at(cx, cy, direction, amount, ctx.abort)
+        except (ActionError, AbortRequested):
+            raise
+        except Exception as e:
+            raise ActionError(
+                f"滚动失败: direction={direction!r} amount={amount!r} ({e})") from e
+
+    def drag(self, el: LocatedElement, dx: int, dy: int, duration_ms: int,
+             ctx: ExecContext) -> None:
+        """从目标控件中心按相对位移拖拽；终点必须仍位于被测窗口内。"""
+        ctx.abort.check()
+        try:
+            from testpilot.infra.wininput import drag_from
+            self._focus_window()
+            cx, cy = self._action_center(el)
+            end_x, end_y = cx + int(dx), cy + int(dy)
+            if self._top is not None:
+                area = self._top.rectangle()
+                if not (area.left <= end_x < area.right
+                        and area.top <= end_y < area.bottom):
+                    raise ActionError(
+                        f"拖拽终点 ({end_x},{end_y}) 超出当前被测窗口")
+            drag_from(cx, cy, int(dx), int(dy), int(duration_ms), ctx.abort)
+        except (ActionError, AbortRequested):
+            raise
+        except Exception as e:
+            raise ActionError(
+                f"拖拽失败: dx={dx!r} dy={dy!r} duration_ms={duration_ms!r} ({e})") from e
+
+    def _action_center(self, el: LocatedElement) -> tuple[int, int]:
+        """返回可安全输入的控件中心，并拒绝窗口外/零尺寸目标。"""
+        x, y, w, h = el.rect
+        if w <= 0 or h <= 0:
+            raise ActionError("目标控件没有可操作几何区域")
+        cx, cy = x + w // 2, y + h // 2
+        if self._top is not None:
+            area = self._top.rectangle()
+            if not (area.left <= cx < area.right and area.top <= cy < area.bottom):
+                raise ActionError("目标控件中心不在当前窗口内")
+        return cx, cy
 
     def input_text(self, el: LocatedElement, text: str, ctx: ExecContext) -> None:
         ctx.abort.check()
