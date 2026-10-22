@@ -119,6 +119,26 @@ def test_automation_rpc_session_history_and_draft(svc):
     assert service.dispatch("automation.history", {})["session"]["steps"] == []
 
 
+def test_automation_rpc_restore_session(svc):
+    service, _, _ = svc
+    service.dispatch("automation.invoke", {
+        "tool": "ui.click",
+        "args": {"key": "btn.start", "name": "开始检测", "control_type": "Button"},
+    })
+    saved = service.dispatch("automation.history", {})["session"]
+    saved["steps"][0]["index"] = 77
+
+    service.dispatch("automation.reset", {})
+    restored = service.dispatch("automation.restore", {"session": saved})
+    assert restored["history_count"] == 1
+    assert restored["session"]["steps"][0]["index"] == 1
+    assert restored["session"]["steps"][0]["tool"] == "ui.click"
+
+    with pytest.raises(RpcError) as e:
+        service.dispatch("automation.restore", {"session": {"steps": "bad"}})
+    assert e.value.code == INVALID_PARAMS
+
+
 def test_automation_rpc_rejects_ui_actions_while_run_is_active(svc):
     service, orch, _ = svc
     orch._in_run.set()
