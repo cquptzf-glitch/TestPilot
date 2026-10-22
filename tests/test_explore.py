@@ -236,6 +236,19 @@ def test_session_to_case_maps_tools_and_passes_dsl_validation(toolbox):
     assert "跳过 1 步" in case["notes"]          # device.state 是观测步骤
 
 
+def test_unverified_diff_flag_is_not_solidified(toolbox):
+    session = ExplorationSession(toolbox, case_id="TC-NO-FAKE-DIFF")
+    session.call("ui.keypress", {
+        "name": "输入框",
+        "control_type": "Edit",
+        "keys": "{ENTER}",
+        "verify_diff": True,
+    })
+    step = session.to_case()["steps"][0]
+    assert step["action"] == "ui.keypress"
+    assert "verify" not in step
+
+
 def test_explored_action_can_verify_and_solidify_screenshot_diff():
     from testpilot.engine.verifier import Verifier
 
