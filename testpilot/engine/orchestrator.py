@@ -69,6 +69,7 @@ class TaskOrchestrator:
             cfg["emulator"])
         self.kb = KnowledgeService(self.conn, cfg["knowledge"])
 
+        self._drivers_injected = drivers is not None
         if drivers is None:
             # vision 驱动需要 LLM 网关（VLM 定位/视觉断言）：走注册表工厂绑定注入，
             # 而不是运行时属性后置注入（工程约定：依赖构造期完成装配）。
@@ -97,6 +98,30 @@ class TaskOrchestrator:
                                  self.judge, self.kb, self.recorder,
                                  self.emulator, self.llm, cfg["driver"],
                                  bus=self.bus)
+
+    def create_explore_drivers(self) -> dict:
+        """为一个 Explore session 创建独立 interaction driver 集合。
+
+        UIADriver 持有当前窗口句柄/缓存，多个探索会话复用同一实例会互相覆盖
+        当前窗口。正常装配走 registry 重建；测试/高级调用方显式注入 drivers 时，
+        用 deepcopy 保留替身语义并隔离 calls/窗口状态。
+        """
+        if self._drivers_injected:
+            import copy
+            try:
+                return {name: copy.deepcopy(driver)
+                        for name, driver in self.drivers.items()}
+            except Exception as e:
+                raise TestPilotError(
+                    f"显式注入的驱动无法为 Explore session 独立复制: {e}") from e
+
+        drivers = {}
+        for name in self.registry.names(kind="interaction"):
+            try:
+                drivers[name] = self.registry.create(name, self.cfg.get(name, {}))
+            except Exception as e:
+                log.warning(f"Explore 驱动 {name} 独立装配跳过: {e}")
+        return drivers
 
     # ---------- 对外 API（CLI 与 RPC 共用） ----------
 
