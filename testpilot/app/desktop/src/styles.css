@@ -1528,6 +1528,38 @@ details.task-create { margin-bottom: 22px; }
 .flow-target { margin: 22px 0; padding: 14px 0; border-top: 1px solid var(--c-border); }
 .flow-target summary { cursor: pointer; color: var(--c-text-dim); font-size: 12px; }
 .flow-target p { font-size: 12px; line-height: 1.7; }
+.flow-target-presets {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-panel-soft);
+}
+
+.flow-target-presets > label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: var(--c-text-dim);
+  font-size: 12px;
+}
+
+.flow-target-preset-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 780px) {
+  .flow-target-presets { grid-template-columns: 1fr; }
+  .flow-target-preset-actions { flex-wrap: wrap; }
+}
+
 .flow-target .form-2col { margin-top: 18px; }
 .flow-target .form-2col > label { display: grid; gap: 8px; font-size: 12px; }
 .flow-target .form-2col > label.hstack { display: flex; }
