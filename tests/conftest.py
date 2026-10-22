@@ -96,7 +96,7 @@ class FakeDriver:
             capabilities=frozenset(capabilities or {
                 "click", "input", "select", "grab", "wait_ready", "wait_gone",
                 "launch", "attach", "close", "read_text", "toggle", "keypress",
-                "list_windows"}),
+                "scroll", "drag", "list_windows"}),
             entry="")
         self.fail_locate = fail_locate
         self.fail_action = fail_action
@@ -180,6 +180,14 @@ class FakeDriver:
     def keypress(self, el, keys, ctx):
         ctx.abort.check()
         self._act("keypress", el, keys)
+
+    def scroll(self, el, direction, amount, ctx):
+        ctx.abort.check()
+        self._act("scroll", el, (direction, int(amount)))
+
+    def drag(self, el, dx, dy, duration_ms, ctx):
+        ctx.abort.check()
+        self._act("drag", el, (int(dx), int(dy), int(duration_ms)))
 
     def close(self, mode="graceful"):
         self.calls.append(("close", mode))
