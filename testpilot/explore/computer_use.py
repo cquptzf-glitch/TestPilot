@@ -420,10 +420,12 @@ def _safe_call_bool(obj, name: str) -> bool | None:
 
 
 def _actions_for(record: dict, wrapper) -> list[str]:
+    """给 Agent 的轻量操作建议；最终仍以 DriverManifest capability 为门禁。"""
     actions = []
     control_type = str(record.get("control_type") or "")
-    if callable(getattr(wrapper, "click_input", None)):
-        actions.append("click")
+    clickable = callable(getattr(wrapper, "click_input", None))
+    if clickable:
+        actions.extend(["click", "right_click"])
     if callable(getattr(wrapper, "set_edit_text", None)) or control_type in (
             "Edit", "Document", "Spinner"):
         actions.extend(["input", "set_value"])
@@ -432,6 +434,11 @@ def _actions_for(record: dict, wrapper) -> list[str]:
         actions.append("select")
     if control_type == "CheckBox" or callable(getattr(wrapper, "get_toggle_state", None)):
         actions.append("toggle")
+    if control_type in (
+            "List", "Tree", "Table", "DataGrid", "Pane", "Document", "ScrollBar"):
+        actions.append("scroll")
+    if control_type in ("Slider", "ScrollBar", "ListItem", "TreeItem"):
+        actions.append("drag")
     return list(dict.fromkeys(actions))
 
 
