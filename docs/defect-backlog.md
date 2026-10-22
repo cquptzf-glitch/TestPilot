@@ -24,7 +24,13 @@
 | A-007 | P1 | DONE | 工具 capability 裁剪 | Agent/UI 只看到当前驱动真正支持的工具，避免“工具可见但调用必失败”。 |
 | A-008 | P1 | DONE | 开始测试执行前确认 | 补齐驱动模式、失败用例复跑、禅道同步、执行摘要，并把选择持久化到 sessionStorage。 |
 | A-009 | P1 | DONE | 自动化 UI 可视化优化 | 选中元素会在截图上高亮；动作按钮按元素能力禁用；动作后刷新仍保持稳定元素选中。 |
-| A-010 | P1 | DOING | CI 单测门禁 | 新增 GitHub Actions：Windows Python 单测+ruff、Desktop TypeScript/Vite build；不跑 smoke、不打包。 |
+| A-010 | P1 | DOING | CI 单测门禁 | 新增 GitHub Actions：Windows Python 单测+ruff、Desktop TypeScript/Vite build；不跑 smoke、不打包。此前已确认 Desktop build 成功；当前等待本批最新提交完整 run。 |
+| A-011 | P1 | DONE | 视觉探索模式 | Desktop 支持 visual desc/template 定位、点击与输入；视觉动作固化为 vision_only，避免回归时误走 UIA。 |
+| A-012 | P1 | DONE | 状态/视觉/截图差异断言 | assert.state / assert.vision 已可现场验证并固化；UI 动作可选择 screenshot_diff 并现场验证画面变化。 |
+| A-013 | P1 | DONE | 探索会话恢复 | RPC 支持 restore；Desktop 自动将探索历史压缩保存到 localStorage，并可在引擎重启后恢复。 |
+| A-014 | P1 | DONE | 探索步骤编辑与排序 | history 支持参数编辑、上移/下移、删除；固化顺序实时跟随历史。 |
+| A-015 | P1 | DONE | Locator 稳定度与父级链 | observation 给 selector 打分；重复元素自动加入 ancestors 父级作用域链，同父级仍重复时退到局部 index。 |
+| A-016 | P1 | DONE | 探索历史压缩 | observe/query/screenshot 的历史只保存摘要，不把 PNG base64 与整棵 UI 树长期塞进会话。 |
 
 ## 当前开放缺陷 / 不足
 
@@ -32,13 +38,9 @@
 
 | ID | 状态 | 缺口 | 影响 | 下一步 |
 |---|---|---|---|---|
-| A-101 | TODO | Desktop Explore 仍以 UIA element 为主，视觉 desc/template 定位没有完整操作面板 | Qt Quick Canvas、自绘控件、无 Accessibility 控件的探索效率低 | 增加“视觉定位”模式：截图选区/语义描述/模板定位，并可作为 fallback 固化到 DSL。 |
-| A-102 | TODO | 探索会话仅内存保存 | 引擎重启后历史丢失，长探索无法恢复 | 增加 session save/load/export；优先 JSON 文件或 DB 独立表，不污染正式 DSL。 |
-| A-103 | TODO | device.scene/device.call/device.state 后端工具已有，桌面 Explore 未提供专门 UI | 涉及模拟器/设备状态的路径仍需 MCP/手写参数 | 增加设备面板、场景下拉、指令 schema 表单、状态查看。 |
-| A-104 | TODO | Explore 只新增了文本断言；状态断言、视觉断言、截图 diff 未可视化 | 生成用例的“预期结果”能力仍不完整 | 增加 assert.state / assert.vision / screenshot_diff 的探索工具与 UI。 |
-| A-105 | TODO | 历史可删除但不能拖拽排序、就地编辑参数 | 误顺序或参数修改仍需删掉重做/进 DSL 页改 | 增加 reorder / edit-step RPC；编辑后重新做 DSL semantic validation。 |
-| A-106 | TODO | 自动生成 locator 只用 AutomationId 或 Name，尚无层级/父子上下文 | AutomationId 缺失且同名元素多时稳定性不足 | 引入 selector score：AutomationId > Name+ControlType > parent chain；低稳定度标黄人审。 |
 | A-107 | TODO | 同一 RPC service 只有一个全局 Explore session | 多窗口/多工作流并行探索会互相覆盖上下文 | 引入 sessionId，桌面默认一个，MCP/Agent 可创建多个逻辑 session。 |
+| A-108 | TODO | 视觉探索已有 desc/template，但还不能在截图上框选/点击生成 region 或模板 | 视觉 locator 仍需手填描述/模板路径 | 增加截图 click-to-target、框选 region、选区保存模板。 |
+| A-109 | TODO | 探索步骤参数编辑不会重新执行动作 | 参数修正后只有固化文本变化，执行证据仍是旧参数 | 提供“编辑并重跑”动作；保留旧证据并追加新 attempt，而不是覆盖历史。 |
 
 ### P2 — 体验 / 性能 / 工程债
 
