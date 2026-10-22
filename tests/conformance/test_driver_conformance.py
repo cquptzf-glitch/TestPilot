@@ -31,8 +31,8 @@ ALL_MANIFESTS = (UIA_MANIFEST, VISION_MANIFEST, EMU_MANIFEST)
 
 # Driver 协议要求实现的方法（设计 5.1）
 DRIVER_PROTOCOL_METHODS = (
-    "health", "locate", "click", "input_text", "select", "grab",
-    "wait_ready", "wait_gone",
+    "health", "locate", "click", "right_click", "input_text", "select",
+    "scroll", "drag", "grab", "wait_ready", "wait_gone",
 )
 
 
@@ -144,8 +144,8 @@ def test_registry_registers_all_builtin_manifests():
         reg.register(manifest)
     assert reg.names(kind="interaction") == ["uia", "vision"]   # 按 priority 升序
     assert reg.names(kind="device") == ["emulator"]
-    assert "click" in reg.capabilities("uia")
-    assert "grab" in reg.capabilities("vision")
+    assert {"click", "right_click", "scroll", "drag"} <= reg.capabilities("uia")
+    assert {"grab", "right_click", "scroll", "drag"} <= reg.capabilities("vision")
 
 
 def test_uia_manifest_declares_launch_and_close():
