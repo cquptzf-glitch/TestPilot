@@ -259,6 +259,87 @@ function runDetail(id: number): RunDetail {
   } as RunDetail;
 }
 
+const AUTOMATION_ELEMENTS = [
+  { element_index: 1, depth: 0, parent_index: null, name: '仪器控制软件',
+    automation_id: 'mainWindow', control_type: 'Window', class_name: 'QWindow',
+    framework_id: 'Qt', value: '', rect: [0, 0, 1200, 760], visible: true, enabled: true,
+    actions: ['click'], stable_key: 'window.mainWindow',
+    selector: { type: 'uia', automation_id: 'mainWindow', control_type: 'Window' } },
+  { element_index: 2, depth: 1, parent_index: 1, name: '样本号',
+    automation_id: 'sampleId', control_type: 'Edit', class_name: 'QLineEdit',
+    framework_id: 'Qt', value: 'S001', rect: [48, 110, 220, 34], visible: true, enabled: true,
+    actions: ['click', 'input', 'set_value'], stable_key: 'edit.sampleId',
+    selector: { type: 'uia', automation_id: 'sampleId', control_type: 'Edit' } },
+  { element_index: 3, depth: 1, parent_index: 1, name: '开始检测',
+    automation_id: 'startButton', control_type: 'Button', class_name: 'QPushButton',
+    framework_id: 'Qt', value: '', rect: [48, 168, 130, 38], visible: true, enabled: true,
+    actions: ['click'], stable_key: 'button.startButton',
+    selector: { type: 'uia', automation_id: 'startButton', control_type: 'Button' } },
+  { element_index: 4, depth: 1, parent_index: 1, name: '自动上传',
+    automation_id: 'autoUpload', control_type: 'CheckBox', class_name: 'QCheckBox',
+    framework_id: 'Qt', value: 'false', rect: [48, 225, 130, 30], visible: true, enabled: true,
+    actions: ['click', 'toggle'], stable_key: 'checkbox.autoUpload',
+    selector: { type: 'uia', automation_id: 'autoUpload', control_type: 'CheckBox' } },
+];
+
+let automationSnapshot = 0;
+let automationAttached = false;
+let automationCaseId = 'TC-EXPLORE';
+let automationTitle = '自动化探索路径';
+const AUTOMATION_HISTORY: {
+  index: number; tool: string; args: Record<string, unknown>; ok: boolean;
+  ms: number; driver?: string | null; result?: Record<string, unknown> | null;
+  error?: string | null;
+}[] = [];
+
+function mockAutomationRecord(tool: string, args: Record<string, unknown>,
+                              result: Record<string, unknown>): void {
+  AUTOMATION_HISTORY.push({
+    index: AUTOMATION_HISTORY.length + 1, tool, args: structuredClone(args),
+    ok: true, ms: 8, driver: tool.startsWith('ui.') ? 'uia' : null,
+    result: structuredClone(result), error: null,
+  });
+}
+
+function mockAutomationObserve(includeScreenshot = true) {
+  automationSnapshot += 1;
+  const result: Record<string, unknown> = {
+    snapshot_id: automationSnapshot, include_ax: true,
+    include_screenshot: includeScreenshot, window_rect: [0, 0, 1200, 760],
+    window_title: automationAttached ? '仪器控制软件' : '仪器控制软件（预览）',
+    window_handle: 10001, elements: structuredClone(AUTOMATION_ELEMENTS),
+    truncated: false, max_nodes: 500, max_depth: 16,
+  };
+  if (includeScreenshot) {
+    result.png_base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==';
+    result.screenshot_bytes = 68;
+    result.screenshot_rect = [0, 0, 1200, 760];
+  }
+  return result;
+}
+
+function mockAutomationDraft() {
+  const steps = AUTOMATION_HISTORY.flatMap((h) => {
+    const target = (h.result?.target ?? {}) as Record<string, unknown>;
+    const primary = target.selector as Record<string, unknown> | undefined;
+    if (h.tool === 'ui.click' && primary) {
+      return [{ id: 's1', action: 'ui.click',
+        target: { key: String(target.stable_key ?? 'explore.target'), primary },
+        source_text: '[探索] 点击元素' }];
+    }
+    if ((h.tool === 'app.attach' || h.tool === 'app.launch')) {
+      const titleRe = String(h.args.title_re ?? '.*仪器控制软件.*');
+      return [{ id: 's1', action: 'app.launch', args: { title_re: titleRe },
+        source_text: '[探索] 附加窗口' }];
+    }
+    return [];
+  }).map((step, i) => ({ ...step, id: `s${i + 1}` }));
+  const data = { case_id: automationCaseId, title: automationTitle,
+    preconditions: [], notes: '开发态自动化探索草稿', steps };
+  return { case: data, text: JSON.stringify(data, null, 2),
+           history_count: AUTOMATION_HISTORY.length };
+}
+
 interface MockJob {
   id: string; method: string; status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
   progress: Record<string, unknown>; result?: unknown; error?: string;
