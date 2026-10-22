@@ -302,10 +302,21 @@ class RpcService:
     def _case_parse(self, p):
         target = p.get("appTarget")
         if target is not None:
-            if (not isinstance(target, dict) or set(target) - {"exe", "title_re"}
-                    or not target or any(not isinstance(v, str) or not v.strip()
-                                         or len(v) > 2048 for v in target.values())):
-                raise RpcError(INVALID_PARAMS, "appTarget 需为包含 exe 或 title_re 的非空字符串对象")
+            allowed = {"exe", "title_re", "args"}
+            if not isinstance(target, dict) or not target or set(target) - allowed:
+                raise RpcError(
+                    INVALID_PARAMS,
+                    "appTarget 仅允许 exe/title_re/args")
+            if not (target.get("exe") or target.get("title_re")):
+                raise RpcError(INVALID_PARAMS, "appTarget 至少需要 exe 或 title_re")
+            for key, value in target.items():
+                limit = 4096 if key == "args" else 2048
+                if not isinstance(value, str) or not value.strip() or len(value) > limit:
+                    raise RpcError(
+                        INVALID_PARAMS,
+                        f"appTarget.{key} 需为 1..{limit} 字符的非空字符串")
+            if target.get("args") and not target.get("exe"):
+                raise RpcError(INVALID_PARAMS, "appTarget.args 只能与 exe 一起使用")
         scopes = sum(("caseIds" in p, bool(p.get("allStale")), bool(p.get("caseId"))))
         if scopes != 1:
             raise RpcError(INVALID_PARAMS, "指定 caseId、caseIds 或 allStale 中的一项")
