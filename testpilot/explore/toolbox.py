@@ -177,6 +177,12 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec("ui.keypress", "向目标控件发送 pywinauto 键序列",
              _locate_schema({"keys": {"type": "string"}},
                             required=("keys",)), needs="uia", capability="keypress"),
+    ToolSpec("ui.right_click", "在目标元素上执行右键/上下文菜单动作",
+             _locate_schema({
+                 "verify_diff": {"type": "boolean", "default": False},
+                 "diff_threshold": {"type": "number", "minimum": 0, "maximum": 1,
+                                    "default": 0.005},
+             }), needs="driver", capability="right_click"),
     ToolSpec("ui.scroll", "在目标元素上滚动", _locate_schema({
         "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
         "amount": {"type": "integer", "minimum": 1, "maximum": 20, "default": 3},
@@ -483,6 +489,14 @@ class ToolBox:
         keypress(el, keys, self.ctx)
         return {"rect": list(el.rect), "driver": "uia", "target": meta,
                 "keys": keys, **_session_ref(args)}
+
+    def _ui_right_click(self, args) -> dict:
+        drv, el, meta = self._resolve(args)
+        before = self._diff_before(args)
+        drv.right_click(el, self.ctx)
+        return {"rect": list(el.rect), "driver": drv.manifest.name,
+                "target": meta, **_session_ref(args),
+                **self._diff_after(args, before, "ui.right_click")}
 
     def _ui_scroll(self, args) -> dict:
         drv, el, meta = self._resolve(args)
