@@ -1855,3 +1855,70 @@ details.task-create { margin-bottom: 22px; }
   .automation-query,
   .automation-action-grid { grid-template-columns: 1fr; }
 }
+
+
+/* ---------------------------------------------------------------- Workflow 执行前确认 */
+
+.flow-preflight {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin: var(--sp-4) 0;
+}
+
+.flow-preflight > div {
+  display: grid;
+  gap: 2px;
+  padding: var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-panel-soft);
+}
+
+.flow-preflight strong {
+  font-size: var(--fs-xl);
+  line-height: 1.25;
+}
+
+.flow-preflight span {
+  color: var(--c-text-dim);
+  font-size: var(--fs-xs);
+}
+
+.flow-run-options {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(200px, .8fr) minmax(220px, 1fr);
+  gap: var(--sp-4);
+  align-items: end;
+  margin: var(--sp-4) 0 var(--sp-2);
+  padding: var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-panel-soft);
+}
+
+.flow-run-options > label {
+  display: grid;
+  gap: var(--sp-2);
+  color: var(--c-text-dim);
+  font-size: var(--fs-sm);
+}
+
+.flow-checkbox {
+  grid-template-columns: auto 1fr !important;
+  align-items: center;
+  align-self: stretch;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-panel);
+}
+
+.flow-checkbox input { margin: 0; }
+.flow-checkbox span { display: grid; gap: 1px; color: var(--c-text); }
+.flow-checkbox small { color: var(--c-text-faint); font-weight: 400; }
+
+@media (max-width: 900px) {
+  .flow-preflight { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .flow-run-options { grid-template-columns: 1fr; }
+}
