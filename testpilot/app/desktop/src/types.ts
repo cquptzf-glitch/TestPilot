@@ -552,6 +552,10 @@ export interface AgentToolEvidence {
   read_paths_truncated?: boolean;
   case_ids?: string[];
   case_ids_truncated?: boolean;
+  diff_paths?: string[];
+  diff_paths_truncated?: boolean;
+  full_diff_complete?: boolean;
+  full_diff_truncated?: boolean;
 }
 
 export interface SvnChangeGenerateResult {

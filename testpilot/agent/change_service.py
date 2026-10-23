@@ -124,7 +124,7 @@ class ChangeAnalysisService:
         )
         try:
             analysis = _parse_analysis(result.get("text"), max_cases=max_cases)
-            self._validate_grounding(
+            grounding = self._validate_grounding(
                 workspace, snapshot, analysis, result.get("evidence") or {})
         except AgentError as exc:
             # Agent 进程已正常返回，但最终 JSON/Schema 无效时，也要把主 RPC
@@ -194,6 +194,7 @@ class ChangeAnalysisService:
                         "related_case_ids": item.related_case_ids,
                         "analysis_summary": analysis.summary,
                         "risks": analysis.risks,
+                        "grounding": grounding[index - 1],
                     },
                 }
                 repos.create_case(
@@ -249,8 +250,8 @@ class ChangeAnalysisService:
         return path
 
     def _validate_grounding(self, workspace: Path, snapshot: dict,
-                            analysis: ChangeAnalysis, evidence: dict) -> None:
-        """Fail closed before persistence when Agent output lacks trusted evidence."""
+                            analysis: ChangeAnalysis, evidence: dict) -> list[dict]:
+        """Fail closed before persistence and return durable per-case provenance."""
         evidence = evidence if isinstance(evidence, dict) else {}
         successes = evidence.get("successes")
         successes = successes if isinstance(successes, dict) else {}
@@ -260,12 +261,17 @@ class ChangeAnalysisService:
             raise AgentError(
                 "Pi Agent 未通过主 RPC 成功读取 SVN diff，拒绝生成测试用例")
 
-        changed_paths = {
+        diff_changed_paths = {
             _repo_path(item.get("path"))
-            for item in [*(snapshot.get("changed") or []),
-                         *(snapshot.get("working_status") or [])]
+            for item in (snapshot.get("changed") or [])
             if _repo_path(item.get("path"))
         }
+        working_paths = {
+            _repo_path(item.get("path"))
+            for item in (snapshot.get("working_status") or [])
+            if _repo_path(item.get("path"))
+        }
+        known_change_paths = diff_changed_paths | working_paths
         read_paths = {
             _repo_path(path)
             for path in (evidence.get("read_paths") or [])
@@ -276,21 +282,49 @@ class ChangeAnalysisService:
             for case_id in (evidence.get("case_ids") or [])
             if str(case_id or "").strip()
         }
+        diff_paths = {
+            _repo_path(path)
+            for path in (evidence.get("diff_paths") or [])
+            if _repo_path(path)
+        }
+        full_diff_complete = evidence.get("full_diff_complete") is True
+        full_diff_truncated = evidence.get("full_diff_truncated") is True
 
         problems = []
+        grounding = []
         for item in analysis.cases:
+            item_sources = []
             for source in item.source_files:
                 rel = _repo_path(source)
-                if rel in changed_paths:
+                bases = []
+                if rel in read_paths:
+                    candidate = workspace.joinpath(*PurePosixPath(rel).parts)
+                    if candidate.is_file():
+                        bases.append("agent.fs.read")
+                    else:
+                        problems.append(
+                            f"{item.title}: source_files 当前工作区文件不存在: {rel}")
+                if (rel in diff_changed_paths
+                        and (full_diff_complete or rel in diff_paths)):
+                    bases.append("agent.svn.diff")
+                if not bases:
+                    if rel in working_paths and rel not in diff_changed_paths:
+                        problems.append(
+                            f"{item.title}: 工作副本状态路径必须先 agent.fs.read: {rel}")
+                    elif rel in diff_changed_paths and full_diff_truncated:
+                        problems.append(
+                            f"{item.title}: 全量 SVN diff 已截断，需按路径 diff/read: {rel}")
+                    elif rel in known_change_paths:
+                        problems.append(
+                            f"{item.title}: SVN 变更路径未被成功 diff/read 覆盖: {rel}")
+                    else:
+                        problems.append(
+                            f"{item.title}: source_files 无 SVN diff 或 agent.fs.read 证据: "
+                            f"{rel}")
                     continue
-                if rel not in read_paths:
-                    problems.append(
-                        f"{item.title}: source_files 无 SVN 变更或 agent.fs.read 证据: {rel}")
-                    continue
-                candidate = workspace.joinpath(*PurePosixPath(rel).parts)
-                if not candidate.is_file():
-                    problems.append(
-                        f"{item.title}: source_files 当前工作区文件不存在: {rel}")
+                item_sources.append({"path": rel, "basis": list(dict.fromkeys(bases))})
+
+            item_related = []
             for case_id in item.related_case_ids:
                 if repos.get_case(self.conn, case_id) is None:
                     problems.append(
@@ -299,12 +333,23 @@ class ChangeAnalysisService:
                     problems.append(
                         f"{item.title}: related_case_ids 无 agent.case.search/detail 证据: "
                         f"{case_id}")
+                else:
+                    item_related.append({
+                        "case_id": case_id,
+                        "basis": "agent.case.search/detail",
+                    })
+            grounding.append({
+                "svn_diff_verified": True,
+                "source_files": item_sources,
+                "related_case_ids": item_related,
+            })
 
         if problems:
             detail = "；".join(problems[:8])
             if len(problems) > 8:
                 detail += f"；另有 {len(problems) - 8} 项"
             raise AgentError(f"Pi Agent 生成依据校验失败: {detail}")
+        return grounding
 
     def _generated_by_fingerprint(self) -> dict[str, dict]:
         """Index previously generated SVN cases for idempotent regeneration."""
@@ -423,10 +468,11 @@ def _build_prompt(snapshot: dict, *, max_cases: int) -> str:
 安全/工具规则：
 1. 你没有本地文件、shell、SVN 的直接权限；所有信息必须通过 tp_* 工具获取。
 2. 必须先阅读 SVN diff，再按需要读取相关源码；对关键行为使用 tp_case_search 检查已有回归覆盖。
-3. 每条用例的 source_files 必须至少 1 条，只能引用本次 SVN 变更路径，或你确实通过 tp_read_file 成功读取过的工作区文件。
-4. related_case_ids 只能填写 tp_case_search/tp_case_detail 实际返回过且真实存在的本地用例 ID；没有依据就留空。
-5. 不要修改任何文件、数据库或测试用例；TestPilot 主进程会验证并落库。
-6. 不要臆造未在代码/diff/已有用例中找到依据的具体 UI 控件名、协议字段或数值。
+3. 每条用例的 source_files 必须至少 1 条，只能引用已被成功 SVN diff 覆盖的变更路径，或你确实通过 tp_read_file 成功读取过的工作区文件。
+4. 若 tp_svn_diff 返回 truncated=true，相关 source_files 必须再按具体 paths 调 tp_svn_diff，或通过 tp_read_file 读取；unversioned 文件必须使用 tp_read_file。
+5. related_case_ids 只能填写 tp_case_search/tp_case_detail 实际返回过且真实存在的本地用例 ID；没有依据就留空.
+6. 不要修改任何文件、数据库或测试用例；TestPilot 主进程会验证并落库。
+7. 不要臆造未在代码/diff/已有用例中找到依据的具体 UI 控件名、协议字段或数值。
 
 变更范围：
 - working_copy: {snapshot.get("working_copy")}

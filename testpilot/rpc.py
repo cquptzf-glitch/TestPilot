@@ -1097,6 +1097,10 @@ class RpcService:
                 "read_paths_truncated": False,
                 "case_ids": set(),
                 "case_ids_truncated": False,
+                "diff_paths": set(),
+                "diff_paths_truncated": False,
+                "full_diff_complete": False,
+                "full_diff_truncated": False,
             }
         return token
 
@@ -1127,6 +1131,10 @@ class RpcService:
                 "read_paths_truncated": bool(raw.get("read_paths_truncated")),
                 "case_ids": sorted(raw.get("case_ids") or ()),
                 "case_ids_truncated": bool(raw.get("case_ids_truncated")),
+                "diff_paths": sorted(raw.get("diff_paths") or ()),
+                "diff_paths_truncated": bool(raw.get("diff_paths_truncated")),
+                "full_diff_complete": bool(raw.get("full_diff_complete")),
+                "full_diff_truncated": bool(raw.get("full_diff_truncated")),
             }
 
     def revoke_agent_token(self, token: str) -> None:
@@ -1209,6 +1217,24 @@ class RpcService:
                             read_paths.add(path)
                         else:
                             evidence["read_paths_truncated"] = True
+                if error is None and method == "agent.svn.diff" and isinstance(result, dict):
+                    diff_paths = [
+                        str(path or "").strip().replace("\\", "/")
+                        for path in (result.get("paths") or [])
+                    ]
+                    if diff_paths:
+                        observed = evidence["diff_paths"]
+                        for path in diff_paths:
+                            if not path:
+                                continue
+                            if len(observed) < _AGENT_EVIDENCE_PATH_LIMIT or path in observed:
+                                observed.add(path)
+                            else:
+                                evidence["diff_paths_truncated"] = True
+                    elif bool(result.get("truncated")):
+                        evidence["full_diff_truncated"] = True
+                    else:
+                        evidence["full_diff_complete"] = True
                 if error is None and isinstance(result, dict):
                     observed_case_ids = []
                     if method == "agent.case.search":
