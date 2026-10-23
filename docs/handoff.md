@@ -46,6 +46,13 @@
 
 详细审查与设计说明：`docs/review-flow-ui-2026-10-23.md`。
 
+最后收口还修复：
+- LLM Gateway 不再维护第二份动作白名单，统一复用 `core.dsl.KNOWN_ACTIONS`；
+- Workflow 内嵌 DSL 审核每次通过后回读最新 case 状态再推进队列，消除旧快照回跳竞争。
+
+最终业务代码基线 `8c5bd4f08071f4d85dacf6f0dcbd053df4ba5fa1`，
+GitHub Actions run `39898403051`：Desktop build、Ruff、全量 Pytest 全部 success。
+
 当前仍遵循“功能/单测/契约/前端编译优先，真机 smoke 暂不阻塞开发”的策略。
 
 ## 2026-10-23 SVN 变更 Agent 与禅道增量优化
