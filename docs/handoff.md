@@ -6,6 +6,48 @@
 
 ---
 
+## 2026-10-23 全面流程 / UI / 执行逻辑复审
+
+本轮目标不是继续堆功能，而是把已有能力收敛成更清晰的主路径。
+
+### 当前推荐操作流
+
+- **日常回归**：开始测试 → 选择用例 → 必要时生成 DSL → 内嵌审核 → 执行 → 结果；
+- **用例维护**：用例维护 → 禅道同步 / SVN 变更生成 → DSL 审核；
+- **高级复用**：执行与结果 → 测试任务 / 测试方案。
+
+测试方案与测试任务不再是普通回归的前置步骤。
+
+### 本轮关键逻辑修复
+
+- 避免填写 appTarget 时把全部已审核用例重复送 LLM 解析；
+- caseRetry 从任务复用 fingerprint 移除；
+- 任务配置优先级固定为：全局默认 < 方案默认 < 本次任务显式覆盖；
+- suiteId / caseIds 禁止混用，用例范围有序去重；
+- Task UI 的 driver/remote 开关改为真正所见即所得；
+- Zentao sync 查询范围与 watermark scope 使用同一个最终 product id；
+- task.run 在进入执行器前校验 mode / caseRetry；
+- 顶部停止执行修复 run 已结束瞬间的 stopping 状态竞争；
+- router 学习统计修复“定位成功 + 动作失败”一次尝试被计两条样本；
+- UI 动作按 capability 在定位前筛选驱动；能力缺失可安全落到后续驱动；
+- ui.wait state=gone 同步修复 capability fallback；
+- **run.progress 事件修复为顶层 phase**，前端执行条 / Runs / Tasks / RunDetail 真正恢复事件驱动。
+
+### 本轮 UI 收敛
+
+- 主导航 6 项；任务/方案降为“执行与结果”二级页；
+- 用例维护默认只留“开始测试 / 生成或更新 DSL / 审核 DSL”；
+- Workflow 执行参数、Task 高级选项、Automation 高级动作均渐进展开；
+- SVN 变更页收敛为一个主动作；
+- DSL 批量审核通过后自动进入下一条；
+- Settings 主按钮改“保存并重启”；
+- RunDetail 改为 result-first，驱动/环境/LLM/env_compat 收入“技术诊断”并按需加载；
+- CaseJobsPanel active 1s、idle 5s 轮询，完成结果可关闭。
+
+详细审查与设计说明：`docs/review-flow-ui-2026-10-23.md`。
+
+当前仍遵循“功能/单测/契约/前端编译优先，真机 smoke 暂不阻塞开发”的策略。
+
 ## 2026-10-23 SVN 变更 Agent 与禅道增量优化
 
 本轮新增/调整的核心约束：
