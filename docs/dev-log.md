@@ -1723,3 +1723,18 @@ Python install、Ruff、全量 Pytest、Desktop TypeScript/Vite build 全部 suc
 新增/更新回归测试覆盖 task precedence、scope、driver override、RPC run 参数、Zentao scope、router 样本、capability fallback 与 run.progress 事件契约。
 
 完整说明：`docs/review-flow-ui-2026-10-23.md`。
+
+
+### 第二十五轮最终收口
+
+- `llm_gateway` 的动作白名单改为直接复用 `core.dsl.KNOWN_ACTIONS`，消除
+  Prompt / DSL / LLM 归一化三处动作表漂移；
+- Workflow 内嵌审核不再用旧 `chosen` 快照决定下一条，而是 accept 后回读
+  最新 `case.list`，修复自动审核队列可能回跳的竞争窗口。
+
+最终验证：Actions run `39898403051`，业务代码 SHA
+`8c5bd4f08071f4d85dacf6f0dcbd053df4ba5fa1`：
+
+- Desktop TypeScript + Vite build success；
+- Ruff success；
+- 全量 Pytest success。
