@@ -88,3 +88,29 @@ def test_scroll_and_drag_semantic_validation():
     ))
     assert any("dx/dy" in item for item in bad_drag)
     assert any("duration_ms" in item for item in bad_drag)
+
+
+
+def test_wait_and_sleep_semantic_validation():
+    target = TargetDesc(
+        key="dialog.progress",
+        primary=Locator(type="uia", automation_id="progress"),
+    )
+    assert execution_errors(Step(
+        id="wait-ok", action="ui.wait", target=target,
+        args={"state": "gone"},
+    )) == []
+
+    bad_wait = execution_errors(Step(
+        id="wait-bad", action="ui.wait", target=target,
+        args={"state": "disappear"},
+    ))
+    assert any("state" in item for item in bad_wait)
+
+    assert execution_errors(Step(
+        id="sleep-ok", action="sleep", args={"ms": "250"},
+    )) == []
+    bad_sleep = execution_errors(Step(
+        id="sleep-bad", action="sleep", args={"ms": "later"},
+    ))
+    assert any("整数毫秒" in item for item in bad_sleep)
