@@ -1419,14 +1419,21 @@ def _require(params: dict, key: str):
     return value
 
 
-def _to_int(params: dict, key: str) -> int:
-    """整型参数统一入口：类型/取值错误一律 INVALID_PARAMS，而不是兜成 INTERNAL_ERROR。"""
-    value = _require(params, key)
+def _parse_int_value(value, key: str) -> int:
+    """Parse one integer value without Python's bool/fraction truncation traps."""
+    if isinstance(value, bool) or (
+            isinstance(value, float) and not value.is_integer()):
+        raise RpcError(INVALID_PARAMS, f"参数 {key} 需为整数（得到 {value!r}）")
     try:
         return int(value)
     except (TypeError, ValueError):
         raise RpcError(INVALID_PARAMS,
                        f"参数 {key} 需为整数（得到 {value!r}）") from None
+
+
+def _to_int(params: dict, key: str) -> int:
+    """整型参数统一入口：类型/取值错误一律 INVALID_PARAMS。"""
+    return _parse_int_value(_require(params, key), key)
 
 
 def _bounded_int(params: dict, key: str, *, default: int,
@@ -1442,14 +1449,7 @@ def _bounded_int(params: dict, key: str, *, default: int,
     value = params.get(key, default)
     if value is None or value == "":
         value = default
-    if isinstance(value, bool) or (
-            isinstance(value, float) and not value.is_integer()):
-        raise RpcError(INVALID_PARAMS, f"参数 {key} 需为整数（得到 {value!r}）")
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        raise RpcError(INVALID_PARAMS,
-                       f"参数 {key} 需为整数（得到 {value!r}）") from None
+    parsed = _parse_int_value(value, key)
     if parsed < min_value:
         raise RpcError(INVALID_PARAMS,
                        f"参数 {key} 需 >= {min_value}（得到 {parsed}）")
@@ -1466,8 +1466,8 @@ def _to_int_list(params: dict, key: str) -> list[int]:
     out: list[int] = []
     for item in items:
         try:
-            out.append(int(item))
-        except (TypeError, ValueError):
+            out.append(_parse_int_value(item, key))
+        except RpcError:
             raise RpcError(INVALID_PARAMS,
                            f"参数 {key} 含非整数项: {item!r}") from None
     return out
