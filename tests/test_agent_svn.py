@@ -158,6 +158,7 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     })
     assert again["created"] == 0
     assert again["reused"] == 1
+    assert again["duplicates_dropped"] == 0
     assert again["cases"][0]["case_id"] == out["cases"][0]["case_id"]
     assert again["cases"][0]["reused"] is True
     assert again["parse"]["parsed"] == 1
@@ -169,6 +170,26 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
         if (row.get("raw") or {}).get("source") == "svn_agent"
     ]
     assert len(svn_generated) == 1
+
+
+def test_change_service_dedupes_duplicate_intents_from_one_agent_turn(
+        tmp_path, db_conn, fake_zentao, fake_llm):
+    cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    payload = json.loads(_agent_json())
+    payload["cases"].append(dict(payload["cases"][0]))
+
+    def agent_runner(**_kwargs):
+        return {"text": json.dumps(payload, ensure_ascii=False),
+                "tool_calls": 2, "elapsed_ms": 10}
+
+    service = ChangeAnalysisService(db_conn, cases, {"svn": {}}, agent_runner)
+    service.svn = StubSvn(tmp_path)
+    out = service.generate({"workingCopy": str(tmp_path), "parse": False})
+
+    assert out["created"] == 1
+    assert out["reused"] == 0
+    assert out["duplicates_dropped"] == 1
+    assert len(out["cases"]) == 1
 
 
 def test_change_service_rejects_invalid_agent_output():
