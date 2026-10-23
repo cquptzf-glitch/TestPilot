@@ -3,7 +3,7 @@ import { call, caseJob, type ParseBatchResult } from '../bridge';
 import { Badge, Empty, Msg } from '../components/Bits';
 import { msg, navigate, useAsync, useCaseJobBusy } from '../hooks';
 import { caseIsApproved, caseIsSelectable, caseNeedsAnalysis } from '../caseState';
-import type { CaseRow } from '../types';
+import type { CaseRow, RunRow } from '../types';
 import { DslReviewPage } from './DslReviewPage';
 
 function restored<T>(key: string, fallback: T): T {
@@ -18,6 +18,12 @@ interface AppTargetPreset {
   launchArgs: string;
   kind: 'preset' | 'recent';
   updatedAt: number;
+}
+
+interface ExecuteFailure {
+  text: string;
+  taskId?: number;
+  runId?: number;
 }
 
 const TARGET_PRESETS_KEY = 'tp-flow-target-presets-v1';
@@ -95,6 +101,7 @@ export function WorkflowPage({ selection, running, ready = false }: {
   const [targetPresetName, setTargetPresetName] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [executeFailure, setExecuteFailure] = useState<ExecuteFailure | null>(null);
   const [batch, setBatch] = useState<ParseBatchResult | null>(null);
   const [reviewId, setReviewId] = useState<string>();
   const [remote, setRemote] = useState(() => restored('tp-flow-remote', false));
@@ -113,6 +120,7 @@ export function WorkflowPage({ selection, running, ready = false }: {
   // caseRetry 是本次 task.run 参数，改变它不应重复创建同一个任务。
   const fingerprint = JSON.stringify([chosen.map(c => [c.case_id, c.version]), remote, mode]);
   const reusable = task?.fingerprint === fingerprint ? task : null;
+  useEffect(() => { setExecuteFailure(null); }, [fingerprint, caseRetry, phase]);
   useEffect(() => { sessionStorage.setItem('tp-flow-selection', JSON.stringify(selected)); }, [selected]);
   useEffect(() => { sessionStorage.setItem('tp-flow-task', JSON.stringify(task)); }, [task]);
   useEffect(() => { sessionStorage.setItem('tp-flow-window-title', JSON.stringify(windowTitle)); }, [windowTitle]);
@@ -275,26 +283,63 @@ export function WorkflowPage({ selection, running, ready = false }: {
       cases.reload();
     }
   };
-  const execute = () => action(reusable ? '正在执行已有任务…' : '正在创建并执行测试…', async () => {
-    if (!runnable) throw new Error('请先审核所选用例');
-    if (windowMissing.length) throw new Error('部分用例缺少被测软件的启动或附加步骤，请先设置被测窗口并生成 DSL');
+  const execute = async () => {
+    if (gate.current) return;
+    gate.current = true;
+    setBusy(reusable ? '正在执行已有任务…' : '正在创建并执行测试…');
+    setError('');
+    setExecuteFailure(null);
     let current = reusable;
-    if (!current) {
-      const created = await call<{ task_id: number }>('task.create', {
-        name: '测试 · ' + new Date().toLocaleString('zh-CN'), caseIds: selected,
-        driverConfig: { mode }, remote,
+    let previousRunId: number | null = null;
+    try {
+      if (!runnable) throw new Error('请先审核所选用例');
+      if (windowMissing.length)
+        throw new Error('部分用例缺少被测软件的启动或附加步骤，请先设置被测窗口并生成 DSL');
+      if (!current) {
+        const created = await call<{ task_id: number }>('task.create', {
+          name: '测试 · ' + new Date().toLocaleString('zh-CN'), caseIds: selected,
+          driverConfig: { mode }, remote,
+        });
+        current = { id: created.task_id, fingerprint };
+        // 在发起长时间执行前保存任务 ID；失败重试不重复建单。
+        sessionStorage.setItem('tp-flow-task', JSON.stringify(current));
+        setTask(current);
+      }
+      // 仅用于失败恢复：记住执行前最近一次 run。查询失败不能阻塞真正执行。
+      try {
+        const before = await call<{ runs: RunRow[] }>('run.list', {
+          limit: 1, taskId: current.id,
+        });
+        previousRunId = before.runs[0]?.id ?? null;
+      } catch { /* recovery hint only */ }
+
+      const result = await call<{ run_id: number }>('task.run', {
+        taskId: current.id, writeback: remote, caseRetry,
       });
-      current = { id: created.task_id, fingerprint };
-      // 在发起长时间执行前保存任务 ID；失败重试不重复建单。
-      sessionStorage.setItem('tp-flow-task', JSON.stringify(current));
-      setTask(current);
+      setTask(null); sessionStorage.removeItem('tp-flow-task');
+      navigate('run', { runId: result.run_id });
+    } catch (e) {
+      // 不靠错误字符串分类。若本次调用已经产生新的 error/aborted run，
+      // 直接给出结果入口；否则保留当前任务，用户可安全重试而不会重复建任务。
+      let runId: number | undefined;
+      if (current) {
+        try {
+          const after = await call<{ runs: RunRow[] }>('run.list', {
+            limit: 1, taskId: current.id,
+          });
+          const latest = after.runs[0];
+          if (latest && latest.id !== previousRunId
+              && ['error', 'aborted'].includes(latest.status)) {
+            runId = latest.id;
+          }
+        } catch { /* 保留原始执行错误 */ }
+      }
+      setExecuteFailure({ text: msg(e), taskId: current?.id, runId });
+    } finally {
+      gate.current = false;
+      setBusy('');
     }
-    const result = await call<{ run_id: number }>('task.run', {
-      taskId: current.id, writeback: remote, caseRetry,
-    });
-    setTask(null); sessionStorage.removeItem('tp-flow-task');
-    navigate('run', { runId: result.run_id });
-  });
+  };
 
   return <div className="main workflow-page">
     <div className="page-head"><div><h2>开始测试</h2><p className="muted">选用例、确认步骤、执行测试，在这里完成。</p></div>
@@ -305,6 +350,23 @@ export function WorkflowPage({ selection, running, ready = false }: {
     </ol>
     {busy && <Msg kind="info">{busy}</Msg>}
     {error && <Msg kind="error">{error}</Msg>}
+    {executeFailure && <Msg kind="error">
+      执行未完成：{executeFailure.text}
+      <span className="hstack" style={{ marginTop: 'var(--sp-2)' }}>
+        {executeFailure.runId && <button className="btn primary"
+          onClick={() => navigate('run', { runId: executeFailure.runId })}>
+          查看失败运行 →
+        </button>}
+        {!executeFailure.runId && executeFailure.taskId && <button className="btn primary"
+          disabled={locked} onClick={() => void execute()}>
+          重试已有任务
+        </button>}
+        <button className="btn" disabled={locked} onClick={() => {
+          setExecuteFailure(null);
+          setPhase(1);
+        }}>返回修改范围</button>
+      </span>
+    </Msg>}
     {cases.error && <Msg kind="error">读取用例失败：{cases.error}<button className="btn" onClick={cases.reload}>重试</button></Msg>}
 
     {phase === 1 && <section className="panel flow-card">
