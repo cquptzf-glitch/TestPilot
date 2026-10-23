@@ -133,6 +133,21 @@ def test_all_drivers_fail_yields_fail_and_pending_kb(env):
     assert trace[0]["driver"] == "vision"
 
 
+def test_action_failure_counts_single_router_failure(env):
+    env.cfg["driver"]["mode"] = "uia_only"
+    env.drivers = {"uia": FakeDriver("uia", fail_action=True)}
+    env.rebuild()
+    case = make_case("TC-1", steps=[make_step(id="s2")])
+    _, _, ctx = _start(env, case)
+    result = env.executor.run_case(case, ctx, None)
+
+    assert result.status == "fail"
+    stats = env.kb.load_router_stats("btn.start_detect")["uia"]
+    assert stats.success_count == 0
+    assert stats.fail_count == 1
+    assert stats.fail_streak == 1
+
+
 def test_uia_fail_vision_success_marks_driver_vision(env):
     env.drivers["uia"].fail_locate = True
     case = make_case("TC-1", steps=[make_step(id="s2")])
