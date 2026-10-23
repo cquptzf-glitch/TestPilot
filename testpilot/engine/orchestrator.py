@@ -498,25 +498,36 @@ class TaskOrchestrator:
         return "synced"
 
     def reconcile_remote_task(self, task_id: int, zentao_task_id: int):
-        import json
-        from testpilot.storage import repos
-        task = repos.get_task(self.conn, task_id)
-        if task is None:
-            raise TestPilotError("本地任务不存在")
-        row = self.conn.execute("SELECT remote_spec_json FROM test_task WHERE id=?",
-                                (task_id,)).fetchone()
-        spec = json.loads(row[0]) if row and row[0] else {}
-        verifier = getattr(self.zentao, "verify_testtask", None)
-        if verifier is None:
-            raise TestPilotError("适配器不支持远端核对")
-        verifier(zentao_task_id, spec)
-        spec.update(zentao_task_id=zentao_task_id,
-                    creation_attempted=False, creation_uncertain=False)
-        self.conn.execute("UPDATE test_task SET remote_spec_json=? WHERE id=?",
-                          (json.dumps(spec), task_id))
-        repos.set_task_sync(self.conn, task_id, "sync_pending", zentao_task_id)
-        return {"task_id": task_id, "zentao_task_id": zentao_task_id,
-                "sync_status": "sync_pending", "results": self.sync_pending_tasks(task_id)}
+        """人工绑定/核对远端任务；与正式 run 互斥，避免执行快照读取旧远端状态。"""
+        if not self._run_lock.acquire(blocking=False):
+            raise TestPilotError("测试任务执行中，暂不能核对远端测试单")
+        try:
+            import json
+            from testpilot.storage import repos
+            task = repos.get_task(self.conn, task_id)
+            if task is None:
+                raise TestPilotError("本地任务不存在")
+            row = self.conn.execute(
+                "SELECT remote_spec_json FROM test_task WHERE id=?",
+                (task_id,)).fetchone()
+            spec = json.loads(row[0]) if row and row[0] else {}
+            verifier = getattr(self.zentao, "verify_testtask", None)
+            if verifier is None:
+                raise TestPilotError("适配器不支持远端核对")
+            verifier(zentao_task_id, spec)
+            spec.update(zentao_task_id=zentao_task_id,
+                        creation_attempted=False, creation_uncertain=False)
+            self.conn.execute("UPDATE test_task SET remote_spec_json=? WHERE id=?",
+                              (json.dumps(spec), task_id))
+            repos.set_task_sync(
+                self.conn, task_id, "sync_pending", zentao_task_id)
+            results = self._sync_pending_tasks_unlocked(task_id)
+            saved = repos.get_task(self.conn, task_id)
+            return {"task_id": task_id, "zentao_task_id": zentao_task_id,
+                    "sync_status": saved["sync_status"] if saved else "sync_pending",
+                    "results": results}
+        finally:
+            self._run_lock.release()
 
     def _verify_remote_task(self, task):
         import json
@@ -535,12 +546,17 @@ class TaskOrchestrator:
         verifier(task["zentao_task_id"], spec)
 
     def sync_pending_tasks(self, task_id: int | None = None) -> list[dict]:
-        """补偿入口：重推 ``sync_pending`` 的任务汇总（CLI/RPC Tasks 页用）。
+        """补偿入口：与正式 run 互斥，防止远端绑定与执行快照发生状态撕裂。"""
+        if not self._run_lock.acquire(blocking=False):
+            raise TestPilotError("测试任务执行中，暂不能补偿远端同步")
+        try:
+            return self._sync_pending_tasks_unlocked(task_id)
+        finally:
+            self._run_lock.release()
 
-        ``task_id`` 非空时**只重推该任务** —— Tasks 页行内的「补偿」按钮走这条路径。
-        全量补偿会连带把用户没打算动的任务也重推进禅道，那是外部可见的副作用，
-        所以这里的过滤必须在**取数据之前**生效，而不是取完再筛。
-        """
+    def _sync_pending_tasks_unlocked(
+            self, task_id: int | None = None) -> list[dict]:
+        """重推 sync_pending；调用方必须已经持有 _run_lock。"""
         from testpilot.storage import repos
 
         out = []
