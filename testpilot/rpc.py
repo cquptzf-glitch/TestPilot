@@ -916,6 +916,190 @@ class RpcService:
         self._clear_automation_assets(self._automation_session_id(p))
         return {"ok": True, "snapshot_id": session.toolbox.computer.snapshot_id}
 
+    # ---------- Agent Tool Host（所有 Agent 工具都在主 RPC 进程执行） ----------
+
+    def issue_agent_token(self, workspace: str | Path) -> str:
+        """签发一次 Agent 会话的最小能力 Token。
+
+        Token 只能访问 _AGENT_RPC_METHODS，并绑定一个 canonical workspace；
+        Pi 子进程拿不到桌面主 RPC Token。
+        """
+        root = Path(workspace).expanduser().resolve()
+        if not root.is_dir():
+            raise RpcError(INVALID_PARAMS, f"Agent 工作区不存在: {root}")
+        token = secrets.token_urlsafe(32)
+        with self._agent_tokens_lock:
+            self._agent_tokens[token] = {"workspace": str(root)}
+        return token
+
+    def revoke_agent_token(self, token: str) -> None:
+        with self._agent_tokens_lock:
+            self._agent_tokens.pop(str(token), None)
+
+    def _agent_scope(self, p: dict) -> dict:
+        scope = p.get("_agentScope")
+        if not isinstance(scope, dict) or not scope.get("workspace"):
+            raise RpcError(INVALID_PARAMS, "Agent 工具必须通过受限 Agent RPC 会话调用")
+        return scope
+
+    def _agent_workspace(self, p: dict) -> Path:
+        return Path(self._agent_scope(p)["workspace"]).resolve()
+
+    def _agent_path(self, p: dict, value, *, must_file=False) -> Path:
+        root = self._agent_workspace(p)
+        raw = Path(str(value or "").strip())
+        path = (raw if raw.is_absolute() else root / raw).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise RpcError(INVALID_PARAMS, f"Agent 路径越出工作区: {value!r}") from exc
+        if must_file and not path.is_file():
+            raise RpcError(INVALID_PARAMS, f"文件不存在: {value!r}")
+        return path
+
+    def _agent_fs_read(self, p):
+        path = self._agent_path(p, _require(p, "path"), must_file=True)
+        size = path.stat().st_size
+        if size > 2 * 1024 * 1024:
+            raise RpcError(INVALID_PARAMS, f"Agent 单文件读取上限 2MiB: {path.name}")
+        raw = path.read_bytes()
+        if b"\x00" in raw[:4096]:
+            raise RpcError(INVALID_PARAMS, f"不允许把二进制文件送给 Agent: {path.name}")
+        lines = raw.decode("utf-8", "replace").splitlines()
+        offset = max(1, int(p.get("offset") or 1))
+        limit = max(1, min(int(p.get("limit") or 300), 2000))
+        selected = lines[offset - 1: offset - 1 + limit]
+        log.info(f"agent.fs.read {path} lines={offset}..{offset + len(selected) - 1}")
+        return {
+            "path": str(path.relative_to(self._agent_workspace(p))),
+            "offset": offset, "lines": len(selected), "total_lines": len(lines),
+            "content": "\n".join(f"{offset + i}: {line}" for i, line in enumerate(selected)),
+        }
+
+    def _agent_fs_find(self, p):
+        root = self._agent_workspace(p)
+        pattern = str(_require(p, "pattern")).strip().replace("\\", "/")
+        if len(pattern) > 300 or pattern.startswith("/") or ".." in Path(pattern).parts:
+            raise RpcError(INVALID_PARAMS, "Agent find pattern 非法")
+        limit = max(1, min(int(p.get("limit") or 200), 500))
+        out = []
+        for path in root.glob(pattern):
+            try:
+                rel = path.resolve().relative_to(root)
+            except (OSError, ValueError):
+                continue
+            if any(part in (".svn", ".git", "node_modules") for part in rel.parts):
+                continue
+            out.append({"path": str(rel), "type": "dir" if path.is_dir() else "file"})
+            if len(out) >= limit:
+                break
+        log.info(f"agent.fs.find workspace={root} pattern={pattern!r} count={len(out)}")
+        return {"items": out, "count": len(out), "truncated": len(out) >= limit}
+
+    def _agent_fs_grep(self, p):
+        root = self._agent_workspace(p)
+        query = str(_require(p, "query"))
+        if len(query) > 500:
+            raise RpcError(INVALID_PARAMS, "Agent grep 查询过长")
+        glob = str(p.get("glob") or "**/*").replace("\\", "/")
+        if glob.startswith("/") or ".." in Path(glob).parts:
+            raise RpcError(INVALID_PARAMS, "Agent grep glob 非法")
+        limit = max(1, min(int(p.get("limit") or 100), 300))
+        use_regex = bool(p.get("regex"))
+        try:
+            pattern = re.compile(query, re.IGNORECASE) if use_regex else None
+        except re.error as exc:
+            raise RpcError(INVALID_PARAMS, f"Agent grep 正则非法: {exc}") from exc
+        needle = query.lower()
+        out, scanned = [], 0
+        for path in root.glob(glob):
+            if len(out) >= limit or scanned >= 2000:
+                break
+            if not path.is_file():
+                continue
+            try:
+                rel = path.resolve().relative_to(root)
+            except (OSError, ValueError):
+                continue
+            if any(part in (".svn", ".git", "node_modules") for part in rel.parts):
+                continue
+            try:
+                if path.stat().st_size > 1024 * 1024:
+                    continue
+                raw = path.read_bytes()
+            except OSError:
+                continue
+            scanned += 1
+            if b"\x00" in raw[:4096]:
+                continue
+            for no, line in enumerate(raw.decode("utf-8", "replace").splitlines(), 1):
+                matched = bool(pattern.search(line)) if pattern else needle in line.lower()
+                if matched:
+                    out.append({"path": str(rel), "line": no, "text": line[:500]})
+                    if len(out) >= limit:
+                        break
+        log.info(f"agent.fs.grep workspace={root} query={query[:80]!r} hits={len(out)}")
+        return {"matches": out, "count": len(out), "scanned_files": scanned,
+                "truncated": len(out) >= limit}
+
+    def _agent_svn_status(self, p):
+        from testpilot.adapters.svn_adapter import SvnAdapter
+        root = self._agent_workspace(p)
+        out = SvnAdapter(self._orch.cfg.get("svn", {})).status(root)
+        log.info(f"agent.svn.status workspace={root} count={len(out)}")
+        return {"items": out, "count": len(out)}
+
+    def _agent_svn_diff(self, p):
+        from testpilot.adapters.svn_adapter import SvnAdapter
+        root = self._agent_workspace(p)
+        paths = p.get("paths")
+        if paths is not None and (not isinstance(paths, list) or len(paths) > 50):
+            raise RpcError(INVALID_PARAMS, "paths 需为最多 50 条路径")
+        out = SvnAdapter(self._orch.cfg.get("svn", {})).diff(
+            root, from_revision=p.get("from_revision"), to_revision=p.get("to_revision"),
+            paths=paths, max_chars=p.get("max_chars"))
+        log.info(f"agent.svn.diff workspace={root} chars={out.get('chars')}")
+        return out
+
+    def _agent_svn_log(self, p):
+        from testpilot.adapters.svn_adapter import SvnAdapter
+        root = self._agent_workspace(p)
+        out = SvnAdapter(self._orch.cfg.get("svn", {})).log(
+            root, from_revision=p.get("from_revision"), to_revision=p.get("to_revision"),
+            limit=int(p.get("limit") or 20))
+        return {"items": out, "count": len(out)}
+
+    def _agent_case_search(self, p):
+        from testpilot.storage import repos
+        query = str(_require(p, "query")).strip().lower()
+        limit = max(1, min(int(p.get("limit") or 20), 50))
+        out = []
+        for row in repos.list_cases(self._orch.conn):
+            raw = row.get("raw") or {}
+            hay = " ".join([
+                str(row.get("case_id") or ""), str(row.get("title") or ""),
+                str(raw.get("steps_text") or ""), str(row.get("notes") or ""),
+            ]).lower()
+            if query not in hay:
+                continue
+            out.append({
+                "case_id": row["case_id"], "zentao_case_id": row.get("zentao_case_id"),
+                "title": row.get("title"), "status": row.get("status"),
+                "sync_status": row.get("sync_status"), "step_count": len(row.get("steps") or []),
+                "source_text": str(raw.get("steps_text") or "")[:1200],
+            })
+            if len(out) >= limit:
+                break
+        return {"cases": out, "count": len(out), "truncated": len(out) >= limit}
+
+    def _agent_case_detail(self, p):
+        case_id = str(_require(p, "case_id")).strip()
+        detail = self._orch.cases.show(case_id)
+        # 控制 Agent 上下文体积；完整图片/轨迹不通过此工具暴露。
+        if len(str(detail.get("source_text") or "")) > 8000:
+            detail["source_text"] = str(detail["source_text"])[:8000] + "\n...[truncated]"
+        return detail
+
     # ---------- 配置（设置页） ----------
 
     def _config_service(self):
