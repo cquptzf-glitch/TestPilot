@@ -11,6 +11,7 @@ import pytest
 
 from testpilot.adapters.svn_adapter import SvnAdapter, _revision_args
 from testpilot.agent.change_service import ChangeAnalysisService, _parse_analysis
+from testpilot.agent.pi_runtime import PiAgentRuntime
 from testpilot.case_parser import CaseService
 from testpilot.core.errors import AgentError, SvnError
 from testpilot.rpc import RpcService
@@ -155,6 +156,42 @@ def test_change_service_rejects_invalid_agent_output():
     with pytest.raises(AgentError):
         _parse_analysis("not json", max_cases=20)
 
+
+def test_pi_runtime_builds_only_supported_safe_flags(tmp_path):
+    extension = tmp_path / "tool.mjs"
+    extension.write_text("export default () => {}", encoding="utf-8")
+    runtime = PiAgentRuntime({}, rpc_url="ws://127.0.0.1:9301", rpc_token="t")
+
+    runtime._help_cache = """
+      --mode <mode>
+      --no-session
+      --no-builtin-tools
+      --no-skills
+      --no-prompt-templates
+      --no-extensions
+      --extension <source>
+    """
+    command = runtime._command("pi", extension)
+    assert "--no-builtin-tools" in command
+    assert "--no-tools" not in command
+    assert "--no-skills" in command
+    assert "--no-mcp" not in command
+    assert command[-2:] == ["--extension", str(extension)]
+
+    runtime._help_cache = """
+      --mode <mode>
+      --no-session
+      --no-tools
+      --no-skills
+      --extension <source>
+    """
+    command = runtime._command("pi", extension)
+    assert "--no-tools" in command
+    assert "--no-builtin-tools" not in command
+
+    runtime._help_cache = "--mode <mode> --no-session --extension <source>"
+    with pytest.raises(AgentError, match="不支持禁用内置工具"):
+        runtime._command("pi", extension)
 
 def test_pi_extension_has_no_native_file_or_shell_tools():
     source = (Path(__file__).resolve().parents[1]
