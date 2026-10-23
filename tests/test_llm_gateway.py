@@ -210,7 +210,7 @@ def test_set_default_llm_roundtrip():
 def test_prompt_templates_have_stable_versions():
     assert set(prompts.PROMPT_VERSIONS) == {
         "parse_case", "ground", "verify_vision", "judge"}
-    assert prompts.PROMPT_VERSIONS["parse_case"] == "parse_case_v3"
+    assert prompts.PROMPT_VERSIONS["parse_case"] == "parse_case_v4"
 
 
 def test_parse_prompt_contains_action_table_and_raw_text():
