@@ -86,7 +86,10 @@ if ($Onefile) {
     #   启动即 FileNotFoundError: ...\testpilot\config\default.yaml）；
     #   源路径必须写**绝对路径** —— 相对路径按 --specpath（build/）解析而非 cwd；
     # - exclude-module：与 spec 一致，避免把无用重依赖塞进单文件。
-    $datas = @('--add-data', "$root\testpilot\config\default.yaml;testpilot/config")
+    $datas = @(
+        '--add-data', "$root\testpilot\config\default.yaml;testpilot/config",
+        '--add-data', "$root\testpilot\agent\pi_rpc_tools.mjs;testpilot/agent"
+    )
     $excludes = @('tkinter', 'matplotlib', 'PyQt5', 'PySide6', 'IPython')
     # 注意：不要用 $args（PowerShell 自动变量），否则会与脚本参数绑定冲突
     $pyArgs = @('-m', 'PyInstaller', '--noconfirm', '--onefile', '--console',
