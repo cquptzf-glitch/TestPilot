@@ -397,7 +397,15 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
       <div className="panel"><h3>核对生成的操作和预期结果</h3>
         <p className="muted">已确认 {chosen.filter(caseIsApproved).length} / {chosen.length} 条。逐条确认后即可执行。</p>
         {batch && batch.failed.length > 0 && <Msg kind="warn">成功生成 {batch.parsed} 条，失败 {batch.failed.length} 条。修正原文后可重试，或返回移除失败用例。</Msg>}
-        <div className="flow-review-tabs">{chosen.map(c => <span className={'chip ' + (reviewId === c.case_id ? 'on' : '')} key={c.case_id}>{caseIsApproved(c) ? '✓ ' : ''}{c.case_id}</span>)}</div>
+        <div className="flow-review-tabs">{chosen.map(c =>
+          <button type="button"
+            className={'chip ' + (reviewId === c.case_id ? 'on' : '')}
+            key={c.case_id}
+            disabled={locked}
+            title={caseIsApproved(c) ? '已确认，可点击回看或编辑' : '点击切换到该用例'}
+            onClick={() => setReviewId(c.case_id)}>
+            {caseIsApproved(c) ? '✓ ' : ''}{c.case_id}
+          </button>)}</div>
         {batch?.failed.map(f => <p key={f.case_id} className="msg error">{f.case_id}：{f.error}</p>)}
       </div>
       {reviewId && <DslReviewPage key={reviewId} embedded caseId={reviewId} onAccepted={accepted} onBack={() => { cases.reload(); setPhase(1); }} />}

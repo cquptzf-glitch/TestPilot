@@ -69,6 +69,25 @@ export function CaseJobsPanel({ compact = false }: { compact?: boolean }) {
   const items = result?.items ?? [];
   const generated = changeResult?.cases ?? [];
   const agentAudit = changeResult?.agent?.audit ?? job.progress.agent_audit ?? [];
+  const continueItems = result?.items ?? [];
+  const continueAction = !compact && !active
+    ? continueItems.length > 0
+      ? {
+          label: `继续审核（${continueItems.length}）`,
+          run: () => navigate('dsl', {
+            caseId: continueItems[0].case_id,
+            queue: continueItems.map(i => i.case_id).join(','),
+          }),
+        }
+      : generated.length > 0
+        ? {
+            label: `查看生成用例（${generated.length}）`,
+            run: () => navigate('cases', {
+              selection: generated.map(i => i.case_id).join(','),
+            }),
+          }
+        : null
+    : null;
   return <div className="case-job-panel">
     <div className={`msg ${job.status === 'failed' || failures.length ? 'warn' : 'info'}`} role="status">
       <strong>{methods[job.method] ?? job.method} · {labels[job.status]}</strong>
@@ -92,16 +111,14 @@ export function CaseJobsPanel({ compact = false }: { compact?: boolean }) {
         setExpanded(false);
         setDismissedId(job.id);
       }}>关闭</button>}
+      {continueAction && <button className="btn primary" onClick={continueAction.run}>
+        {continueAction.label}
+      </button>}
       {!!(items.length || failures.length || generated.length || agentAudit.length) &&
         <button className="btn" onClick={() => setExpanded(!expanded)}>
           {expanded ? '收起详情' : job.status === 'failed' && agentAudit.length
-            ? '查看失败轨迹' : '查看逐条结果'}
+            ? '查看失败轨迹' : '查看详情'}
         </button>}
-      {!compact && items.length > 0 && <button className="btn primary" onClick={() => navigate('dsl', { caseId: items[0].case_id, queue: items.map(i => i.case_id).join(',') })}>逐条审核（{items.length}）</button>}
-      {!compact && generated.length > 0 && <button className="btn primary"
-        onClick={() => navigate('cases', { selection: generated.map(i => i.case_id).join(',') })}>
-        查看生成用例（{generated.length}）
-      </button>}
       {error && <span>{error}</span>}
     </div>
     {expanded && agentAudit.length > 0 && <div className="panel batch-results">

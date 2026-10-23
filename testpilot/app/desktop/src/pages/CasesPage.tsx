@@ -173,8 +173,10 @@ export function CasesPage({ selection }: { selection?: string }) {
             </button>
           ))}
         </span>
-        {(query || status || syncStatus) && (
-          <button className="btn ghost" onClick={() => { setQuery(''); setStatus(''); setSyncStatus(''); }}>
+        {(query || status || syncStatus || group) && (
+          <button className="btn ghost" onClick={() => {
+            setQuery(''); setStatus(''); setSyncStatus(''); setGroup('');
+          }}>
             清除筛选
           </button>
         )}
@@ -232,12 +234,6 @@ export function CasesPage({ selection }: { selection?: string }) {
           <option value="active">已生效</option>
           <option value="rejected">已拒绝</option>
           <option value="deprecated">已停用</option>
-        </select>
-        <select value={syncStatus} onChange={(e) => setSyncStatus(e.target.value)}>
-          <option value="">全部同步态</option>
-          <option value="synced">已同步</option>
-          <option value="stale">待重解析</option>
-          <option value="conflict">有冲突</option>
         </select>
         {groups.length > 0 && (
           <select value={group} onChange={(e) => setGroup(e.target.value)}
