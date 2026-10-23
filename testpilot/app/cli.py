@@ -92,7 +92,7 @@ def cmd_case(cfg, args) -> int:
         if args.action == "pull":
             emit(cases.pull(_ids(args.ids), parse=args.parse), args.pretty)
         elif args.action == "sync":
-            emit(cases.sync(args.product, parse=args.parse), args.pretty)
+            emit(cases.sync(args.product, parse=args.parse, full=args.full), args.pretty)
         elif args.action == "list":
             rows = cases.list_cases(status=args.status,
                                     sync_status=args.sync_status)
@@ -423,6 +423,8 @@ def build_parser() -> argparse.ArgumentParser:
     csy = cs.add_parser("sync", help="按产品增量同步（变更标 stale/conflict）")
     csy.add_argument("--product", type=int, default=None, help="产品 ID")
     csy.add_argument("--parse", action="store_true", help="同步后重解析 stale 用例")
+    csy.add_argument("--full", action="store_true",
+                     help="忽略增量水位，完整扫描当前产品（校准/排障）")
     cl = cs.add_parser("list", help="本地用例列表")
     cl.add_argument("--status", choices=["draft", "active", "rejected", "deprecated"])
     cl.add_argument("--sync-status", dest="sync_status",
