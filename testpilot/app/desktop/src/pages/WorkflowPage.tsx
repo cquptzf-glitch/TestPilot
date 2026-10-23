@@ -103,7 +103,7 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
   const chosen = selected.map(id => rows.find(c => c.case_id === id)).filter((c): c is CaseRow => !!c);
   const visible = useMemo(() => rows.filter(c =>
     (c.case_id + ' ' + c.title).toLowerCase().includes(query.trim().toLowerCase())), [rows, query]);
-  const runnable = chosen.length === selected.length && chosen.length > 0 && chosen.every(approved);
+  const runnable = chosen.length === selected.length && chosen.length > 0 && chosen.every(caseIsApproved);
   const windowMissing = chosen.filter(missingWindow);
   // 任务快照只由用例版本、驱动策略和远端同步决定。
   // caseRetry 是本次 task.run 参数，改变它不应重复创建同一个任务。
@@ -314,7 +314,12 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
           <input type="checkbox" aria-label={'测试 ' + c.case_id} disabled={locked || !caseIsSelectable(c)} checked={selected.includes(c.case_id)}
             onChange={e => setSelected(prev => e.target.checked ? [...prev, c.case_id] : prev.filter(id => id !== c.case_id))} />
           <span className="flow-case-title"><strong>{c.title || c.case_id}</strong><small>{c.case_id} · {c.steps?.length ?? 0} 步</small></span>
-          <Badge status={c.status} /><span className="muted">{!caseIsSelectable(c) ? '已拒绝，需先修订' : caseIsApproved(c) ? '可直接执行' : caseNeedsAnalysis(c) ? '需要生成 DSL' : '等待确认步骤'}</span>
+          <Badge status={c.status} /><span className="muted">{
+            c.status === 'deprecated' ? '已停用'
+              : c.status === 'rejected' ? '已拒绝，需先修订'
+                : caseIsApproved(c) ? '可直接执行'
+                  : caseNeedsAnalysis(c) ? '需要生成 DSL' : '等待确认步骤'
+          }</span>
         </label>)}
         {!visible.length && <Empty text={cases.loading ? '正在读取用例…' : '暂无用例，请先输入禅道 ID 拉取；也可到用例库导入 DSL。'} />}
       </div>
@@ -376,21 +381,21 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
               placeholder='例如：--test-mode --config "D:\\Config\\test.yaml"' />
           </label></div>
       </details>
-      <div className="flow-footer"><span className="muted">{chosen.filter(needsAnalysis).length} 条待生成 · {chosen.filter(c => !caseIsApproved(c) && !caseNeedsAnalysis(c)).length} 条待确认 · {chosen.filter(approved).length} 条可执行</span>
+      <div className="flow-footer"><span className="muted">{chosen.filter(caseNeedsAnalysis).length} 条待生成 · {chosen.filter(c => !caseIsApproved(c) && !caseNeedsAnalysis(c)).length} 条待确认 · {chosen.filter(caseIsApproved).length} 条可执行</span>
         <button className="btn primary large"
           disabled={locked || chosen.length === 0 || cases.loading
             || (windowMissing.length > 0 && !windowTitle.trim() && !exe.trim())}
           onClick={() => void prepare()}>
           {windowMissing.length > 0 && !windowTitle.trim() && !exe.trim()
             ? '先补充被测软件'
-            : chosen.length > 0 && chosen.every(approved) && windowMissing.length === 0
+            : chosen.length > 0 && chosen.every(caseIsApproved) && windowMissing.length === 0
               ? '下一步：执行测试 →' : '下一步：分析与确认 →'}
         </button></div>
     </section>}
 
     {phase === 2 && <section className="flow-review">
       <div className="panel"><h3>核对生成的操作和预期结果</h3>
-        <p className="muted">已确认 {chosen.filter(approved).length} / {chosen.length} 条。逐条确认后即可执行。</p>
+        <p className="muted">已确认 {chosen.filter(caseIsApproved).length} / {chosen.length} 条。逐条确认后即可执行。</p>
         {batch && batch.failed.length > 0 && <Msg kind="warn">成功生成 {batch.parsed} 条，失败 {batch.failed.length} 条。修正原文后可重试，或返回移除失败用例。</Msg>}
         <div className="flow-review-tabs">{chosen.map(c => <span className={'chip ' + (reviewId === c.case_id ? 'on' : '')} key={c.case_id}>{caseIsApproved(c) ? '✓ ' : ''}{c.case_id}</span>)}</div>
         {batch?.failed.map(f => <p key={f.case_id} className="msg error">{f.case_id}：{f.error}</p>)}
