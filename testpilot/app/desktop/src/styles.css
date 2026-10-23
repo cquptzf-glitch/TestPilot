@@ -2560,3 +2560,64 @@ details.task-create { margin-bottom: 22px; }
 @media (max-width: 680px) {
   .change-form { grid-template-columns: 1fr; }
 }
+
+
+/* Simplified case/workflow controls */
+.case-source-panel {
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-3);
+}
+.case-source-panel > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  gap: var(--sp-2);
+}
+.case-source-panel > summary::-webkit-details-marker { display: none; }
+.case-source-panel > summary::after {
+  content: "展开";
+  margin-left: auto;
+  color: var(--c-text-faint);
+  font-size: var(--fs-xs);
+}
+.case-source-panel[open] > summary::after { content: "收起"; }
+.case-source-panel .source-toolbar {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--c-border);
+}
+.primary-actions { position: relative; }
+.inline-more {
+  position: relative;
+  display: inline-block;
+}
+.inline-more > summary {
+  list-style: none;
+  user-select: none;
+}
+.inline-more > summary::-webkit-details-marker { display: none; }
+.more-actions-popover {
+  position: absolute;
+  z-index: var(--z-popover);
+  right: 0;
+  top: calc(100% + var(--sp-2));
+  min-width: 220px;
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--c-panel);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-2);
+}
+.more-actions-popover .btn {
+  width: 100%;
+  justify-content: flex-start;
+}
+.flow-target > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
