@@ -104,6 +104,59 @@ def test_run_progress_event_phase_is_top_level():
     assert finished["payload"]["stats"]["pass"] == 2
 
 
+@pytest.mark.parametrize(("method", "params"), [
+    ("case.pull", {"caseIds": [1], "parse": "false"}),
+    ("case.sync", {"parse": "false"}),
+    ("case.sync", {"full": 0}),
+    ("case.parse", {"allStale": "false"}),
+])
+def test_rpc_rejects_truthy_string_booleans(svc, method, params):
+    service, _, _ = svc
+    with pytest.raises(RpcError) as exc:
+        service.dispatch(method, params)
+    assert exc.value.code == INVALID_PARAMS
+
+
+def test_task_create_rejects_string_remote_before_side_effect(svc):
+    service, orch, ids = svc
+    before = len(orch.zentao.created)
+    with pytest.raises(RpcError) as exc:
+        service.dispatch("task.create", {
+            "name": "不能误建远端",
+            "caseIds": ids,
+            "remote": "false",
+        })
+    assert exc.value.code == INVALID_PARAMS
+    assert len(orch.zentao.created) == before
+    assert service.dispatch("task.list", {})["tasks"] == []
+
+
+def test_task_run_rejects_string_writeback_before_start(svc):
+    service, _, ids = svc
+    task = service.dispatch("task.create", {
+        "name": "布尔边界",
+        "caseIds": ids,
+        "remote": False,
+    })
+    with pytest.raises(RpcError) as exc:
+        service.dispatch("task.run", {
+            "taskId": task["task_id"],
+            "writeback": "false",
+        })
+    assert exc.value.code == INVALID_PARAMS
+    assert service.dispatch("run.list", {})["runs"] == []
+
+
+def test_task_create_remote_none_preserves_application_default(svc):
+    service, orch, ids = svc
+    orch.cfg["zentao"]["create_task"] = False
+    out = service.dispatch("task.create", {
+        "name": "缺省本地",
+        "caseIds": ids,
+    })
+    assert out["sync_status"] == "local"
+
+
 # ---------- 自动化探索 ----------
 
 def test_automation_rpc_session_history_and_draft(svc):
