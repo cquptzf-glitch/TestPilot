@@ -1680,3 +1680,46 @@ UI 还会收到重复 case_id。
 验证：GitHub Actions run `39885272988` / SHA
 `721c86f8b47029150f6c893fbddff7146e91255d`：
 Python install、Ruff、全量 Pytest、Desktop TypeScript/Vite build 全部 success。
+
+
+---
+
+## 第二十五轮：代码逻辑、处理流程与 UI 操作流全面复审（2026-10-23）
+
+目标：停止继续堆平级入口，把已有能力按“日常主路径 / 维护路径 / 高级复用”重新分层，同时复审执行链与前后端状态契约。
+
+### 主流程收敛
+
+- 日常回归：开始测试 → 选择用例 → 必要解析 → 内嵌审核 → 执行 → 结果；
+- 用例维护：同步 / SVN 生成 → DSL 审核；
+- 测试任务 / 测试方案降为高级复用入口，不再要求普通回归先创建。
+
+### 逻辑缺陷修复
+
+- appTarget 不再触发全部用例重解析；
+- task fingerprint 不再包含 run-only 的 caseRetry；
+- task 配置优先级统一为 global < suite < explicit task；
+- suite/direct case scope 互斥，用例 ID 有序去重；
+- Task UI 显式传 driver override 与 remote true/false；
+- Zentao effective product scope 与空 parse batch 契约收口；
+- task.run mode / caseRetry 早校验；
+- abort race 后前端立即回读运行状态；
+- router action failure 不再重复计成功+失败两条样本；
+- wait_gone 与普通 UI action 增加 capability-aware driver fallback；
+- run.progress 修复 phase 层级，start/case_done/finished 恢复前端事件驱动。
+
+### UI / 性能优化
+
+- 主导航 7 → 6；
+- Cases / Workflow / SVN / Automation / Tasks / Settings 均使用渐进式披露；
+- DSL 队列通过后自动下一条；
+- RunDetail result-first，技术诊断折叠；
+- run.stepTrace / kb.caseCtxList / kb.envCompat 改为按需加载；
+- Runs 删除隐藏但仍计算的 KB/token 排序与汇总死逻辑；
+- CaseJobsPanel active 1s / idle 5s，自身事件触发即时刷新，terminal 可关闭。
+
+### 测试
+
+新增/更新回归测试覆盖 task precedence、scope、driver override、RPC run 参数、Zentao scope、router 样本、capability fallback 与 run.progress 事件契约。
+
+完整说明：`docs/review-flow-ui-2026-10-23.md`。
