@@ -7,7 +7,7 @@ import { Badge, Chips, CopyId, Empty, Msg } from '../components/Bits';
 import { PromptModal, pushToast } from '../components/Ui';
 import { fmtTime, statusLabel } from '../format';
 import { msg, navigate, useAsync, useCaseJobBusy } from '../hooks';
-import type { CaseDetail, CaseRow } from '../types';
+import type { CaseDetail, CaseRow, SourceSyncState } from '../types';
 
 function parseIds(text: string): number[] {
   return text.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean).map(Number)
@@ -48,7 +48,7 @@ export function CasesPage({ selection }: { selection?: string }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 
   const list = useAsync(
-    () => call<{ cases: CaseRow[] }>('case.list', {
+    () => call<{ cases: CaseRow[]; sync_state?: SourceSyncState | null }>('case.list', {
       status: status || undefined, syncStatus: syncStatus || undefined,
     }),
     [status, syncStatus],
@@ -118,13 +118,14 @@ export function CasesPage({ selection }: { selection?: string }) {
     return out;
   }, [allRows]);
 
-  /** 最近一次同步时间（设计 14.3：增量同步按钮需带上「上次同步时间」）。
-   *  取全表最大值 —— 用户关心的是"我上次什么时候同步过"，不是某一条。 */
+  /** 来源级最后同步时间优先：即使本次 0 变更，也能准确显示“刚同步过”。
+   *  旧库尚未产生 source_sync_state 时，回落到历史用例的 last_synced_at。 */
   const lastSync = useMemo(() => {
-    const times = rows.map((r) => r.last_synced_at).filter(Boolean) as string[];
+    if (list.data?.sync_state?.synced_at) return list.data.sync_state.synced_at;
+    const times = allRows.map((r) => r.last_synced_at).filter(Boolean) as string[];
     if (times.length === 0) return null;
-    return times.reduce((a, b) => (a > b ? a : b));   // ISO 8601 字典序即时间序
-  }, [rows]);
+    return times.reduce((a, b) => (a > b ? a : b));
+  }, [list.data?.sync_state?.synced_at, allRows]);
 
   const detail = useAsync(
     () => (detailId ? call<CaseDetail>('case.detail', { caseId: detailId }) : Promise.resolve(null)),
@@ -195,12 +196,23 @@ export function CasesPage({ selection }: { selection?: string }) {
           同时解析 DSL
         </label>
         <button className="btn" disabled={locked}
-                title={lastSync ? `上次同步：${fmtTime(lastSync)}` : '本地还没有同步过'}
-                onClick={() => run('增量同步', () => caseJob('case.sync', { parse: parseAfter }), list.reload)}>
+                title={lastSync
+                  ? `按远端修改水位增量同步；上次同步：${fmtTime(lastSync)}`
+                  : '首次同步会扫描当前产品用例'}
+                onClick={() => run('增量同步', () => caseJob('case.sync', {
+                  parse: parseAfter, full: false,
+                }), list.reload)}>
           增量同步
           <span className="faint" style={{ marginLeft: 6, fontSize: 'var(--fs-xs)' }}>
-            {lastSync ? `上次 ${fmtTime(lastSync)}` : '从未'}
+            {lastSync ? `上次 ${fmtTime(lastSync)}` : '首次'}
           </span>
+        </button>
+        <button className="btn ghost" disabled={locked}
+                title="忽略增量水位，完整扫描禅道当前产品；用于校准、迁移或怀疑漏同步时"
+                onClick={() => run('全量校准', () => caseJob('case.sync', {
+                  parse: parseAfter, full: true,
+                }), list.reload)}>
+          全量校准
         </button>
       </div>
       <div className="toolbar">
