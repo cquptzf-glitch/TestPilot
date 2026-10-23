@@ -162,6 +162,67 @@ def test_create_task_remote_failure_marks_sync_pending(cfg, registry, db_conn,
     assert out["zentao_task_id"] is None
 
 
+def test_remote_creation_crash_marker_prevents_duplicate_compensation(
+        cfg, registry, db_conn, tmp_path, monkeypatch):
+    """POST 已发生但本地未保存远端 ID 时，补偿必须 fail-closed，绝不重复创建。"""
+    zentao = FakeZentao(configured=True)
+    o = _orch(cfg, registry, db_conn, tmp_path, zentao=zentao)
+    o.cases.pull([1])
+    o.cases.parse("TC-1")
+    o.cases.accept("TC-1")
+
+    def crash_after_post(name, spec, case_ids):
+        zentao.create_testtask({**spec, "name": name, "case_ids": case_ids})
+        raise SystemExit("simulated crash after remote POST")
+
+    monkeypatch.setattr(o, "_create_remote_task", crash_after_post)
+    with pytest.raises(SystemExit, match="simulated crash"):
+        o.create_task({
+            "name": "崩溃窗口",
+            "case_ids": ["TC-1"],
+            "remote": True,
+        })
+
+    task = o.list_tasks()[0]
+    assert task["sync_status"] == "sync_pending"
+    assert task["zentao_task_id"] is None
+    assert task["remote_state"]["creation_attempted"] is True
+    assert len(zentao.created) == 1
+
+    result = o.sync_pending_tasks(task["id"])
+    assert result == [{
+        "task_id": task["id"],
+        "result": "creation_uncertain",
+        "action": "reconcile_remote_id",
+    }]
+    assert len(zentao.created) == 1
+
+
+def test_definite_remote_create_failure_can_retry_safely(
+        cfg, registry, db_conn, tmp_path):
+    zentao = FakeZentao(configured=True, fail_create=True)
+    o = _orch(cfg, registry, db_conn, tmp_path, zentao=zentao)
+    o.cases.pull([1])
+    o.cases.parse("TC-1")
+    o.cases.accept("TC-1")
+
+    task = o.create_task({
+        "name": "明确失败",
+        "case_ids": ["TC-1"],
+        "remote": True,
+    })
+    saved = o.list_tasks()[0]
+    assert task["sync_status"] == "sync_pending"
+    assert saved["remote_state"]["creation_attempted"] is False
+    assert saved["remote_state"]["creation_uncertain"] is False
+
+    zentao.fail_create = False
+    result = o.sync_pending_tasks(task["task_id"])
+    assert result[0]["result"] == "no_run_stats"
+    assert len(zentao.created) == 1
+    assert o.list_tasks()[0]["zentao_task_id"] is not None
+
+
 def test_create_task_with_preconditions_override(orch, db_conn):
     out = orch.create_task({"name": "自定义前置", "case_ids": ["TC-1"],
                             "preconditions": ["模拟器场景: custom"]})
