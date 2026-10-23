@@ -33,6 +33,15 @@ CREATE TABLE {name} (
 """
 
 _DDL = """
+CREATE TABLE IF NOT EXISTS source_sync_state (
+  source           TEXT NOT NULL,
+  scope            TEXT NOT NULL,
+  watermark        TEXT,
+  synced_at        TEXT NOT NULL,
+  detail_json      TEXT NOT NULL DEFAULT '{}',
+  PRIMARY KEY(source, scope)
+);
+
 CREATE TABLE IF NOT EXISTS dsl_case (
   case_id          TEXT PRIMARY KEY,
   zentao_case_id   INTEGER,
