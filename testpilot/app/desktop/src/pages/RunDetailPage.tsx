@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { assetPath, call, readAssetDataUrl, readTextFile, shotRel } from '../bridge';
-import { Badge, CountCard, Donut, DriverBadge, Empty, HeatBlocks, Msg, PassBar, SplitBar } from '../components/Bits';
+import { Badge, Donut, DriverBadge, Empty, HeatBlocks, Msg, PassBar } from '../components/Bits';
 import { Lightbox } from '../components/Ui';
 import { fmtMs, fmtTime, passRate, shortSig, copyText, statusLabel } from '../format';
 import { msg, useAsync, useEngineEvents, type AsyncState, type EngineContextValue } from '../hooks';
@@ -34,6 +34,7 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
   const [traceId, setTraceId] = useState<number | null>(null);
   useEffect(() => setTraceId(null), [caseExecId, attemptNo, runId]);
   const [report, setReport] = useState<string | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null);
   // 截图区：并列对照 / 差异高亮（差异图由引擎预计算并缓存）
@@ -77,21 +78,21 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
 
   // env_compat 矩阵：同一方案/用例集下的历史版本对照（不传版本 = 各版本全要）
   const envCompat = useAsync(
-    () => (run
+    () => (run && diagnosticsOpen
       ? call<{ entries: EnvCompatEntry[] }>('kb.envCompat', {
           suiteId: run.env.suite_id ?? undefined,
           caseIds: run.env.suite_id == null ? run.env.case_ids : undefined,
         })
       : Promise.resolve({ entries: [] })),
-    [run?.id],
+    [run?.id, diagnosticsOpen],
   );
   // 当前用例的人审上下文（case_ctx）：轨迹页直接看到"人已经知道的事"
   const caseCtx = useAsync(
-    () => (activeExec
+    () => (tab === 'trace' && activeExec
       ? call<{ entries: CaseCtxEntry[] }>('kb.caseCtxList',
                                           { caseId: activeExec.case_id })
       : Promise.resolve({ entries: [] })),
-    [activeExec?.case_id],
+    [tab, activeExec?.case_id],
   );
   const ctxEntry = caseCtx.data?.entries?.[0] ?? null;
 
@@ -118,11 +119,11 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
     [run?.id, effectiveBase]);
 
   const steps = useAsync(
-    () => (caseExecId
+    () => (tab === 'trace' && caseExecId
       ? call<{ steps: StepTrace[] }>('run.stepTrace', {
           caseExecId, attempt: attemptNo ?? undefined })
       : Promise.resolve({ steps: [] })),
-    [caseExecId, attemptNo],
+    [tab, caseExecId, attemptNo],
   );
   const stepList = steps.data?.steps ?? [];
   const activeStep = stepList.find((s) => s.id === traceId)
@@ -132,18 +133,6 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
   const selectTrace = (s: StepTrace | undefined) => {
     if (s) { setTraceId(s.id); setStepNo(s.step_no); }
   };
-
-  // 慢步骤线索：定位/动作耗时超阈值（性能问题在报告里最容易漏，这里直接列出来）
-  const slowestSteps = useMemo(() => {
-    if (stepList.length === 0) return [];
-    const rows = cases.flatMap((c) => {
-      if (c.id !== caseExecId) return [];
-      return stepList
-        .map((s) => ({ caseId: c.case_id, step: s, total: (s.locate_ms ?? 0) + (s.act_ms ?? 0) }))
-        .filter((r) => r.total >= 3000);
-    });
-    return rows.sort((a, b) => b.total - a.total).slice(0, 5);
-  }, [cases, caseExecId, stepList]);
 
   // 未显式指定时默认落在"最需要看的"那条用例上（失败 > 阻塞 > 第一条）
   useEffect(() => {
@@ -249,11 +238,6 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
           <span>{run.env.task_name ?? `任务#${run.task_id}`}</span>
           <Badge status={run.status} />
           <PassBar pass={pr.pass} fail={pr.fail} blocked={pr.blocked} skip={pr.skip} total={pr.total} />
-          {(run.stats.retry_cases ?? 0) > 0 && (
-            <span className="chip" title="失败用例复跑（flake 过滤）：复跑后通过的判为疑似偶发">
-              复跑 {run.stats.retry_cases} 例（通过 {run.stats.retry_passed ?? 0}）
-            </span>
-          )}
           <span className="spacer" />
           <span className="muted mono" title={run.started_at}>
             {fmtTime(run.started_at)} ~ {fmtTime(run.finished_at)}
@@ -286,43 +270,27 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
 
       {tab === 'overview' && (
         <div className="col">
-          <div className="row" style={{ alignItems: 'stretch' }}>
-            <div className="panel" style={{ display: 'flex', alignItems: 'center',
-                                            gap: 'var(--sp-6)' }}>
-              <Donut rate={pr.rate} pass={pr.pass} total={pr.total} size={104} />
-              <div className="stack" style={{ gap: 'var(--sp-2)' }}>
-                <div className="legend">
-                  <span><i style={{ background: 'var(--s-pass)' }} />通过 {pr.pass}</span>
-                  <span><i style={{ background: 'var(--s-fail)' }} />失败 {pr.fail}</span>
-                  <span><i style={{ background: '#e0a33a' }} />阻塞 {pr.blocked}</span>
-                  <span><i style={{ background: '#b9c1cb' }} />跳过 {pr.skip}</span>
-                </div>
-                <span className="faint" style={{ fontSize: 'var(--fs-sm)' }}>
-                  用例总数 {pr.total}；均耗时 {fmtMs(avgMs)}；中位 {fmtMs(medianMs)}
-                </span>
-                <PassBar pass={pr.pass} fail={pr.fail} blocked={pr.blocked}
-                         skip={pr.skip} total={pr.total} />
+          <div className="panel run-result-summary">
+            <Donut rate={pr.rate} pass={pr.pass} total={pr.total} size={104} />
+            <div className="stack" style={{ gap: 'var(--sp-2)', flex: 1 }}>
+              <div className="legend">
+                <span><i style={{ background: 'var(--s-pass)' }} />通过 {pr.pass}</span>
+                <span><i style={{ background: 'var(--s-fail)' }} />失败 {pr.fail}</span>
+                <span><i style={{ background: 'var(--s-warn)' }} />阻塞 {pr.blocked}</span>
+                <span><i style={{ background: 'var(--s-idle)' }} />跳过 {pr.skip}</span>
               </div>
-            </div>
-            <div className="cards" style={{ flex: 1 }}>
-              <CountCard value={run.stats.kb_hit_cases ?? 0} label="KB 命中" tone="accent"
-                         sub={pr.total > 0
-                           ? `${Math.round(((run.stats.kb_hit_cases ?? 0) / pr.total) * 100)}% 用例`
-                           : undefined}
-                         title="命中知识库（失败库/元素库）的用例数" />
-              <CountCard value={run.stats.llm_usage?.calls ?? 0} label="LLM 调用" tone="accent"
-                         sub={`${(run.stats.llm_usage?.tokens ?? 0).toLocaleString()} token`} />
-              <CountCard value={run.stats.llm_usage?.errors ?? 0} label="LLM 失败"
-                         tone={(run.stats.llm_usage?.errors ?? 0) > 0 ? 'blocked' : 'skip'} />
-              <CountCard value={slowestSteps.length} label="慢步骤(>3s)"
-                         tone={slowestSteps.length > 0 ? 'blocked' : 'skip'}
-                         title="定位+动作耗时超过 3 秒的步骤数（性能热点线索）" />
-              <CountCard value={flakyIds.length} label="抖动用例"
-                         tone={flakyIds.length > 0 ? 'blocked' : 'skip'}
-                         sub={flakyIds.length > 0
-                           ? flakyIds.slice(0, 2).join('、')
-                           : '窗口内无翻转'}
-                         title="最近窗口内既有通过也有失败的用例（疑似偶发；详见用例明细的稳定性列）" />
+              <span className="faint">
+                共 {pr.total} 条 · 平均 {fmtMs(avgMs)} · 中位 {fmtMs(medianMs)}
+              </span>
+              <PassBar pass={pr.pass} fail={pr.fail} blocked={pr.blocked}
+                       skip={pr.skip} total={pr.total} />
+              <div className="hstack run-attention">
+                {flakyIds.length > 0 && <span className="chip">抖动 {flakyIds.length} 条</span>}
+                {(run.stats.retry_cases ?? 0) > 0 &&
+                  <span className="chip">复跑 {run.stats.retry_cases} 条</span>}
+                {(run.stats.kb_hit_cases ?? 0) > 0 &&
+                  <span className="chip">知识库命中 {run.stats.kb_hit_cases} 条</span>}
+              </div>
             </div>
           </div>
 
@@ -331,85 +299,66 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
                            caseIds={new Set(cases.map((c) => c.case_id))}
                            onOpenCase={openCaseById} />
 
-          <div className="row split">
-            <div className="left" style={{ flex: '0 0 440px' }}>
-              <div className="panel">
-                <h3>根因分布
-                  <span className="spacer" />
-                  <span className="faint" style={{ fontWeight: 400 }}>
-                    共 {Object.values(rootCauses).reduce((a, b) => a + b, 0)} 条
-                  </span>
-                </h3>
-                <HeatBlocks
-                  emptyText="本次没有归因结果（或全部通过）"
-                  items={Object.entries(rootCauses).map(([k, n]) => ({
-                    key: k, value: n, title: `${k}: ${n} 次`,
-                  }))}
-                />
+          {Object.keys(rootCauses).length > 0 && <div className="panel">
+            <h3>失败原因
+              <span className="spacer" />
+              <span className="faint" style={{ fontWeight: 400 }}>
+                共 {Object.values(rootCauses).reduce((a, b) => a + b, 0)} 条
+              </span>
+            </h3>
+            <HeatBlocks
+              emptyText="本次没有归因结果"
+              items={Object.entries(rootCauses).map(([k, n]) => ({
+                key: k, value: n, title: `${k}: ${n} 次`,
+              }))}
+            />
+          </div>}
+
+          <details className="panel run-diagnostics"
+                   open={diagnosticsOpen}
+                   onToggle={(e) => setDiagnosticsOpen(e.currentTarget.open)}>
+            <summary>
+              <strong>技术诊断</strong>
+              <span className="faint">驱动、环境、LLM 与历史环境兼容性</span>
+            </summary>
+            <div className="row split run-diagnostics-body">
+              <div className="left">
+                <DriverStatsPanel stats={run.stats.drivers} />
               </div>
-
-              <DriverStatsPanel stats={run.stats.drivers} />
-
-              {slowestSteps.length > 0 && (
+              <div className="right">
                 <div className="panel">
-                  <h3>最慢步骤 TOP {slowestSteps.length}</h3>
-                  <table className="grid">
-                    <thead>
-                      <tr><th>用例</th><th className="num">步骤</th><th>动作</th>
-                        <th>耗时拆解</th><th>状态</th></tr>
-                    </thead>
-                    <tbody>
-                      {slowestSteps.map((row) => (
-                        <tr key={`${row.caseId}-${row.step.step_no}`} className="clickable"
-                            onClick={() => {
-                              const target = cases.find((c) => c.case_id === row.caseId);
-                              if (target) {
-                                setCaseExecId(target.id);
-                                setStepNo(row.step.step_no);
-                                setTab('trace');
-                              }
-                            }}>
-                          <td className="mono">{row.caseId}</td>
-                          <td className="num mono">#{row.step.step_no}</td>
-                          <td className="mono">{row.step.action}</td>
-                          <td>
-                            <SplitBar segments={[
-                              { label: '定位', value: row.step.locate_ms ?? 0,
-                                color: 'var(--c-accent)' },
-                              { label: '动作', value: row.step.act_ms ?? 0, color: '#7aa7e0' },
-                            ]} />
-                          </td>
-                          <td><Badge status={stepStatus(row.step)} /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <h3>运行环境</h3>
+                  <dl className="kv">
+                    <dt>机器</dt><dd>{run.env.machine ?? '—'}</dd>
+                    <dt>平台</dt><dd>{run.env.platform ?? '—'}</dd>
+                    <dt>Python</dt><dd>{run.env.python ?? '—'}</dd>
+                    <dt>屏幕</dt><dd>{run.env.screen ?? '—'}</dd>
+                    <dt>DPI</dt><dd>{run.env.dpi
+                      ? `${(run.env.dpi.scale ?? 1).toFixed(2)}x / 感知 ${run.env.dpi.aware ? '是' : '否'} / ${run.env.dpi.space ?? '—'}`
+                      : '—'}</dd>
+                    <dt>显示器</dt><dd>{(run.env.dpi?.monitors ?? [])
+                      .map((m) => `#${m.index} ${m.rect.join(',')}${m.primary ? '(主)' : ''}`)
+                      .join('；') || '—'}</dd>
+                    <dt>DSL 版本</dt><dd>{Object.entries(run.env.dsl_versions ?? {})
+                      .map(([k, v]) => `${k}:v${v}`).join('，') || '—'}</dd>
+                    <dt>禅道回写</dt><dd>{run.stats.writeback ?? '—'}</dd>
+                    <dt>LLM</dt><dd>
+                      调用 {run.stats.llm_usage?.calls ?? 0} 次 ·
+                      token {run.stats.llm_usage?.tokens ?? 0} ·
+                      失败 {run.stats.llm_usage?.errors ?? 0}
+                    </dd>
+                  </dl>
+                  {run.env.dpi && run.env.dpi.aware === false
+                    && (run.env.dpi.scale ?? 1) !== 1 && (
+                    <Msg kind="warn">
+                      DPI 感知未开启且缩放非 100%；坐标已按缩放比补偿。
+                    </Msg>
+                  )}
                 </div>
-              )}
-            </div>
-            <div className="right">
-              <div className="panel">
-                <h3>环境快照（归因可比性）</h3>
-                <dl className="kv">
-                  <dt>机器</dt><dd>{run.env.machine ?? '—'}</dd>
-                  <dt>平台</dt><dd>{run.env.platform ?? '—'}</dd>
-                  <dt>Python</dt><dd>{run.env.python ?? '—'}</dd>
-                  <dt>屏幕</dt><dd>{run.env.screen ?? '—'}</dd>
-                  <dt>DPI</dt><dd>{run.env.dpi
-                    ? `${(run.env.dpi.scale ?? 1).toFixed(2)}x / 感知 ${run.env.dpi.aware ? '是' : '否'} / 坐标空间 ${run.env.dpi.space ?? '—'}`
-                    : '—'}</dd>
-                  <dt>显示器</dt><dd>{(run.env.dpi?.monitors ?? []).map((m) => `#${m.index} ${m.rect.join(',')}${m.primary ? '(主)' : ''}`).join('；') || '—'}</dd>
-                  <dt>DSL 版本集</dt><dd>{Object.entries(run.env.dsl_versions ?? {}).map(([k, v]) => `${k}:v${v}`).join('，') || '—'}</dd>
-                  <dt>禅道回写</dt><dd>{run.stats.writeback ?? '—'}</dd>
-                  <dt>LLM</dt><dd>调用 {run.stats.llm_usage?.calls ?? 0} 次 / token {run.stats.llm_usage?.tokens ?? 0} / 失败 {run.stats.llm_usage?.errors ?? 0}</dd>
-                </dl>
-                {run.env.dpi && run.env.dpi.aware === false && (run.env.dpi.scale ?? 1) !== 1 && (
-                  <Msg kind="warn">本次运行 DPI 感知未开启且缩放非 100%：坐标已按缩放比补偿，建议排查 SetProcessDpiAwareness</Msg>
-                )}
               </div>
-              <EnvCompatPanel entries={envCompat.data?.entries ?? []} />
             </div>
-          </div>
+            {diagnosticsOpen && <EnvCompatPanel entries={envCompat.data?.entries ?? []} />}
+          </details>
 
           {report && (
             <div className="panel">
