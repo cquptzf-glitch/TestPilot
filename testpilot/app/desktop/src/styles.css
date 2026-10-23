@@ -2803,3 +2803,39 @@ details.task-create { margin-bottom: 22px; }
   .run-result-summary { align-items: flex-start; flex-wrap: wrap; }
   .run-result-summary .passbar .track { width: 220px; }
 }
+
+
+/* Task creation: progressive disclosure */
+.task-advanced {
+  border-top: 1px solid var(--c-border);
+  padding-top: var(--sp-3);
+}
+.task-advanced > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--c-text-dim);
+  font-weight: 600;
+}
+.task-advanced > summary::-webkit-details-marker { display: none; }
+.task-advanced > summary::after {
+  content: "展开";
+  margin-left: auto;
+  color: var(--c-text-faint);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+}
+.task-advanced[open] > summary::after { content: "收起"; }
+.task-advanced-body {
+  margin-top: var(--sp-3);
+  flex-wrap: wrap;
+}
+.task-remote-fields {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--c-panel-soft);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+}
