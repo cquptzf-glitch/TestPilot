@@ -13,7 +13,8 @@ from testpilot.adapters.svn_adapter import SvnAdapter, _revision_args
 from testpilot.agent.change_service import ChangeAnalysisService, _build_prompt, _parse_analysis
 from testpilot.agent.pi_runtime import PiAgentRuntime
 from testpilot.case_parser import CaseService
-from testpilot.core.errors import AgentError, RpcError, SvnError, TestPilotError
+from testpilot.core.errors import (AbortRequested, AgentError, RpcError, SvnError,
+                                   TestPilotError)
 from testpilot.rpc import RpcService
 from testpilot.storage import repos
 
@@ -238,6 +239,26 @@ def test_change_service_preserves_audit_when_agent_output_is_invalid(
     assert last["phase"] == "agent_output_invalid"
     assert last["agent_audit"] == audit
     assert "JSON" in last["agent_error"]
+
+
+def test_change_service_writes_cancelled_agent_diagnostics_before_abort_recheck():
+    service = ChangeAnalysisService(None, None, {"svn": {}}, lambda **_kwargs: None)
+    events = []
+
+    class Requested:
+        @staticmethod
+        def check():
+            raise AbortRequested("cancelled")
+
+    service.abort = Requested()
+    service.progress = events.append
+    service._agent_progress({
+        "phase": "agent_cancelled",
+        "agent_audit": [{"seq": 1, "method": "agent.svn.diff", "ok": True}],
+    })
+
+    assert events[-1]["phase"] == "agent_cancelled"
+    assert events[-1]["agent_audit"][0]["method"] == "agent.svn.diff"
 
 
 def test_change_service_rejects_loose_generation_options(tmp_path):

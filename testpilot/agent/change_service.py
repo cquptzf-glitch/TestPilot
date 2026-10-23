@@ -278,10 +278,13 @@ class ChangeAnalysisService:
         # argument 'phase'"，导致真实 Pi 第一次工具调用即中断。
         payload = dict(value or {})
         phase = str(payload.pop("phase", "agent") or "agent")
-        self._report(phase, **payload)
+        # 终态诊断必须先写入 progress；取消信号此时通常已置位，若再次
+        # checkpoint 会在写入 agent_audit 前重新抛 AbortRequested。
+        terminal = phase in ("agent_failed", "agent_cancelled")
+        self._report(phase, check_abort=not terminal, **payload)
 
-    def _report(self, phase: str, **extra) -> None:
-        if self.abort is not None:
+    def _report(self, phase: str, *, check_abort: bool = True, **extra) -> None:
+        if check_abort and self.abort is not None:
             self.abort.check()
         if self.progress:
             self.progress({"phase": phase, **extra})
