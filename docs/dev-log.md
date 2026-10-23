@@ -1652,6 +1652,10 @@ GitHub Actions run 对提交：
 
 ### 验证
 
-- Desktop TypeScript 在第一批 Agent/SVN 后端测试提交时已通过。
 - 首轮 Python CI 命中 5 个 Ruff 问题（未使用导入/异常链），已修复。
-- 最新 Python unit+ruff / Desktop build 等待后续 CI 结果；真 SVN/Pi smoke 暂不作为当前开发阻塞项。
+- 随后 Pytest 又命中 Windows 路径格式、测试 fixture、parse prompt v4 版本门禁漂移，均已修复并补回归。
+- 安装态复核发现 PyInstaller 原先不会携带 `pi_rpc_tools.mjs`，已同时修正 wheel / onedir / onefile 资源契约。
+- Pi extension 去掉未声明的 `undici` 依赖，改为原生 WebSocket；Agent capability 支持 loopback query token。
+- Pi CLI 安全 flags 按 `pi --help` 动态选择；工具白名单 fail-closed；SVN diff Agent 上下文默认 120k / 硬上限 200k。
+- **GitHub Actions run 39884433953 / SHA 4f287f7ad06538804b282c89c778702a30d2f639：Python install + Ruff + 全量 Pytest success；Desktop TypeScript/Vite build success。**
+- 真 SVN/Pi/provider smoke 暂不作为当前功能开发阻塞项，归入 ENV。
