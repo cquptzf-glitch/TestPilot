@@ -396,25 +396,36 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
       </div>
       <ul className="flow-ready-list">{chosen.map(c => <li key={c.case_id}><Badge status={c.status} /><strong>{c.title}</strong><span className="muted">{c.case_id} · v{c.version} · {c.steps.length} 步</span></li>)}</ul>
       {windowMissing.length > 0 && <Msg kind="warn">{windowMissing.map(c => c.case_id).join('、')} 缺少启动或附加窗口步骤。请返回选择用例，展开“设置被测软件”后重新生成并确认。</Msg>}
-      <div className="flow-run-options">
-        <label>驱动方式<select aria-label="测试驱动方式" value={mode} onChange={e => setMode(e.target.value)} disabled={locked}>
-          <option value="auto">自动路由（UIA 优先，失败可降级）</option>
-          <option value="uia_first">UIA 优先，再视觉兜底</option>
-          <option value="vision_first">视觉优先，再 UIA 兜底</option>
-          <option value="uia_only">仅 UIA / 控件驱动</option>
-          <option value="vision_only">仅视觉驱动</option>
-        </select></label>
-        <label>失败用例复跑<select aria-label="失败用例复跑次数" value={caseRetry} onChange={e => setCaseRetry(Number(e.target.value))} disabled={locked}>
-          <option value={0}>关闭（默认）</option>
-          <option value={1}>失败后再跑 1 次</option>
-          <option value={2}>失败后最多再跑 2 次</option>
-          <option value={3}>失败后最多再跑 3 次</option>
-        </select></label>
-        <label className="flow-checkbox"><input type="checkbox" checked={remote} onChange={e => setRemote(e.target.checked)} disabled={locked} />
-          <span><strong>同步到禅道</strong><small>创建远端任务并回写汇总结果</small></span>
-        </label>
-      </div>
-      <p className="hint">复跑仅用于过滤环境抖动；最终报告会保留每次尝试和首次失败证据。UIA/视觉混合模式会记录完整降级链。</p>
+      <details className="flow-run-advanced"
+        open={(mode !== 'auto' || caseRetry > 0 || remote) || undefined}>
+        <summary>
+          <strong>执行选项</strong>
+          <span className="faint">
+            {' · '}{mode === 'auto' ? '自动路由' : mode.replace('_', ' ')}
+            {' · '}{caseRetry ? `失败复跑 ${caseRetry} 次` : '不复跑'}
+            {' · '}{remote ? '回写禅道' : '仅本地'}
+          </span>
+        </summary>
+        <div className="flow-run-options">
+          <label>驱动方式<select aria-label="测试驱动方式" value={mode} onChange={e => setMode(e.target.value)} disabled={locked}>
+            <option value="auto">自动路由（推荐）</option>
+            <option value="uia_first">UIA 优先，再视觉兜底</option>
+            <option value="vision_first">视觉优先，再 UIA 兜底</option>
+            <option value="uia_only">仅 UIA / 控件驱动</option>
+            <option value="vision_only">仅视觉驱动</option>
+          </select></label>
+          <label>失败用例复跑<select aria-label="失败用例复跑次数" value={caseRetry} onChange={e => setCaseRetry(Number(e.target.value))} disabled={locked}>
+            <option value={0}>关闭（默认）</option>
+            <option value={1}>失败后再跑 1 次</option>
+            <option value={2}>失败后最多再跑 2 次</option>
+            <option value={3}>失败后最多再跑 3 次</option>
+          </select></label>
+          <label className="flow-checkbox"><input type="checkbox" checked={remote} onChange={e => setRemote(e.target.checked)} disabled={locked} />
+            <span><strong>同步到禅道</strong><small>创建远端任务并回写汇总结果</small></span>
+          </label>
+        </div>
+        <p className="hint">复跑用于过滤环境抖动；报告仍保留每次尝试和首次失败证据。</p>
+      </details>
       {reusable && <Msg kind="info">已创建任务 #{reusable.id}，当前配置未变化，再次执行会复用该任务。</Msg>}
       <div className="flow-footer"><button className="btn" disabled={locked} onClick={() => setPhase(1)}>返回选择用例</button>
         <button className="btn primary large" disabled={locked || !runnable || !!windowMissing.length || cases.loading} onClick={() => void execute()}>{reusable ? '重试执行已有任务 →' : '开始执行 →'}</button></div>
