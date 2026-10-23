@@ -792,7 +792,7 @@ def test_agent_rpc_records_structured_audit_without_source_body(tmp_path, rpc_sv
     })
     reply = asyncio.run(service._handle_raw(read, agent_scope=scope))
     assert reply["result"]["content"] == "1: hello"
-    expected_hash = hashlib.sha256(b"hello\nworld").hexdigest()
+    expected_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     assert reply["result"]["file_sha256"] == expected_hash
 
     escaped = json.dumps({
