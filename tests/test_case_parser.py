@@ -94,12 +94,46 @@ def test_sync_scans_and_updates(svc, db_conn, fake_zentao):
     svc.pull([1, 2])
     _changed_case(fake_zentao, 2)
     out = svc.sync(product_id=1)
-    assert out["scanned"] == 2
-    assert out["unchanged"] == 1
+    assert out["scanned"] == 1              # 只拉远端水位之后的变更详情
+    assert out["unchanged"] == 0
+    assert out["since"] == "2026-01-02T00:00:00"
     # TC-2 本地仍是草稿（未人审）-> 远端变更按 conflict 处理（设计 3.6 三版并列）
     assert out["conflict"] == 1
     assert out["stale"] == 0
     assert repos.get_case(db_conn, "TC-2")["sync_status"] == "conflict"
+
+
+def test_sync_full_calibration_ignores_watermark(svc, fake_zentao):
+    svc.pull([1, 2])
+    out = svc.sync(product_id=1, full=True)
+    assert out["full"] is True
+    assert out["since"] is None
+    assert out["scanned"] == 2
+    assert out["unchanged"] == 2
+
+
+def test_sync_persists_source_state_even_when_no_remote_change(svc, db_conn):
+    svc.pull([1, 2])
+    out = svc.sync(product_id=1)
+    assert out["scanned"] == 0
+    state = repos.get_sync_state(db_conn, "zentao", "1")
+    assert state is not None
+    assert state["watermark"] == "2026-01-02T00:00:00"
+    assert state["synced_at"]
+    assert out["sync_state"]["synced_at"] == state["synced_at"]
+
+
+def test_sync_watermark_is_isolated_by_product(db_conn, fake_zentao, fake_llm):
+    raw = dict(fake_zentao._cases[1])
+    raw.update(case_id="TC-99", zentao_case_id=99, product=2,
+               updated_at="2025-01-01T00:00:00", title="另一个产品")
+    fake_zentao._cases[99] = raw
+    svc = CaseService(db_conn, fake_zentao, fake_llm, {"zentao": {"product_id": 2}})
+    repos.create_case(
+        db_conn, case_id="TC-99", zentao_case_id=99, title=raw["title"],
+        raw=raw, zentao_updated_at=raw["updated_at"])
+    assert svc._sync_watermark(2) == "2025-01-01T00:00:00"
+    assert svc._sync_watermark(1) is None
 
 
 def test_sync_with_parse_reparses_stale_only(svc, fake_zentao, fake_llm, db_conn):
