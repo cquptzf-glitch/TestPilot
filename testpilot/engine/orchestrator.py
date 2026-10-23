@@ -582,11 +582,18 @@ class TaskOrchestrator:
                         repos.set_task_sync(self.conn, task["id"], "sync_pending", created_id)
                     out.append({"task_id": task["id"], "result": f"failed: {e}"})
                     continue
-            # 按任务直查最近一次 run：从"全库最新 200 条"里过滤会把老任务的
-            # run 落出窗口，进而拿空 stats 回写禅端并永久丢失补偿机会。
+            # 远端测试单已经创建/核对成功，而任务尚未执行时，没有任何
+            # “待回写结果”。此时同步状态应回到 synced；否则 UI 会永久提示补偿。
             last_run = self.last_run_of_task(task["id"])
-            if last_run is None or not (last_run.get("stats") or {}).get("total"):
-                out.append({"task_id": task["id"], "result": "no_run_stats"})
+            if last_run is None:
+                repos.set_task_sync(
+                    self.conn, task["id"], "synced", task.get("zentao_task_id"))
+                out.append({"task_id": task["id"], "result": "remote_ready"})
+                continue
+            if not (last_run.get("stats") or {}).get("total"):
+                out.append({"task_id": task["id"], "result": "no_run_stats",
+                            "run_id": last_run["id"],
+                            "status": last_run["status"]})
                 continue
             stats = last_run["stats"]
             if last_run["status"] != "completed" or stats.get("status") != "completed":
