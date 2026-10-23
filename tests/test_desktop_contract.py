@@ -313,3 +313,15 @@ def test_bundle_check_expects_shipped_datas():
     assert "REQUIRED_DATA" in bundle and "_check_datas" in bundle, \
         "tools/check_bundle.py 未核对非 Python 资源（_DATAS）"
     assert "default.yaml" in bundle, "自检未覆盖 spec 的 _DATAS 实际内容"
+
+
+
+def test_sidecar_spec_ships_pi_rpc_agent_extension():
+    """安装版 Agent 仍必须只有 RPC proxy tools，扩展文件不能漏出 sidecar。"""
+    root = Path(__file__).resolve().parents[1]
+    spec = (root / "packaging" / "sidecar.spec").read_text(encoding="utf-8")
+    build = (root / "scripts" / "build-sidecar.ps1").read_text(
+        encoding="utf-8-sig")
+    assert "pi_rpc_tools.mjs" in spec
+    assert "testpilot/agent" in spec
+    assert "pi_rpc_tools.mjs;testpilot/agent" in build.replace("\\", "/")
