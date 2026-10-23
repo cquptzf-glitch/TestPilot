@@ -155,7 +155,7 @@ class PiAgentRuntime:
                     kind, raw = q.get(timeout=min(0.2, max(0.01, limit - elapsed)))
                 except queue.Empty:
                     if proc.poll() is not None:
-                        raise self._exit_error(proc, stderr)
+                        raise self._exit_error(proc, stderr) from None
                     continue
                 if kind == "eof":
                     if proc.poll() is not None and not requested_final:
