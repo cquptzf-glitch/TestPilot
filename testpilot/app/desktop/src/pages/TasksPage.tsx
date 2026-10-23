@@ -167,17 +167,6 @@ export function TasksPage({ taskId }: { taskId?: number }) {
                    value={caseIds} disabled={!!suiteId}
                    onChange={(e) => { setCaseIds(e.target.value); setSuiteId(''); }} />
           </div>
-          {remote && <>
-            <div className="field">
-              <label>提测构建/版本（留空使用设置中的值）</label>
-              <input value={build} onChange={(e) => setBuild(e.target.value)} placeholder="禅道实际构建编号" />
-            </div>
-            <div className="field">
-              <label>已有禅道测试单 ID（可选，需已关联相同用例）</label>
-              <input type="number" min="1" value={remoteId} onChange={(e) => setRemoteId(e.target.value)}
-                     placeholder="填写后复用并回读核对；留空创建" />
-            </div>
-          </>}
           <div className="field span2">
             <details className="task-advanced">
               <summary>高级选项
@@ -195,6 +184,17 @@ export function TasksPage({ taskId }: { taskId?: number }) {
                   允许包含不可执行用例
                 </label>
               </div>
+              {remote && <div className="form-2col task-remote-fields">
+                <label>提测构建/版本
+                  <input value={build} onChange={(e) => setBuild(e.target.value)}
+                         placeholder="留空使用设置中的默认值" />
+                </label>
+                <label>已有禅道测试单 ID
+                  <input type="number" min="1" value={remoteId}
+                         onChange={(e) => setRemoteId(e.target.value)}
+                         placeholder="可空；填写后复用并回读核对" />
+                </label>
+              </div>}
             </details>
           </div>
           <div className="span2" style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-3)' }}>
