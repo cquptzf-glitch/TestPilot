@@ -5,6 +5,7 @@ run svn directly; they can only invoke the bounded agent.svn.* RPC methods.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -124,6 +125,39 @@ class SvnAdapter:
             "truncated": len(text) >= limit,
             "chars": len(text),
             "paths": safe_paths,
+            "from_revision": _revision(from_revision),
+            "to_revision": _revision(to_revision),
+        }
+
+    def diff_digest(self, working_copy: str | Path, *, from_revision=None,
+                    to_revision=None) -> dict:
+        """Return an exact digest of the complete SVN diff without retaining its text.
+
+        Change-analysis uses this as a snapshot guard. Unlike diff(), this path is
+        intentionally not truncated: a long diff must still produce a stable signature.
+        """
+        root = _working_copy(working_copy)
+        args = ["diff", *_revision_args(from_revision, to_revision)]
+        exe = self.executable_path()
+        if not exe:
+            raise SvnError(f"SVN 不可执行: {self.executable!r}")
+        try:
+            proc = subprocess.run(
+                [exe, *args], cwd=str(root),
+                capture_output=True, timeout=self.timeout_s, check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise SvnError(f"SVN 命令超时（{self.timeout_s}s）: {args[:4]}") from exc
+        except OSError as exc:
+            raise SvnError(f"启动 SVN 失败: {exc}") from exc
+        if proc.returncode != 0:
+            stderr = proc.stderr.decode("utf-8", "replace")
+            stdout = proc.stdout.decode("utf-8", "replace")
+            raise SvnError(
+                f"SVN 命令失败({proc.returncode}): {(stderr or stdout)[:1000]}")
+        return {
+            "sha256": hashlib.sha256(proc.stdout).hexdigest(),
+            "bytes": len(proc.stdout),
             "from_revision": _revision(from_revision),
             "to_revision": _revision(to_revision),
         }

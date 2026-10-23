@@ -550,6 +550,7 @@ export interface AgentToolEvidence {
   failures?: Record<string, number>;
   read_paths?: string[];
   read_paths_truncated?: boolean;
+  read_hashes?: Record<string, string>;
   case_ids?: string[];
   case_ids_truncated?: boolean;
   diff_paths?: string[];
@@ -558,12 +559,21 @@ export interface AgentToolEvidence {
   full_diff_truncated?: boolean;
 }
 
+export interface SvnSnapshotGuard {
+  signature: string;
+  mode: 'working_copy' | 'revision';
+  diff_sha256: string;
+  diff_bytes: number;
+  unversioned_count: number;
+}
+
 export interface SvnChangeGenerateResult {
   source: 'svn_agent';
   summary: string;
   impacted_modules: string[];
   risks: string[];
   snapshot: SvnChangePreview;
+  snapshot_guard?: SvnSnapshotGuard;
   cases: SvnGeneratedCase[];
   created: number;
   reused: number;

@@ -110,7 +110,11 @@ class ChangeAnalysisService:
         working = snapshot.get("working_status") or []
         if not changed and not working:
             raise TestPilotError("SVN 范围内没有检测到修改，未生成测试用例")
-        self._report("snapshot", changed=len(changed), working=len(working))
+        snapshot_guard = self._snapshot_guard(
+            workspace, snapshot, from_rev=from_rev, to_rev=to_rev)
+        self._report(
+            "snapshot", changed=len(changed), working=len(working),
+            signature=snapshot_guard["signature"][:12])
 
         prompt = _build_prompt(snapshot, max_cases=max_cases)
         result = self.agent_runner(
@@ -124,6 +128,9 @@ class ChangeAnalysisService:
         )
         try:
             analysis = _parse_analysis(result.get("text"), max_cases=max_cases)
+            self._validate_snapshot_stable(
+                workspace, snapshot, snapshot_guard,
+                from_rev=from_rev, to_rev=to_rev, result=result)
             grounding = self._validate_grounding(
                 workspace, snapshot, analysis, result.get("evidence") or {})
         except AgentError as exc:
@@ -195,6 +202,7 @@ class ChangeAnalysisService:
                         "analysis_summary": analysis.summary,
                         "risks": analysis.risks,
                         "grounding": grounding[index - 1],
+                        "snapshot_guard": snapshot_guard,
                     },
                 }
                 repos.create_case(
@@ -225,6 +233,7 @@ class ChangeAnalysisService:
             "impacted_modules": analysis.impacted_modules,
             "risks": analysis.risks,
             "snapshot": snapshot,
+            "snapshot_guard": snapshot_guard,
             "cases": generated,
             "created": created_count,
             "reused": reused_count,
@@ -248,6 +257,91 @@ class ChangeAnalysisService:
         if not path.is_dir():
             raise TestPilotError(f"SVN 工作副本不存在: {path}")
         return path
+
+    def _snapshot_guard(self, workspace: Path, snapshot: dict, *,
+                        from_rev=None, to_rev=None) -> dict:
+        """Capture a deterministic signature for the exact change set being analyzed."""
+        diff = self.svn.diff_digest(
+            workspace, from_revision=from_rev, to_revision=to_rev)
+        changed = sorted([
+            {
+                "status": str(item.get("status") or ""),
+                "path": _repo_path(item.get("path")),
+            }
+            for item in (snapshot.get("changed") or [])
+        ], key=lambda item: (item["path"], item["status"]))
+        working = sorted([
+            {
+                "path": _repo_path(item.get("path")),
+                "item": str(item.get("item") or ""),
+                "props": str(item.get("props") or ""),
+                "revision": str(item.get("revision") or ""),
+                "tree_conflicted": bool(item.get("tree_conflicted")),
+            }
+            for item in (snapshot.get("working_status") or [])
+        ], key=lambda item: (item["path"], item["item"], item["props"]))
+        unversioned = []
+        for item in working:
+            if item["item"] != "unversioned" or not item["path"]:
+                continue
+            unversioned.append({
+                "path": item["path"],
+                "sha256": _workspace_path_digest(workspace, item["path"]),
+            })
+        info = snapshot.get("info") or {}
+        payload = {
+            "from_revision": snapshot.get("from_revision"),
+            "to_revision": snapshot.get("to_revision"),
+            "repository_root": info.get("repository_root"),
+            "repository_uuid": info.get("repository_uuid"),
+            "working_copy_revision": info.get("revision"),
+            "changed": changed,
+            "working_status": working,
+            "diff_sha256": diff.get("sha256"),
+            "diff_bytes": diff.get("bytes"),
+            "unversioned": unversioned,
+        }
+        encoded = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":")).encode("utf-8")
+        return {
+            "signature": hashlib.sha256(encoded).hexdigest(),
+            "mode": "revision" if snapshot.get("from_revision")
+            or snapshot.get("to_revision") else "working_copy",
+            "diff_sha256": str(diff.get("sha256") or ""),
+            "diff_bytes": int(diff.get("bytes") or 0),
+            "unversioned_count": len(unversioned),
+        }
+
+    def _validate_snapshot_stable(self, workspace: Path, snapshot: dict,
+                                  initial_guard: dict, *, from_rev=None,
+                                  to_rev=None, result: dict) -> None:
+        current_snapshot = self.svn.summarize(
+            workspace, from_revision=from_rev, to_revision=to_rev)
+        current_guard = self._snapshot_guard(
+            workspace, current_snapshot, from_rev=from_rev, to_rev=to_rev)
+        evidence = result.get("evidence") or {}
+        read_drift = _changed_agent_reads(workspace, evidence)
+        if (initial_guard.get("signature") == current_guard.get("signature")
+                and not read_drift):
+            return
+
+        reasons = []
+        if initial_guard.get("signature") != current_guard.get("signature"):
+            reasons.append("SVN 变更集/工作副本已变化")
+        if read_drift:
+            reasons.append("Agent 已读取源码在分析期间变化: " + ", ".join(read_drift[:8]))
+        message = "；".join(reasons) + "，请重新执行变更分析"
+        self._report(
+            "snapshot_changed",
+            agent_error=message,
+            snapshot_before=str(initial_guard.get("signature") or "")[:16],
+            snapshot_after=str(current_guard.get("signature") or "")[:16],
+            changed_read_paths=read_drift[:20],
+            agent_audit=result.get("audit") or [],
+            agent_evidence=evidence,
+        )
+        raise TestPilotError(message)
 
     def _validate_grounding(self, workspace: Path, snapshot: dict,
                             analysis: ChangeAnalysis, evidence: dict) -> list[dict]:
@@ -411,6 +505,83 @@ class ChangeAnalysisService:
             self.abort.check()
         if self.progress:
             self.progress({"phase": phase, **extra})
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as stream:
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+    except OSError as exc:
+        raise TestPilotError(f"无法读取 SVN 快照文件 {path}: {exc}") from exc
+    return digest.hexdigest()
+
+
+def _workspace_path_digest(workspace: Path, rel: str) -> str:
+    path = workspace.joinpath(*PurePosixPath(rel).parts)
+    if path.is_symlink():
+        try:
+            target = str(path.readlink())
+        except OSError as exc:
+            raise TestPilotError(f"无法读取符号链接 {rel}: {exc}") from exc
+        return hashlib.sha256(("symlink\0" + target).encode("utf-8")).hexdigest()
+    if not path.exists():
+        return hashlib.sha256(b"missing").hexdigest()
+    if path.is_file():
+        return _file_sha256(path)
+    if not path.is_dir():
+        return hashlib.sha256(("other\0" + rel).encode("utf-8")).hexdigest()
+
+    digest = hashlib.sha256()
+    base = path
+    try:
+        children = sorted(
+            (child for child in base.rglob("*")
+             if ".svn" not in child.relative_to(base).parts),
+            key=lambda child: child.relative_to(base).as_posix(),
+        )
+    except OSError as exc:
+        raise TestPilotError(f"无法遍历未版本控制目录 {rel}: {exc}") from exc
+    for child in children:
+        child_rel = child.relative_to(base).as_posix()
+        digest.update(child_rel.encode("utf-8"))
+        digest.update(b"\0")
+        if child.is_symlink():
+            try:
+                digest.update(b"L\0" + str(child.readlink()).encode("utf-8"))
+            except OSError as exc:
+                raise TestPilotError(
+                    f"无法读取未版本控制符号链接 {rel}/{child_rel}: {exc}") from exc
+        elif child.is_file():
+            digest.update(b"F\0" + _file_sha256(child).encode("ascii"))
+        elif child.is_dir():
+            digest.update(b"D")
+        else:
+            digest.update(b"O")
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _changed_agent_reads(workspace: Path, evidence: dict) -> list[str]:
+    hashes = evidence.get("read_hashes") if isinstance(evidence, dict) else None
+    if not isinstance(hashes, dict):
+        return []
+    changed = []
+    for raw_path, expected in hashes.items():
+        rel = _repo_path(raw_path)
+        if not rel or not isinstance(expected, str) or not expected:
+            continue
+        path = workspace.joinpath(*PurePosixPath(rel).parts)
+        if not path.is_file():
+            changed.append(rel)
+            continue
+        if _file_sha256(path) != expected:
+            changed.append(rel)
+    return sorted(set(changed))
 
 
 def _repo_path(value) -> str:

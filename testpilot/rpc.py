@@ -22,6 +22,7 @@
 """
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -1095,6 +1096,7 @@ class RpcService:
                 "failures": {},
                 "read_paths": set(),
                 "read_paths_truncated": False,
+                "read_hashes": {},
                 "case_ids": set(),
                 "case_ids_truncated": False,
                 "diff_paths": set(),
@@ -1129,6 +1131,7 @@ class RpcService:
                 "failures": dict(raw.get("failures") or {}),
                 "read_paths": sorted(raw.get("read_paths") or ()),
                 "read_paths_truncated": bool(raw.get("read_paths_truncated")),
+                "read_hashes": dict(raw.get("read_hashes") or {}),
                 "case_ids": sorted(raw.get("case_ids") or ()),
                 "case_ids_truncated": bool(raw.get("case_ids_truncated")),
                 "diff_paths": sorted(raw.get("diff_paths") or ()),
@@ -1215,6 +1218,9 @@ class RpcService:
                         read_paths = evidence["read_paths"]
                         if len(read_paths) < _AGENT_EVIDENCE_PATH_LIMIT or path in read_paths:
                             read_paths.add(path)
+                            digest = str(result.get("file_sha256") or "").strip()
+                            if digest:
+                                evidence["read_hashes"][path] = digest
                         else:
                             evidence["read_paths_truncated"] = True
                 if error is None and method == "agent.svn.diff" and isinstance(result, dict):
@@ -1309,6 +1315,7 @@ class RpcService:
         return {
             "path": path.relative_to(self._agent_workspace(p)).as_posix(),
             "offset": offset, "lines": len(selected), "total_lines": len(lines),
+            "file_sha256": hashlib.sha256(raw).hexdigest(),
             "content": "\n".join(f"{offset + i}: {line}" for i, line in enumerate(selected)),
         }
 

@@ -4,6 +4,7 @@ No real SVN/Pi process is required. These tests pin the main-process trust bound
 future refactor cannot accidentally give the agent native file/shell/database access.
 """
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 
@@ -33,6 +34,18 @@ class StubSvn(SvnAdapter):
 
     def executable_path(self):
         return "svn"
+
+    def diff_digest(self, working_copy, *, from_revision=None, to_revision=None):
+        text = self._run(
+            ["diff", *_revision_args(from_revision, to_revision)],
+            cwd=Path(working_copy), limit=1_000_000)
+        raw = text.encode("utf-8")
+        return {
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "bytes": len(raw),
+            "from_revision": from_revision,
+            "to_revision": to_revision,
+        }
 
     def _run(self, args, *, cwd, limit):
         self.calls.append((list(args), cwd, limit))
@@ -107,6 +120,7 @@ def _agent_evidence(*read_paths: str, case_ids: tuple[str, ...] = ()) -> dict:
         "failures": {},
         "read_paths": list(read_paths),
         "read_paths_truncated": False,
+        "read_hashes": {},
         "case_ids": list(case_ids),
         "case_ids_truncated": False,
         "diff_paths": [],
@@ -212,6 +226,9 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     assert generated["raw"]["source"] == "svn_agent"
     assert generated["raw"]["svn"]["source_files"] == ["src/RunController.cpp"]
     assert generated["raw"]["generation"]["fingerprint"]
+    guard = generated["raw"]["generation"]["snapshot_guard"]
+    assert guard["signature"] == out["snapshot_guard"]["signature"]
+    assert guard["mode"] == "working_copy"
     grounding = generated["raw"]["generation"]["grounding"]
     assert grounding["svn_diff_verified"] is True
     assert grounding["source_files"] == [{
@@ -265,6 +282,84 @@ def test_change_service_dedupes_duplicate_intents_from_one_agent_turn(
     assert out["reused"] == 0
     assert out["duplicates_dropped"] == 1
     assert len(out["cases"]) == 1
+
+
+def test_change_service_rejects_working_copy_drift_before_persist(
+        tmp_path, db_conn, fake_zentao, fake_llm):
+    (tmp_path / "src").mkdir()
+    tracked = tmp_path / "src" / "a.cpp"
+    tracked.write_text("before", encoding="utf-8")
+    cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    payload = json.loads(_agent_json())
+    payload["cases"][0]["source_files"] = ["src/a.cpp"]
+    payload["cases"][0]["related_case_ids"] = []
+
+    class ContentAwareSvn(StubSvn):
+        def diff_digest(self, working_copy, *, from_revision=None, to_revision=None):
+            raw = tracked.read_bytes()
+            return {
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "bytes": len(raw),
+                "from_revision": from_revision,
+                "to_revision": to_revision,
+            }
+
+    def agent_runner(**_kwargs):
+        tracked.write_text("after", encoding="utf-8")
+        return {
+            "text": json.dumps(payload, ensure_ascii=False),
+            "tool_calls": 1,
+            "evidence": _agent_evidence(),
+        }
+
+    service = ChangeAnalysisService(db_conn, cases, {"svn": {}}, agent_runner)
+    service.svn = ContentAwareSvn(tmp_path)
+    progress = []
+    service.progress = progress.append
+    with pytest.raises(TestPilotError, match="已变化"):
+        service.generate({"workingCopy": str(tmp_path), "parse": False})
+
+    assert progress[-1]["phase"] == "snapshot_changed"
+    assert not [
+        row for row in repos.list_cases(db_conn)
+        if (row.get("raw") or {}).get("source") == "svn_agent"
+    ]
+
+
+def test_change_service_rejects_agent_read_drift_for_fixed_revision(
+        tmp_path, db_conn, fake_zentao, fake_llm):
+    (tmp_path / "src").mkdir()
+    source = tmp_path / "src" / "RunController.cpp"
+    source.write_text("before", encoding="utf-8")
+    before_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    payload = json.loads(_agent_json())
+    payload["cases"][0]["related_case_ids"] = []
+
+    def agent_runner(**_kwargs):
+        source.write_text("after", encoding="utf-8")
+        evidence = _agent_evidence("src/RunController.cpp")
+        evidence["read_hashes"] = {"src/RunController.cpp": before_hash}
+        return {
+            "text": json.dumps(payload, ensure_ascii=False),
+            "tool_calls": 2,
+            "evidence": evidence,
+        }
+
+    service = ChangeAnalysisService(db_conn, cases, {"svn": {}}, agent_runner)
+    service.svn = StubSvn(tmp_path)
+    with pytest.raises(TestPilotError, match="已读取源码在分析期间变化"):
+        service.generate({
+            "workingCopy": str(tmp_path),
+            "fromRevision": "40",
+            "toRevision": "42",
+            "parse": False,
+        })
+
+    assert not [
+        row for row in repos.list_cases(db_conn)
+        if (row.get("raw") or {}).get("source") == "svn_agent"
+    ]
 
 
 def test_change_service_requires_main_rpc_diff_evidence_before_persist(
@@ -697,6 +792,8 @@ def test_agent_rpc_records_structured_audit_without_source_body(tmp_path, rpc_sv
     })
     reply = asyncio.run(service._handle_raw(read, agent_scope=scope))
     assert reply["result"]["content"] == "1: hello"
+    expected_hash = hashlib.sha256(b"hello\nworld").hexdigest()
+    assert reply["result"]["file_sha256"] == expected_hash
 
     escaped = json.dumps({
         "jsonrpc": "2.0", "id": 2, "method": "agent.fs.read",
@@ -714,6 +811,8 @@ def test_agent_rpc_records_structured_audit_without_source_body(tmp_path, rpc_sv
     assert "content" not in audit[0]["result"]
     assert audit[1]["ok"] is False
     assert "工作区" in audit[1]["error"]
+    evidence = service.agent_evidence(token)
+    assert evidence["read_hashes"]["src.txt"] == expected_hash
 
     service.revoke_agent_token(token)
     assert service.agent_audit(token) == []
@@ -779,6 +878,7 @@ def test_pi_runner_preserves_audit_in_failed_job_progress(
         "failures": {},
         "read_paths": ["src/a.cpp"],
         "read_paths_truncated": False,
+        "read_hashes": {},
         "case_ids": [],
         "case_ids_truncated": False,
         "diff_paths": [],
