@@ -231,6 +231,7 @@ export function CasesPage({ selection }: { selection?: string }) {
           <option value="draft">草稿</option>
           <option value="active">已生效</option>
           <option value="rejected">已拒绝</option>
+          <option value="deprecated">已停用</option>
         </select>
         <select value={syncStatus} onChange={(e) => setSyncStatus(e.target.value)}>
           <option value="">全部同步态</option>
@@ -332,10 +333,19 @@ export function CasesPage({ selection }: { selection?: string }) {
       <table className="grid">
         <thead>
           <tr>
-            <th style={{ width: 30 }}><input type="checkbox" aria-label="全选当前筛选用例"
-              checked={rows.length > 0 && rows.every(r => selected.includes(r.case_id))}
-              ref={el => { if (el) el.indeterminate = selectedRows.length > 0 && selectedRows.length < rows.length; }}
-              onChange={e => setSelected(e.target.checked ? rows.map(r => r.case_id) : [])} /></th>
+            <th style={{ width: 30 }}><input type="checkbox" aria-label="全选当前可用用例"
+              checked={rows.some(caseIsSelectable)
+                && rows.filter(caseIsSelectable).every(r => selected.includes(r.case_id))}
+              ref={el => {
+                if (el) {
+                  const selectableCount = rows.filter(caseIsSelectable).length;
+                  el.indeterminate = selectedRows.length > 0
+                    && selectedRows.length < selectableCount;
+                }
+              }}
+              onChange={e => setSelected(
+                e.target.checked ? rows.filter(caseIsSelectable).map(r => r.case_id) : [],
+              )} /></th>
             <th>用例 ID</th>
             <th>标题</th>
             <th>分组</th>
@@ -366,7 +376,9 @@ export function CasesPage({ selection }: { selection?: string }) {
             <tr key={r.case_id} className={`clickable ${detailId === r.case_id ? 'on' : ''}`}
                 onClick={() => setDetailId(detailId === r.case_id ? null : r.case_id)}>
               <td onClick={(e) => e.stopPropagation()}>
-                <input type="checkbox" aria-label={`选择 ${r.case_id}`} checked={selected.includes(r.case_id)}
+                <input type="checkbox" aria-label={`选择 ${r.case_id}`}
+                       disabled={!caseIsSelectable(r)}
+                       checked={selected.includes(r.case_id)}
                        onChange={(e) => setSelected((prev) => e.target.checked
                          ? [...prev, r.case_id] : prev.filter((c) => c !== r.case_id))} />
               </td>
@@ -391,11 +403,15 @@ export function CasesPage({ selection }: { selection?: string }) {
               </td>
               <td onClick={(e) => e.stopPropagation()}>
                 <button className="btn"
-                  disabled={locked && !r.steps?.length}
+                  disabled={!caseIsSelectable(r) || (locked && !r.steps?.length)}
                   onClick={() => r.steps?.length
                     ? review([r.case_id])
                     : void analyze([r.case_id])}>
-                  {r.steps?.length ? '审核 / 编辑' : '生成 DSL'}
+                  {r.status === 'deprecated'
+                    ? '已停用'
+                    : r.status === 'rejected'
+                      ? '已拒绝'
+                      : r.steps?.length ? '审核 / 编辑' : '生成 DSL'}
                 </button>
               </td>
             </tr>
