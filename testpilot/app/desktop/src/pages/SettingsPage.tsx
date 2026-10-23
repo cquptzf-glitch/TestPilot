@@ -344,7 +344,7 @@ function ConfigPanel({ tabTitle, groupNames }: {
     return next;
   });
 
-  const save = async () => {
+  const save = async (restartAfter = false) => {
     if (dirty.length === 0) return;
     setBusy(true);
     try {
@@ -353,12 +353,27 @@ function ConfigPanel({ tabTitle, groupNames }: {
       const parts: string[] = [];
       if (out.written) parts.push(`写入 ${out.written} 项`);
       if (out.cleared) parts.push(`清除覆盖 ${out.cleared} 项`);
-      pushToast('pass',
-        `【${tabTitle}】已保存（${parts.join('，') || '无变化'}），需重启引擎生效`, 8000);
       dropDraft();
-      described.reload();
+
+      if (restartAfter) {
+        const restarted = await engineRestart();
+        if (!restarted.ok) {
+          throw new Error(restarted.detail || '引擎未接受重启请求');
+        }
+        pushToast('pass',
+          `【${tabTitle}】已保存（${parts.join('，') || '无变化'}），正在重启引擎`, 7000);
+        window.setTimeout(() => described.reload(), 3000);
+      } else {
+        pushToast('pass',
+          `【${tabTitle}】已保存（${parts.join('，') || '无变化'}）；重启后生效`, 8000);
+        described.reload();
+      }
     } catch (e) {
-      pushToast('error', `保存失败：${msg(e)}`, 9000);
+      pushToast('error',
+        restartAfter
+          ? `配置可能已保存，但自动重启失败：${msg(e)}`
+          : `保存失败：${msg(e)}`,
+        9000);
     } finally {
       setBusy(false);
     }
@@ -414,8 +429,8 @@ function ConfigPanel({ tabTitle, groupNames }: {
       </div>
 
       <Msg kind="info">
-        保存后需<strong>重启引擎</strong>才生效（引擎在启动时读取配置）。
-        覆盖层只记录与出厂默认不同的项，删除该文件即恢复默认。
+        配置在引擎启动时加载。日常修改直接使用下方<strong>“保存并重启”</strong>；
+        “仅保存”适合连续修改多个 Tab 后最后统一重启。
       </Msg>
 
       <div className="col">
@@ -441,11 +456,15 @@ function ConfigPanel({ tabTitle, groupNames }: {
             ? <span className="chip">本页待保存 {dirty.length} 项</span>
             : <span className="muted">本页无改动</span>}
           <span className="spacer" />
+          <button className="btn ghost" disabled={busy || dirty.length === 0}
+                  onClick={dropDraft}>放弃</button>
           <button className="btn" disabled={busy || dirty.length === 0}
-                  onClick={dropDraft}>放弃本页改动</button>
+                  onClick={() => void save(false)}>
+            仅保存
+          </button>
           <button className="btn primary" disabled={busy || dirty.length === 0}
-                  onClick={() => void save()}>
-            {busy ? '保存中…' : `保存（${tabTitle}）`}
+                  onClick={() => void save(true)}>
+            {busy ? '处理中…' : '保存并重启'}
           </button>
         </div>
       </div>
