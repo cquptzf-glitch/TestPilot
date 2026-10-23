@@ -223,6 +223,11 @@ export function TasksPage({ taskId }: { taskId?: number }) {
           {rows.map((t) => {
             const ownMode = String(t.driver_config?.mode ?? 'auto');
             const recent = lastRun(t);
+            const missingRemoteId = t.zentao_task_id == null;
+            const uncertainCreate = missingRemoteId && (
+              t.remote_state?.creation_uncertain === true
+              || t.remote_state?.creation_attempted === true
+            );
             return (
               <tr key={t.id} className={t.id === taskId ? 'on' : undefined}>
                 <td><CopyId text={`#${t.id}`} /></td>
@@ -250,11 +255,22 @@ export function TasksPage({ taskId }: { taskId?: number }) {
                   <button className="btn danger" disabled={!anyRunning && !busy?.startsWith('执行')}
                           title="中止当前 run（全局协作中止，轨迹完整保留）"
                           onClick={() => void run('中止', () => call('task.abort'))}>中止</button>{' '}
-                  {t.sync_status === 'sync_pending' && <button className="btn" disabled={busy !== null}
-                    onClick={() => setReconcileTask(t.id)}>核对远端 ID</button>}
-                  {t.sync_status === 'sync_pending' && (
+                  {t.sync_status === 'sync_pending' && missingRemoteId && (
+                    <button className={uncertainCreate ? 'btn primary' : 'btn'}
+                            disabled={busy !== null}
+                            title={uncertainCreate
+                              ? '上次创建结果不确定，必须先在禅道核对实际测试单 ID，系统不会自动再次创建'
+                              : '如果禅道已经存在对应测试单，可在这里绑定并核对'}
+                            onClick={() => setReconcileTask(t.id)}>
+                      {uncertainCreate ? '需核对远端 ID' : '核对远端 ID'}
+                    </button>
+                  )}
+                  {t.sync_status === 'sync_pending' && !uncertainCreate && (
                     <button className="btn" disabled={busy !== null}
-                            onClick={() => void run('单任务补偿', () => call('task.syncPending', { taskId: t.id }))}>补偿</button>
+                            title={missingRemoteId ? '明确创建失败，可安全重试创建' : '重试汇总结果回写'}
+                            onClick={() => void run('单任务补偿', () => call('task.syncPending', { taskId: t.id }))}>
+                      补偿
+                    </button>
                   )}
                 </td>
               </tr>
