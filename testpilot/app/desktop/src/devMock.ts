@@ -336,7 +336,22 @@ async function runMockJob(job: MockJob, params: Record<string, unknown>): Promis
           reused: existingBefore.has(id),
         })),
         created, reused: ids.length - created, duplicates_dropped: 0, parse,
-        agent: { runtime: 'pi', tool_calls: 4, elapsed_ms: 1260 },
+        agent: {
+          runtime: 'pi', tool_calls: 4, elapsed_ms: 1260,
+          audit: [
+            {
+              seq: 1, method: 'agent.svn.diff', params: { max_chars: 120000 },
+              ok: true, elapsed_ms: 48,
+              result: { chars: 8400, truncated: false, path_count: 3 },
+            },
+            {
+              seq: 2, method: 'agent.fs.grep',
+              params: { query: 'RunController', glob: '**/*' },
+              ok: true, elapsed_ms: 18,
+              result: { count: 6, scanned_files: 42, truncated: false },
+            },
+          ],
+        },
       };
     } else {
       job.result = await rpc(job.method, params);

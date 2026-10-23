@@ -122,7 +122,14 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
 
     def agent_runner(**kwargs):
         calls.append(kwargs)
-        return {"text": _agent_json(), "tool_calls": 4, "elapsed_ms": 20}
+        return {
+            "text": _agent_json(), "tool_calls": 4, "elapsed_ms": 20,
+            "audit": [{
+                "seq": 1, "method": "agent.svn.diff", "params": {},
+                "ok": True, "elapsed_ms": 3,
+                "result": {"chars": 10, "truncated": False, "path_count": 1},
+            }],
+        }
 
     service = ChangeAnalysisService(
         db_conn, cases, {"svn": {}}, agent_runner)
@@ -135,6 +142,7 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     })
     assert out["created"] == 1
     assert out["agent"]["tool_calls"] == 4
+    assert out["agent"]["audit"][0]["method"] == "agent.svn.diff"
     assert set(calls[0]["tools"]) == {
         "tp_read_file", "tp_find_files", "tp_grep",
         "tp_svn_status", "tp_svn_diff", "tp_svn_log",
@@ -361,3 +369,39 @@ def test_agent_capability_token_is_scoped_and_revocable(tmp_path, rpc_svc):
     service.revoke_agent_token(token)
     assert service._agent_connection_scope("Bearer " + token) is None
     assert service._agent_connection_scope("", "/?agent_token=" + token) is None
+
+
+def test_agent_rpc_records_structured_audit_without_source_body(tmp_path, rpc_svc):
+    service = rpc_svc
+    source = tmp_path / "src.txt"
+    source.write_text("hello\nworld", encoding="utf-8")
+    token = service.issue_agent_token(tmp_path)
+    scope = service._agent_connection_scope("Bearer " + token)
+    assert scope is not None
+
+    read = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "agent.fs.read",
+        "params": {"path": "src.txt", "limit": 1},
+    })
+    reply = asyncio.run(service._handle_raw(read, agent_scope=scope))
+    assert reply["result"]["content"] == "1: hello"
+
+    escaped = json.dumps({
+        "jsonrpc": "2.0", "id": 2, "method": "agent.fs.read",
+        "params": {"path": "../outside.txt"},
+    })
+    reply = asyncio.run(service._handle_raw(escaped, agent_scope=scope))
+    assert "error" in reply
+
+    audit = service.agent_audit(token)
+    assert len(audit) == 2
+    assert audit[0]["method"] == "agent.fs.read"
+    assert audit[0]["params"] == {"path": "src.txt", "limit": 1}
+    assert audit[0]["ok"] is True
+    assert audit[0]["result"]["lines"] == 1
+    assert "content" not in audit[0]["result"]
+    assert audit[1]["ok"] is False
+    assert "工作区" in audit[1]["error"]
+
+    service.revoke_agent_token(token)
+    assert service.agent_audit(token) == []

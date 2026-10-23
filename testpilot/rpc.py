@@ -29,6 +29,7 @@ import secrets
 import hmac
 import re
 import threading
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 from concurrent.futures import ThreadPoolExecutor
@@ -52,6 +53,7 @@ _LONG = frozenset({"task.run"})
 _DRAIN_TIMEOUT_S = 15.0     # shutdown 时等待执行中 task.run 收尾的上限
 _AUTOMATION_INLINE_PNG_MAX = 128 * 1024
 _AUTOMATION_ASSET_KEEP = 6
+_AGENT_AUDIT_LIMIT = 200
 
 _AGENT_RPC_METHODS = frozenset({
     "agent.fs.read", "agent.fs.find", "agent.fs.grep",
@@ -70,6 +72,7 @@ class RpcService:
         self._automation_sessions = {}
         self._automation_owner = None
         self._agent_tokens: dict[str, dict] = {}
+        self._agent_audits: dict[str, list[dict]] = {}
         self._agent_tokens_lock = threading.RLock()
         self._interaction_lock = threading.Lock()
         self._jobs = CaseJobs(self._dispatch_case_job)
@@ -394,8 +397,12 @@ class RpcService:
             runtime = PiAgentRuntime(
                 (cfg.get("agent") or {}).get("pi") or {},
                 rpc_url=url, rpc_token=token)
-            return runtime.run(
+            result = runtime.run(
                 prompt, cwd=workspace, tools=tools, abort=abort, progress=progress)
+            # 审计由主 RPC 进程产生，而不是信任 Agent 自报；只返回摘要，
+            # 不重复携带源码正文 / diff 正文。
+            result["audit"] = self.agent_audit(token)
+            return result
         finally:
             self.revoke_agent_token(token)
 
@@ -1047,13 +1054,101 @@ class RpcService:
         if not root.is_dir():
             raise RpcError(INVALID_PARAMS, f"Agent 工作区不存在: {root}")
         token = secrets.token_urlsafe(32)
+        session_id = secrets.token_hex(8)
         with self._agent_tokens_lock:
-            self._agent_tokens[token] = {"workspace": str(root)}
+            self._agent_tokens[token] = {
+                "workspace": str(root),
+                "session_id": session_id,
+            }
+            self._agent_audits[session_id] = []
         return token
+
+    def agent_audit(self, token: str) -> list[dict]:
+        """返回当前 Agent capability 会话的结构化工具审计快照。"""
+        with self._agent_tokens_lock:
+            scope = self._agent_tokens.get(str(token))
+            if not scope:
+                return []
+            session_id = str(scope.get("session_id") or "")
+            return [dict(item) for item in self._agent_audits.get(session_id, [])]
 
     def revoke_agent_token(self, token: str) -> None:
         with self._agent_tokens_lock:
-            self._agent_tokens.pop(str(token), None)
+            scope = self._agent_tokens.pop(str(token), None)
+            if scope:
+                self._agent_audits.pop(str(scope.get("session_id") or ""), None)
+
+    @staticmethod
+    def _agent_audit_params(params: dict) -> dict:
+        """只记录输入摘要；capability scope / workspace 以及大正文都不进入审计。"""
+        out = {}
+        for key, value in (params or {}).items():
+            if key in ("_agentScope", "workspace"):
+                continue
+            if isinstance(value, str):
+                out[key] = value if len(value) <= 200 else value[:197] + "..."
+            elif isinstance(value, (bool, int, float)) or value is None:
+                out[key] = value
+            elif isinstance(value, (list, tuple)):
+                items = list(value)[:20]
+                out[key] = [
+                    (item if isinstance(item, (bool, int, float)) or item is None
+                     else str(item)[:120])
+                    for item in items
+                ]
+                if len(value) > len(items):
+                    out[f"{key}_truncated"] = len(value) - len(items)
+            else:
+                out[key] = str(value)[:200]
+        return out
+
+    @staticmethod
+    def _agent_audit_result(method: str, result) -> dict:
+        """把工具返回压缩为元数据，避免把源码 / diff / 用例正文复制进轨迹。"""
+        if not isinstance(result, dict):
+            return {"type": type(result).__name__}
+        keys = {
+            "agent.fs.read": ("path", "offset", "lines", "total_lines"),
+            "agent.fs.find": ("count", "truncated"),
+            "agent.fs.grep": ("count", "scanned_files", "truncated"),
+            "agent.svn.status": ("count",),
+            "agent.svn.diff": ("chars", "truncated", "agent_limit_chars"),
+            "agent.svn.log": ("count",),
+            "agent.case.search": ("count", "truncated"),
+            "agent.case.detail": ("case_id", "title", "status", "sync_status"),
+        }.get(method, ())
+        out = {key: result.get(key) for key in keys if key in result}
+        if method == "agent.svn.diff":
+            out["path_count"] = len(result.get("paths") or [])
+        elif method == "agent.case.detail":
+            out["step_count"] = len(result.get("steps") or [])
+        return out
+
+    def _record_agent_audit(self, scope: dict, method: str, params: dict, *,
+                            result=None, error: str | None = None,
+                            elapsed_ms: int = 0) -> None:
+        session_id = str((scope or {}).get("session_id") or "")
+        if not session_id:
+            return
+        with self._agent_tokens_lock:
+            audit = self._agent_audits.get(session_id)
+            if audit is None:
+                return
+            seq = int(audit[-1]["seq"]) + 1 if audit else 1
+            entry = {
+                "seq": seq,
+                "method": method,
+                "params": self._agent_audit_params(params),
+                "ok": error is None,
+                "elapsed_ms": max(0, int(elapsed_ms)),
+            }
+            if error is None:
+                entry["result"] = self._agent_audit_result(method, result)
+            else:
+                entry["error"] = str(error)[:500]
+            audit.append(entry)
+            if len(audit) > _AGENT_AUDIT_LIMIT:
+                del audit[:-_AGENT_AUDIT_LIMIT]
 
     def _agent_scope(self, p: dict) -> dict:
         scope = p.get("_agentScope")
@@ -1413,6 +1508,9 @@ class RpcService:
             params = dict(params)
             params["_agentScope"] = agent_scope
         reserved = False
+        audit_started = time.monotonic() if agent_scope is not None else None
+        audit_result = None
+        audit_error = None
         try:
             if method in _INLINE:
                 result = self.dispatch(method, params)
@@ -1429,16 +1527,26 @@ class RpcService:
                 result = await asyncio.get_running_loop().run_in_executor(
                     pool, self.dispatch if method in _LONG else self._dispatch_io,
                     method, params)
+            audit_result = result
             return None if is_notification else \
                 {"jsonrpc": "2.0", "id": req_id, "result": result}
         except RpcError as e:
+            audit_error = e.message
             return None if is_notification else self._err(req_id, e.code,
                                                           e.message, e.data)
         except Exception as e:
+            audit_error = str(e)
             log.exception(f"RPC 方法异常: {method}")
             return None if is_notification else \
                 self._err(req_id, INTERNAL_ERROR, str(e))
         finally:
+            if (agent_scope is not None and audit_started is not None
+                    and method in _AGENT_RPC_METHODS):
+                self._record_agent_audit(
+                    agent_scope, method, params, result=audit_result,
+                    error=audit_error,
+                    elapsed_ms=round((time.monotonic() - audit_started) * 1000),
+                )
             if reserved:
                 self._run_reserved.clear()
 

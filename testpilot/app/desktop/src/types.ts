@@ -534,6 +534,16 @@ export interface SvnGeneratedCase {
   reused?: boolean;
 }
 
+export interface AgentToolAuditEntry {
+  seq: number;
+  method: string;
+  params?: Record<string, unknown>;
+  ok: boolean;
+  elapsed_ms: number;
+  result?: Record<string, unknown>;
+  error?: string;
+}
+
 export interface SvnChangeGenerateResult {
   source: 'svn_agent';
   summary: string;
@@ -545,7 +555,12 @@ export interface SvnChangeGenerateResult {
   reused: number;
   duplicates_dropped?: number;
   parse?: ParseBatchLike;
-  agent?: { runtime: string; tool_calls?: number; elapsed_ms?: number };
+  agent?: {
+    runtime: string;
+    tool_calls?: number;
+    elapsed_ms?: number;
+    audit?: AgentToolAuditEntry[];
+  };
 }
 
 export interface ParseBatchLike {

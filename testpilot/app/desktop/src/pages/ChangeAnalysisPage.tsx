@@ -195,6 +195,25 @@ export function ChangeAnalysisPage() {
       {!!result.risks?.length && <div className="msg warn" style={{ marginTop: 12 }}>
         <strong>需要重点回归：</strong>{result.risks.join('；')}
       </div>}
+      {!!result.agent?.audit?.length && <details style={{ marginTop: 12 }}>
+        <summary>
+          <strong>Agent 工具轨迹</strong>
+          <span className="faint"> · 主 RPC 审计 {result.agent.audit.length} 次</span>
+        </summary>
+        <table className="grid compact" style={{ marginTop: 8 }}>
+          <thead><tr><th>#</th><th>主进程工具</th><th>输入摘要</th><th>结果摘要</th><th>耗时</th></tr></thead>
+          <tbody>{result.agent.audit.map((entry) => <tr key={entry.seq}>
+            <td>{entry.seq}</td>
+            <td className="mono">{entry.method}</td>
+            <td className="mono pre-wrap">{JSON.stringify(entry.params ?? {})}</td>
+            <td className="mono pre-wrap">
+              {entry.ok ? JSON.stringify(entry.result ?? {}) : '失败：' + (entry.error || 'unknown')}
+            </td>
+            <td>{entry.elapsed_ms} ms</td>
+          </tr>)}</tbody>
+        </table>
+        <p className="hint">轨迹由 TestPilot 主 RPC 生成，只保留参数/结果摘要，不保存源码与 diff 正文。</p>
+      </details>}
       <table className="grid" style={{ marginTop: 12 }}>
         <thead><tr><th>测试用例</th><th>级别 / 类型</th><th>代码来源</th><th>下一步</th></tr></thead>
         <tbody>{result.cases.map((item) => <tr key={item.case_id}>

@@ -202,6 +202,7 @@ class ChangeAnalysisService:
                 "runtime": "pi",
                 "tool_calls": result.get("tool_calls", 0),
                 "elapsed_ms": result.get("elapsed_ms"),
+                "audit": result.get("audit") or [],
             },
         }
 
