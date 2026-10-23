@@ -143,6 +143,14 @@ class TaskOrchestrator:
             if spec.get("preconditions") is not None else None
         )
         explicit_driver = dict(spec.get("driver_config") or {})
+        if explicit_driver.get("mode") is not None:
+            from testpilot.core.dsl import DriverMode
+            try:
+                explicit_driver["mode"] = DriverMode(str(explicit_driver["mode"])).value
+            except ValueError:
+                allowed = ", ".join(mode.value for mode in DriverMode)
+                raise TestPilotError(
+                    f"非法驱动模式: {explicit_driver['mode']!r}（可选 {allowed}）") from None
         driver_config = dict(self.cfg["driver"])
 
         if suite_id is not None:
