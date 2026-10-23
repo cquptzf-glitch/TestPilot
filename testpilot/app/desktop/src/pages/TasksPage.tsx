@@ -83,6 +83,10 @@ export function TasksPage({ taskId }: { taskId?: number }) {
   const create = async () => {
     if (!name.trim()) { setNotice({ kind: 'warn', text: '任务名不能为空' }); return; }
     if (!suiteId && !caseIds.trim()) { setNotice({ kind: 'warn', text: '请选择方案或填用例 ID' }); return; }
+    if (suiteId && caseIds.trim()) {
+      setNotice({ kind: 'warn', text: '测试方案和临时用例只能选择一种来源' });
+      return;
+    }
     const payload: Record<string, unknown> = {
       name: name.trim(),
       driverConfig: createMode === 'auto' ? undefined : { mode: createMode },
@@ -149,7 +153,8 @@ export function TasksPage({ taskId }: { taskId?: number }) {
           </div>
           <div className="field">
             <label>选择方案（与临时用例二选一）</label>
-            <select value={suiteId} onChange={(e) => { setSuiteId(e.target.value); setCaseIds(''); }}>
+            <select value={suiteId} disabled={!!caseIds.trim()}
+                    onChange={(e) => { setSuiteId(e.target.value); setCaseIds(''); }}>
               <option value="">（不选方案）</option>
               {(suites.data?.suites ?? []).map((s) => (
                 <option key={s.id} value={s.id}>#{s.id} {s.name}（{s.case_ids.length} 例）</option>
@@ -158,8 +163,8 @@ export function TasksPage({ taskId }: { taskId?: number }) {
           </div>
           <div className="field">
             <label>或临时选用例 ID</label>
-            <input type="text" placeholder="TC-1024, TC-1025（逗号/空格分隔）"
-                   value={caseIds}
+            <input type="text" placeholder={suiteId ? '已选择测试方案' : 'TC-1024, TC-1025（逗号/空格分隔）'}
+                   value={caseIds} disabled={!!suiteId}
                    onChange={(e) => { setCaseIds(e.target.value); setSuiteId(''); }} />
           </div>
           {remote && <>
@@ -174,17 +179,23 @@ export function TasksPage({ taskId }: { taskId?: number }) {
             </div>
           </>}
           <div className="field span2">
-            <label>选项</label>
-            <span className="hstack" style={{ gap: 'var(--sp-6)' }}>
-              <label className="hstack muted" title="存在不可执行用例（未生效/无步骤）时仍创建">
-                <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
-                存在不可执行用例时强制建
-              </label>
-              <label className="hstack muted" title="在禅道创建测试任务并回填任务号">
-                <input type="checkbox" checked={remote} onChange={(e) => setRemote(e.target.checked)} />
-                同步到禅道
-              </label>
-            </span>
+            <details className="task-advanced">
+              <summary>高级选项
+                <span className="faint">
+                  {' · '}{remote ? '同步禅道' : '仅本地'}{force ? ' · 强制建任务' : ''}
+                </span>
+              </summary>
+              <div className="hstack task-advanced-body">
+                <label className="hstack muted" title="在禅道创建测试任务并回填任务号">
+                  <input type="checkbox" checked={remote} onChange={(e) => setRemote(e.target.checked)} />
+                  同步到禅道
+                </label>
+                <label className="hstack muted" title="存在不可执行用例（未生效/无步骤）时仍创建">
+                  <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
+                  允许包含不可执行用例
+                </label>
+              </div>
+            </details>
           </div>
           <div className="span2" style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-3)' }}>
             <button className="btn" disabled={busy !== null} title="重推 sync_pending 的任务汇总"
