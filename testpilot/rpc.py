@@ -692,9 +692,14 @@ class RpcService:
 
     def _kb_set_disposition(self, p):
         """人审阶段修正处置策略（设计 3.3）：写入 payload.disposition，命中后按此执行。"""
-        return self._orch.kb.set_disposition(
-            _to_int(p, "entryId"), str(_require(p, "disposition")),
-            **{key: p[key] for key in ("category", "suggestion", "evidence") if key in p})
+        try:
+            return self._orch.kb.set_disposition(
+                _positive_int_param(p, "entryId"),
+                str(_require(p, "disposition")),
+                **{key: p[key] for key in ("category", "suggestion", "evidence")
+                   if key in p})
+        except ValueError as e:
+            raise RpcError(INVALID_PARAMS, str(e)) from e
 
     def _kb_case_ctx_list(self, p):
         """用例上下文（case_ctx）列表：KBReview 的人审维护数据源。"""
@@ -708,10 +713,16 @@ class RpcService:
             payload = {k: p[k] for k in ("scene", "pitfalls", "notes") if k in p}
         if not payload:
             raise RpcError(INVALID_PARAMS, "至少提供 scene/pitfalls/notes 之一")
-        return self._orch.kb.save_case_ctx(case_id, payload)
+        try:
+            return self._orch.kb.save_case_ctx(case_id, payload)
+        except ValueError as e:
+            raise RpcError(INVALID_PARAMS, str(e)) from e
 
     def _kb_case_ctx_delete(self, p):
-        return self._orch.kb.delete_case_ctx(_require(p, "caseId"))
+        try:
+            return self._orch.kb.delete_case_ctx(_require(p, "caseId"))
+        except ValueError as e:
+            raise RpcError(INVALID_PARAMS, str(e)) from e
 
     def _kb_env_compat(self, p):
         """环境通过率矩阵（env_compat）：按方案取各被测版本的历史对照。"""
@@ -727,21 +738,34 @@ class RpcService:
         return self._orch.cases.show(_require(p, "caseId"))
 
     def _dsl_save(self, p):
-        return self._orch.cases.import_draft(
-            _require(p, "text"), p.get("format", "json"), case_id=p.get("caseId"))
+        try:
+            return self._orch.cases.import_draft(
+                _require(p, "text"), p.get("format", "json"),
+                case_id=p.get("caseId"))
+        except TestPilotError as e:
+            raise RpcError(INVALID_PARAMS, str(e)) from e
 
     def _dsl_accept(self, p):
         case_id = _require(p, "caseId")
-        if p.get("expectedRevision"):
-            current = self._orch.cases.show(case_id)
-            if current.get("revision") != p["expectedRevision"]:
-                raise RpcError(INVALID_PARAMS, "用例已变更，请重新加载后审核")
-        if p.get("text") is not None:
-            self._orch.cases.import_draft(p["text"], p.get("format", "json"), case_id)
-        return self._orch.cases.accept(case_id)
+        try:
+            if p.get("expectedRevision"):
+                current = self._orch.cases.show(case_id)
+                if current.get("revision") != p["expectedRevision"]:
+                    raise RpcError(INVALID_PARAMS, "用例已变更，请重新加载后审核")
+            if p.get("text") is not None:
+                self._orch.cases.import_draft(
+                    p["text"], p.get("format", "json"), case_id)
+            return self._orch.cases.accept(case_id)
+        except RpcError:
+            raise
+        except TestPilotError as e:
+            raise RpcError(INVALID_PARAMS, str(e)) from e
 
     def _dsl_reject(self, p):
-        return self._orch.cases.reject(_require(p, "caseId"))
+        try:
+            return self._orch.cases.reject(_require(p, "caseId"))
+        except TestPilotError as e:
+            raise RpcError(INVALID_PARAMS, str(e)) from e
 
     # ---------- 自动化探索（桌面 UI / Agent 共用） ----------
 
