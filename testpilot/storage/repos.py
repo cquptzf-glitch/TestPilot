@@ -25,6 +25,34 @@ def _loads(text, default):
         return default
 
 
+# ---------- external source sync state ----------
+
+def get_sync_state(conn: sqlite3.Connection, source: str, scope: str) -> dict | None:
+    row = conn.execute(
+        "SELECT source, scope, watermark, synced_at, detail_json "
+        "FROM source_sync_state WHERE source=? AND scope=?",
+        (source, scope)).fetchone()
+    if row is None:
+        return None
+    out = dict(row)
+    out["detail"] = _loads(out.pop("detail_json", None), {})
+    return out
+
+
+def set_sync_state(conn: sqlite3.Connection, source: str, scope: str, *,
+                   watermark: str | None, detail: dict | None = None) -> dict:
+    now = _now()
+    conn.execute(
+        "INSERT INTO source_sync_state(source, scope, watermark, synced_at, detail_json) "
+        "VALUES (?,?,?,?,?) ON CONFLICT(source, scope) DO UPDATE SET "
+        "watermark=excluded.watermark, synced_at=excluded.synced_at, "
+        "detail_json=excluded.detail_json",
+        (source, scope, watermark, now,
+         json.dumps(detail or {}, ensure_ascii=False)))
+    conn.commit()
+    return get_sync_state(conn, source, scope)
+
+
 # ---------- dsl_case ----------
 
 _CASE_COLUMNS = ("case_id, zentao_case_id, title, version, steps_json,"
