@@ -779,18 +779,24 @@ export function AutomationPage() {
             {item.session_id} · {item.history_count} 步
           </option>)}
         </select>
-        <input value={newSessionId} disabled={!!busy}
-               onChange={(e) => setNewSessionId(e.target.value)}
-               onKeyDown={(e) => { if (e.key === 'Enter') createAutomationSession(); }}
-               placeholder="新会话 ID" />
-        <button className="btn ghost" disabled={!!busy || !newSessionId.trim()}
-                onClick={createAutomationSession}>新建/切换</button>
-        <button className="btn ghost"
-                disabled={!!busy || sessionId === DEFAULT_AUTOMATION_SESSION_ID}
-                onClick={() => void closeAutomationSession()}>关闭会话</button>
       </div>
-      <span className="chip">会话 {historyCount} 步</span>
-      <button className="btn ghost" disabled={!!busy} onClick={() => void reset()}>清空会话</button>
+      <span className="chip">{historyCount} 步</span>
+      <details className="automation-session-menu">
+        <summary className="btn ghost">会话管理</summary>
+        <div className="automation-session-popover">
+          <input value={newSessionId} disabled={!!busy}
+                 onChange={(e) => setNewSessionId(e.target.value)}
+                 onKeyDown={(e) => { if (e.key === 'Enter') createAutomationSession(); }}
+                 placeholder="新会话 ID" />
+          <button className="btn" disabled={!!busy || !newSessionId.trim()}
+                  onClick={createAutomationSession}>新建 / 切换</button>
+          <button className="btn"
+                  disabled={!!busy || sessionId === DEFAULT_AUTOMATION_SESSION_ID}
+                  onClick={() => void closeAutomationSession()}>关闭当前会话</button>
+          <button className="btn danger" disabled={!!busy}
+                  onClick={() => void reset()}>清空当前会话</button>
+        </div>
+      </details>
     </div>
 
     {busy && <Msg kind="info">{busy}</Msg>}
@@ -955,89 +961,96 @@ export function AutomationPage() {
               <span>{selected.selector_reason || '暂无稳定性说明'}</span>
             </div>}
             <input value={actionValue} onChange={(e) => setActionValue(e.target.value)}
-                   placeholder="输入 / 选择 / 按键 / 文本断言值" />
-            <div className="automation-region-control">
-          <span>{visualRegion
-            ? '当前搜索区域：' + visualRegion.join(', ')
-            : '可直接在右侧截图上拖拽框选搜索区域'}</span>
-          {visualRegion && <button className="btn ghost small"
-                                   onClick={() => setVisualRegion(null)}>
-            清除区域
-          </button>}
-        </div>
-        <div className="automation-diff-option">
-              <label><input type="checkbox" checked={verifyDiff}
-                            onChange={(e) => setVerifyDiff(e.target.checked)} />
-                验证画面发生变化
-              </label>
-              <input value={diffThreshold} disabled={!verifyDiff}
-                     onChange={(e) => setDiffThreshold(e.target.value)}
-                     aria-label="画面变化阈值" />
-              <small>变化像素比阈值，默认 0.005（0.5%）</small>
-            </div>
-            <div className="automation-key-presets" aria-label="常用按键快捷选择">
-              <span className="muted">快捷按键：</span>
-              {KEY_PRESETS.map((preset) => <button key={preset.label} type="button"
-                className="btn ghost small" disabled={!!busy}
-                title={"填入 pywinauto 键序列：" + preset.keys}
-                onClick={() => setActionValue(preset.keys)}>{preset.label}</button>)}
-            </div>
-            <div className="automation-gesture-controls">
-              <label>滚动方向
-                <select value={scrollDirection} onChange={(e) =>
-                  setScrollDirection(e.target.value as 'up' | 'down' | 'left' | 'right')}>
-                  <option value="up">向上</option>
-                  <option value="down">向下</option>
-                  <option value="left">向左</option>
-                  <option value="right">向右</option>
-                </select>
-              </label>
-              <label>滚动格数
-                <input type="number" min={1} max={20} value={scrollAmount}
-                       onChange={(e) => setScrollAmount(Number(e.target.value))} />
-              </label>
-              <button className="btn" disabled={!toolNames.has('ui.scroll')}
-                      onClick={() => void action('ui.scroll', {
-                        direction: scrollDirection, amount: scrollAmount,
-                      })}>滚动</button>
-              <label>拖拽 X
-                <input type="number" value={dragDx}
-                       onChange={(e) => setDragDx(Number(e.target.value))} />
-              </label>
-              <label>Y
-                <input type="number" value={dragDy}
-                       onChange={(e) => setDragDy(Number(e.target.value))} />
-              </label>
-              <label>耗时 ms
-                <input type="number" min={0} max={10000} value={dragDuration}
-                       onChange={(e) => setDragDuration(Number(e.target.value))} />
-              </label>
-              <button className="btn" disabled={!toolNames.has('ui.drag') || (dragDx === 0 && dragDy === 0)}
-                      onClick={() => void action('ui.drag', {
-                        dx: dragDx, dy: dragDy, duration_ms: dragDuration,
-                      })}>拖拽</button>
-            </div>
-            <div className="automation-action-grid">
-              <button className="btn primary" disabled={!selected.actions.includes('click')}
-                      onClick={() => void action('ui.click')}>点击</button>
-              <button className="btn" disabled={!toolNames.has('ui.right_click')}
-                      onClick={() => void action('ui.right_click')}>右键</button>
+                   placeholder="输入值 / 选项 / 断言文本" />
+            <div className="automation-action-grid primary">
+              {selected.actions.includes('click') &&
+                <button className="btn primary"
+                        onClick={() => void action('ui.click')}>点击</button>}
+              {selected.actions.includes('input') &&
+                <button className="btn"
+                        onClick={() => void action('ui.input', {
+                          text: actionValue, clear: true,
+                        })}>输入</button>}
+              {selected.actions.includes('select') &&
+                <button className="btn"
+                        onClick={() => void action('ui.select', {
+                          value: actionValue,
+                        })}>选择</button>}
               <button className="btn" onClick={() => void action('ui.read', {}, false)}>读取</button>
-              <button className="btn" onClick={() => void action('assert.ui', {
-                expect: actionValue, op: 'equals',
-              }, false)}>断言文本</button>
-              <button className="btn" disabled={!selected.actions.includes('input')}
-                      onClick={() => void action('ui.input', { text: actionValue, clear: true })}>输入</button>
-              <button className="btn" disabled={!selected.actions.includes('set_value')}
-                      onClick={() => void action('ui.set_value', { value: actionValue })}>设值并校验</button>
-              <button className="btn" disabled={!selected.actions.includes('select')}
-                      onClick={() => void action('ui.select', { value: actionValue })}>选择</button>
-              <button className="btn" onClick={() => void action('ui.keypress', { keys: actionValue })}>发送按键</button>
-              <button className="btn" disabled={!selected.actions.includes('toggle')}
-                      onClick={() => void action('ui.toggle', { checked: true })}>设为选中</button>
-              <button className="btn" disabled={!selected.actions.includes('toggle')}
-                      onClick={() => void action('ui.toggle', { checked: false })}>设为未选中</button>
+              <button className="btn" disabled={!actionValue}
+                      onClick={() => void action('assert.ui', {
+                        expect: actionValue, op: 'equals',
+                      }, false)}>断言文本</button>
             </div>
+            <details className="automation-advanced">
+              <summary>高级操作</summary>
+              <div className="automation-advanced-body">
+                <div className="automation-diff-option">
+                  <label><input type="checkbox" checked={verifyDiff}
+                                onChange={(e) => setVerifyDiff(e.target.checked)} />
+                    动作后验证画面变化
+                  </label>
+                  <input value={diffThreshold} disabled={!verifyDiff}
+                         onChange={(e) => setDiffThreshold(e.target.value)}
+                         aria-label="画面变化阈值" />
+                  <small>像素变化比例，默认 0.005</small>
+                </div>
+                <div className="automation-secondary-actions">
+                  <button className="btn" disabled={!toolNames.has('ui.right_click')}
+                          onClick={() => void action('ui.right_click')}>右键</button>
+                  <button className="btn" disabled={!selected.actions.includes('set_value')}
+                          onClick={() => void action('ui.set_value', {
+                            value: actionValue,
+                          })}>SetValue + 回读</button>
+                  {selected.actions.includes('toggle') && <>
+                    <button className="btn"
+                            onClick={() => void action('ui.toggle', {
+                              checked: true,
+                            })}>设为选中</button>
+                    <button className="btn"
+                            onClick={() => void action('ui.toggle', {
+                              checked: false,
+                            })}>取消选中</button>
+                  </>}
+                </div>
+                <div className="automation-key-presets" aria-label="常用按键快捷选择">
+                  <span className="muted">按键：</span>
+                  {KEY_PRESETS.map((preset) => <button key={preset.label} type="button"
+                    className="btn ghost small" disabled={!!busy}
+                    onClick={() => setActionValue(preset.keys)}>{preset.label}</button>)}
+                  <button className="btn" disabled={!actionValue}
+                          onClick={() => void action('ui.keypress', {
+                            keys: actionValue,
+                          })}>发送</button>
+                </div>
+                <div className="automation-gesture-controls">
+                  <label>滚动
+                    <select value={scrollDirection} onChange={(e) =>
+                      setScrollDirection(e.target.value as 'up' | 'down' | 'left' | 'right')}>
+                      <option value="up">上</option><option value="down">下</option>
+                      <option value="left">左</option><option value="right">右</option>
+                    </select>
+                  </label>
+                  <label>格数<input type="number" min={1} max={20} value={scrollAmount}
+                    onChange={(e) => setScrollAmount(Number(e.target.value))} /></label>
+                  <button className="btn" disabled={!toolNames.has('ui.scroll')}
+                    onClick={() => void action('ui.scroll', {
+                      direction: scrollDirection, amount: scrollAmount,
+                    })}>滚动</button>
+                  <label>拖 X<input type="number" value={dragDx}
+                    onChange={(e) => setDragDx(Number(e.target.value))} /></label>
+                  <label>Y<input type="number" value={dragDy}
+                    onChange={(e) => setDragDy(Number(e.target.value))} /></label>
+                  <label>ms<input type="number" min={0} max={10000} value={dragDuration}
+                    onChange={(e) => setDragDuration(Number(e.target.value))} /></label>
+                  <button className="btn"
+                    disabled={!toolNames.has('ui.drag') || (dragDx === 0 && dragDy === 0)}
+                    onClick={() => void action('ui.drag', {
+                      dx: dragDx, dy: dragDy, duration_ms: dragDuration,
+                    })}>拖拽</button>
+                </div>
+              </div>
+            </details>
             {lastResult && <pre className="automation-result">{JSON.stringify(lastResult, null, 2)}</pre>}
           </> : <div className="automation-empty">从左侧选择元素后可执行动作。</div>}
         </div>
@@ -1049,72 +1062,78 @@ export function AutomationPage() {
         <div className="automation-section-head">
           <div><strong>2. 视觉定位</strong><span className="muted">适合自绘控件或 Accessibility 不完整的页面</span></div>
         </div>
-        <label>语义描述
+        <label>目标描述
           <input value={visualDesc} onChange={(e) => setVisualDesc(e.target.value)}
                  placeholder="例如：右下角蓝色“开始检测”按钮" />
         </label>
-        <label>模板路径（可选，优先）
-          <input value={visualTemplate} onChange={(e) => setVisualTemplate(e.target.value)}
-                 placeholder="templates/start_button.png" />
-        </label>
-        <label>稳定语义键（可选）
-          <input value={visualKey} onChange={(e) => setVisualKey(e.target.value)}
-                 placeholder="btn.start_detect" />
-        </label>
-        <label>输入值（视觉输入时使用）
+        <label>输入值（需要输入时）
           <input value={actionValue} onChange={(e) => setActionValue(e.target.value)}
-                 placeholder="需要写入控件的文本" />
+                 placeholder="可空" />
         </label>
-        <div className="automation-diff-option">
-          <label><input type="checkbox" checked={verifyDiff}
-                        onChange={(e) => setVerifyDiff(e.target.checked)} />
-            验证动作后画面发生变化
-          </label>
-          <input value={diffThreshold} disabled={!verifyDiff}
-                 onChange={(e) => setDiffThreshold(e.target.value)}
-                 aria-label="视觉动作画面变化阈值" />
-          <small>通过后会直接固化为 screenshot_diff verify</small>
-        </div>
-        <div className="automation-region-control">
-          <span>{visualRegion
-            ? '当前模板/搜索区域：' + visualRegion.join(', ')
-            : '在右侧截图拖拽框选区域，可直接保存为模板'}</span>
-          <button className="btn ghost small"
-                  disabled={!!busy || !visualRegion || !toolNames.has('screen.save_template')}
-                  onClick={() => void saveVisualTemplate()}>
-            保存选区为模板
-          </button>
-        </div>
-        <div className="automation-gesture-controls compact">
-          <label>滚动
-            <select value={scrollDirection} onChange={(e) =>
-              setScrollDirection(e.target.value as 'up' | 'down' | 'left' | 'right')}>
-              <option value="up">上</option><option value="down">下</option>
-              <option value="left">左</option><option value="right">右</option>
-            </select>
-          </label>
-          <label>格数<input type="number" min={1} max={20} value={scrollAmount}
-                          onChange={(e) => setScrollAmount(Number(e.target.value))} /></label>
-          <button className="btn" disabled={!!busy || !toolNames.has('ui.scroll')}
-                  onClick={() => void visualAction('ui.scroll')}>视觉滚动</button>
-          <label>拖 X<input type="number" value={dragDx}
-                           onChange={(e) => setDragDx(Number(e.target.value))} /></label>
-          <label>Y<input type="number" value={dragDy}
-                         onChange={(e) => setDragDy(Number(e.target.value))} /></label>
-          <button className="btn" disabled={!!busy || !toolNames.has('ui.drag')
-                    || (dragDx === 0 && dragDy === 0)}
-                  onClick={() => void visualAction('ui.drag')}>视觉拖拽</button>
-        </div>
-        <div className="hstack">
+        <div className="automation-action-grid primary">
           <button className="btn" disabled={!!busy}
-                  onClick={() => void visualAction('ui.locate')}>定位并高亮</button>
+                  onClick={() => void visualAction('ui.locate')}>定位</button>
           <button className="btn primary" disabled={!!busy}
-                  onClick={() => void visualAction('ui.click')}>视觉点击</button>
-          <button className="btn" disabled={!!busy || !toolNames.has('ui.right_click')}
-                  onClick={() => void visualAction('ui.right_click')}>视觉右键</button>
+                  onClick={() => void visualAction('ui.click')}>点击</button>
           <button className="btn" disabled={!!busy || !actionValue}
-                  onClick={() => void visualAction('ui.input')}>视觉输入</button>
+                  onClick={() => void visualAction('ui.input')}>输入</button>
         </div>
+        <details className="automation-advanced">
+          <summary>高级视觉操作</summary>
+          <div className="automation-advanced-body">
+            <label>模板路径（优先于语义）
+              <input value={visualTemplate} onChange={(e) => setVisualTemplate(e.target.value)}
+                     placeholder="templates/start_button.png" />
+            </label>
+            <label>稳定语义键
+              <input value={visualKey} onChange={(e) => setVisualKey(e.target.value)}
+                     placeholder="btn.start_detect" />
+            </label>
+            <div className="automation-region-control">
+              <span>{visualRegion
+                ? '搜索区域：' + visualRegion.join(', ')
+                : '可在右侧截图拖拽框选搜索/模板区域'}</span>
+              <button className="btn ghost small"
+                      disabled={!!busy || !visualRegion || !toolNames.has('screen.save_template')}
+                      onClick={() => void saveVisualTemplate()}>
+                保存选区为模板
+              </button>
+            </div>
+            <div className="automation-diff-option">
+              <label><input type="checkbox" checked={verifyDiff}
+                            onChange={(e) => setVerifyDiff(e.target.checked)} />
+                动作后验证画面变化
+              </label>
+              <input value={diffThreshold} disabled={!verifyDiff}
+                     onChange={(e) => setDiffThreshold(e.target.value)}
+                     aria-label="视觉动作画面变化阈值" />
+            </div>
+            <div className="automation-secondary-actions">
+              <button className="btn" disabled={!!busy || !toolNames.has('ui.right_click')}
+                      onClick={() => void visualAction('ui.right_click')}>右键</button>
+            </div>
+            <div className="automation-gesture-controls compact">
+              <label>滚动
+                <select value={scrollDirection} onChange={(e) =>
+                  setScrollDirection(e.target.value as 'up' | 'down' | 'left' | 'right')}>
+                  <option value="up">上</option><option value="down">下</option>
+                  <option value="left">左</option><option value="right">右</option>
+                </select>
+              </label>
+              <label>格数<input type="number" min={1} max={20} value={scrollAmount}
+                onChange={(e) => setScrollAmount(Number(e.target.value))} /></label>
+              <button className="btn" disabled={!!busy || !toolNames.has('ui.scroll')}
+                onClick={() => void visualAction('ui.scroll')}>滚动</button>
+              <label>拖 X<input type="number" value={dragDx}
+                onChange={(e) => setDragDx(Number(e.target.value))} /></label>
+              <label>Y<input type="number" value={dragDy}
+                onChange={(e) => setDragDy(Number(e.target.value))} /></label>
+              <button className="btn" disabled={!!busy || !toolNames.has('ui.drag')
+                    || (dragDx === 0 && dragDy === 0)}
+                onClick={() => void visualAction('ui.drag')}>拖拽</button>
+            </div>
+          </div>
+        </details>
         <p className="hint">模板路径存在时优先按模板定位；否则使用视觉语义描述。成功动作会把视觉 locator 固化进 DSL。</p>
         {lastResult && <pre className="automation-result">{JSON.stringify(lastResult, null, 2)}</pre>}
       </div>
