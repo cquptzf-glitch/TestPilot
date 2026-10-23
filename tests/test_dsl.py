@@ -115,3 +115,74 @@ def test_wait_and_sleep_semantic_validation():
         id="sleep-bad", action="sleep", args={"ms": "later"},
     ))
     assert any("整数毫秒" in item for item in bad_sleep)
+
+def test_assert_ui_requires_a_locator():
+    step = Step(
+        id="assert-no-target",
+        action="assert.ui",
+        verify=VerifySpec(type="text", expect="完成", op="contains"),
+    )
+    assert any("缺少 target" in item for item in execution_errors(step))
+
+    via_verify = Step(
+        id="assert-verify-target",
+        action="assert.ui",
+        verify=VerifySpec(
+            type="text", expect="完成", op="contains",
+            target=Locator(type="uia", automation_id="status"),
+        ),
+    )
+    assert execution_errors(via_verify) == []
+
+
+def test_app_action_semantic_validation():
+    missing = TestCase(
+        case_id="TC-APP",
+        steps=[Step(id="s1", action="app.launch", args={})],
+    )
+    with pytest.raises(ValueError, match="args.exe 或 args.title_re"):
+        validate_execution(missing)
+
+    string_args = TestCase(
+        case_id="TC-APP",
+        steps=[Step(
+            id="s1", action="app.launch",
+            args={"exe": "app.exe",
+                  "args": '--test-mode --config "D:\\a b.yaml"'},
+        )],
+    )
+    validate_execution(string_args)
+
+    list_args = TestCase(
+        case_id="TC-APP",
+        steps=[Step(
+            id="s1", action="app.launch",
+            args={"exe": "app.exe", "args": ["--test-mode", "D:\\a b.yaml"]},
+        )],
+    )
+    validate_execution(list_args)
+
+    bad_args = TestCase(
+        case_id="TC-APP",
+        steps=[Step(
+            id="s1", action="app.launch",
+            args={"exe": "app.exe", "args": {"bad": True}},
+        )],
+    )
+    with pytest.raises(ValueError, match="命令行字符串或字符串数组"):
+        validate_execution(bad_args)
+
+    bad_close = TestCase(
+        case_id="TC-APP",
+        steps=[Step(id="s1", action="app.close", args={"mode": "terminate"})],
+    )
+    with pytest.raises(ValueError, match="graceful 或 force"):
+        validate_execution(bad_close)
+
+    # 历史 DSL 的 kill 保持兼容；新生成统一使用 force。
+    legacy = TestCase(
+        case_id="TC-APP",
+        steps=[Step(id="s1", action="app.close", args={"mode": "kill"})],
+    )
+    validate_execution(legacy)
+
