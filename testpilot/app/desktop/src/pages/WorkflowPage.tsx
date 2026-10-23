@@ -246,10 +246,24 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
     setReviewId(pending?.case_id);
     setPhase(pending ? 2 : 3);
   });
-  const accepted = (cid: string) => {
-    cases.reload();
-    const next = chosen.find(c => c.case_id !== cid && !approved(c));
-    if (next) setReviewId(next.case_id); else { setReviewId(undefined); setPhase(3); }
+  const accepted = async (_cid: string) => {
+    try {
+      // dsl.accept 已经写库；这里基于最新状态决定“下一条”，避免 cases.reload
+      // 尚未完成时用旧 chosen 快照把审核队列跳回已通过用例。
+      const fresh = (await call<{ cases: CaseRow[] }>('case.list')).cases
+        .filter(c => selected.includes(c.case_id));
+      const next = fresh.find(c => !approved(c));
+      cases.reload();
+      if (next) {
+        setReviewId(next.case_id);
+      } else {
+        setReviewId(undefined);
+        setPhase(3);
+      }
+    } catch (e) {
+      setError('刷新审核队列失败：' + msg(e));
+      cases.reload();
+    }
   };
   const execute = () => action(reusable ? '正在执行已有任务…' : '正在创建并执行测试…', async () => {
     if (!runnable) throw new Error('请先审核所选用例');
