@@ -90,7 +90,7 @@ export function ChangeAnalysisPage() {
       setResult(out);
       setPreview(out.snapshot);
       pushToast('pass',
-        `已生成 ${out.created} 条测试用例${parseDsl ? '，DSL 草稿已进入审核队列' : ''}`);
+        `新增 ${out.created} 条，复用 ${out.reused ?? 0} 条测试用例${parseDsl ? '；待解析草稿已进入 DSL 审核队列' : ''}`);
       window.dispatchEvent(new Event('testpilot:cases-changed'));
     } catch (e) {
       setError(msg(e));
@@ -198,7 +198,8 @@ export function ChangeAnalysisPage() {
               <strong>风险：</strong>{result.risks.join('；')}
             </div>}
             <dl className="kv" style={{ marginTop: 12 }}>
-              <dt>生成用例</dt><dd>{result.created}</dd>
+              <dt>新增用例</dt><dd>{result.created}</dd>
+              <dt>复用已有</dt><dd>{result.reused ?? 0}</dd>
               <dt>Agent 工具调用</dt><dd>{result.agent?.tool_calls ?? 0}</dd>
               <dt>Agent 耗时</dt><dd>{result.agent?.elapsed_ms ?? 0} ms</dd>
               <dt>DSL 解析</dt>
@@ -209,7 +210,10 @@ export function ChangeAnalysisPage() {
             <table className="grid" style={{ marginTop: 12 }}>
               <thead><tr><th>用例</th><th>优先级</th><th>类型</th><th>代码来源</th><th /></tr></thead>
               <tbody>{result.cases.map((item) => <tr key={item.case_id}>
-                <td><span className="mono">{item.case_id}</span><div>{item.title}</div></td>
+                <td><span className="mono">{item.case_id}</span>
+                  {item.reused && <span className="badge synced" style={{ marginLeft: 6 }}>复用</span>}
+                  <div>{item.title}</div>
+                </td>
                 <td>{item.priority}</td>
                 <td>{item.category}</td>
                 <td className="pre-wrap">{item.source_files.slice(0, 4).join('\n') || '—'}</td>
