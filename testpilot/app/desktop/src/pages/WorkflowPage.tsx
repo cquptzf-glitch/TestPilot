@@ -396,8 +396,7 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
       </div>
       <ul className="flow-ready-list">{chosen.map(c => <li key={c.case_id}><Badge status={c.status} /><strong>{c.title}</strong><span className="muted">{c.case_id} · v{c.version} · {c.steps.length} 步</span></li>)}</ul>
       {windowMissing.length > 0 && <Msg kind="warn">{windowMissing.map(c => c.case_id).join('、')} 缺少启动或附加窗口步骤。请返回选择用例，展开“设置被测软件”后重新生成并确认。</Msg>}
-      <details className="flow-run-advanced"
-        open={(mode !== 'auto' || caseRetry > 0 || remote) || undefined}>
+      <details className="flow-run-advanced">
         <summary>
           <strong>执行选项</strong>
           <span className="faint">
