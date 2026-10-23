@@ -245,9 +245,6 @@ class RpcService:
             "automation.draft", "automation.removeStep", "automation.updateStep",
             "automation.rerunStep", "automation.moveStep",
             "automation.restore", "automation.reset",
-            "agent.fs.read", "agent.fs.find", "agent.fs.grep",
-            "agent.svn.status", "agent.svn.diff", "agent.svn.log",
-            "agent.case.search", "agent.case.detail",
             "config.describe", "config.apply", "config.reset",
             "config.overrideText",
         })
@@ -315,8 +312,12 @@ class RpcService:
             p.get("productId"), parse=bool(p.get("parse")), full=bool(p.get("full")))
 
     def _case_list(self, p):
+        from testpilot.storage import repos
+        pid = p.get("productId") or (self._orch.cfg.get("zentao") or {}).get("product_id")
+        state = repos.get_sync_state(self._orch.conn, "zentao", str(pid or "default"))
         return {"cases": self._orch.cases.list_cases(
-            status=p.get("status"), sync_status=p.get("syncStatus"))}
+            status=p.get("status"), sync_status=p.get("syncStatus")),
+            "sync_state": state}
 
     def _case_detail(self, p):
         return self._orch.cases.show(_require(p, "caseId"))
