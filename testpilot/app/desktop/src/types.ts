@@ -73,6 +73,12 @@ export interface RunStats {
   kb_hit_cases?: number;
   status?: string;
   writeback?: string;
+  /** run 级致命异常：begin_run 后编排/准备阶段崩溃时保留，区别于单用例 fail */
+  fatal_error?: string;
+  /** 本地 run 已完成，但禅道回写链异常时保留 */
+  writeback_error?: string;
+  /** 证据采集不完整时 run.status 会变为 incomplete */
+  evidence_incomplete?: boolean;
   llm_usage?: { calls?: number; tokens?: number; ms?: number; errors?: number };
   preload_errors?: unknown[];
   report?: string;

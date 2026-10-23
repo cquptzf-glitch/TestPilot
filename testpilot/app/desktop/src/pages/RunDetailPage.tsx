@@ -10,7 +10,7 @@ import { assetPath, call, readAssetDataUrl, readTextFile, shotRel } from '../bri
 import { Badge, Donut, DriverBadge, Empty, HeatBlocks, Msg, PassBar } from '../components/Bits';
 import { Lightbox } from '../components/Ui';
 import { fmtMs, fmtTime, passRate, shortSig, copyText, statusLabel } from '../format';
-import { msg, useAsync, useEngineEvents, type AsyncState, type EngineContextValue } from '../hooks';
+import { msg, navigate, useAsync, useEngineEvents, type AsyncState, type EngineContextValue } from '../hooks';
 import type {
   CaseCtxEntry, CaseExecRow, DriverStats, EnvCompatEntry, RetryAttempt,
   RunCompare, RunDetail, RunRow, ShotDiffResult, StabilityEntry, StepTrace,
@@ -232,6 +232,14 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
   if (detail.error) return <div className="main"><Msg kind="error">读取 run 详情失败：{detail.error}</Msg></div>;
   if (!run) return <div className="main"><Empty text="加载中…" /></div>;
 
+  const effectiveStatus = run.stats.status ?? run.status;
+  const rerunSelection = (run.env.case_ids ?? cases.map((c) => c.case_id)).filter(Boolean);
+  const reopenPreflight = () => navigate('home', rerunSelection.length > 0
+    ? { selection: rerunSelection.join(','), ready: 1 }
+    : undefined);
+  const writebackFailed = run.stats.writeback === 'error'
+    || run.stats.writeback === 'sync_pending';
+
   return (
     <div className="main wide">
       {/* Run 上下文条 */}
@@ -264,6 +272,59 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
       </div>
 
       {notice && <Msg kind={notice.kind}>{notice.text}</Msg>}
+
+      {run.stats.fatal_error ? (
+        <Msg kind="error">
+          <strong>运行级异常：</strong>{run.stats.fatal_error}
+          <span className="hstack" style={{ marginTop: 'var(--sp-2)' }}>
+            <button className="btn primary" onClick={reopenPreflight}>
+              返回执行前确认 →
+            </button>
+            <button className="btn" onClick={() => setDiagnosticsOpen(true)}>
+              查看技术诊断
+            </button>
+          </span>
+        </Msg>
+      ) : effectiveStatus === 'aborted' ? (
+        <Msg kind="warn">
+          本次运行已中止；已完成的用例和步骤证据均已保留。
+          <button className="btn primary" style={{ marginLeft: 'var(--sp-2)' }}
+                  onClick={reopenPreflight}>
+            重新执行这批用例 →
+          </button>
+        </Msg>
+      ) : effectiveStatus === 'error' ? (
+        <Msg kind="error">
+          本次运行异常结束，未记录到明确的 fatal_error；建议先检查诊断信息再重新执行。
+          <span className="hstack" style={{ marginTop: 'var(--sp-2)' }}>
+            <button className="btn primary" onClick={() => setDiagnosticsOpen(true)}>
+              查看技术诊断 →
+            </button>
+            <button className="btn" onClick={reopenPreflight}>返回执行前确认</button>
+          </span>
+        </Msg>
+      ) : null}
+
+      {effectiveStatus === 'completed' && writebackFailed && (
+        <Msg kind="warn">
+          <strong>本地测试已完成，只有禅道回写未完成。</strong>
+          {run.stats.writeback_error ? ' ' + run.stats.writeback_error : ''}
+          <button className="btn primary" style={{ marginLeft: 'var(--sp-2)' }}
+                  onClick={() => navigate('tasks', { taskId: run.task_id })}>
+            去处理禅道回写 →
+          </button>
+        </Msg>
+      )}
+
+      {effectiveStatus === 'incomplete' && (
+        <Msg kind="warn">
+          本次运行的证据采集不完整，结果已保留，但不建议把它当作完整回归结论。
+          <button className="btn" style={{ marginLeft: 'var(--sp-2)' }}
+                  onClick={() => setDiagnosticsOpen(true)}>
+            查看技术诊断
+          </button>
+        </Msg>
+      )}
 
       {zoom && <Lightbox src={zoom.src} caption={zoom.caption} onClose={() => setZoom(null)} />}
 
