@@ -85,6 +85,38 @@ def test_create_task_from_suite_snapshot(orch, db_conn):
     assert repos.get_task(db_conn, out["task_id"])["case_ids"] == ["TC-1", "TC-2"]
 
 
+def test_create_task_explicit_options_override_suite_defaults(orch, db_conn):
+    suite = orch.suites.create(
+        "带默认配置", ["TC-1", "TC-2"],
+        driver_config={"mode": "vision_first"},
+        preconditions=["模拟器场景: suite-default"])
+    out = orch.create_task({
+        "name": "本次覆盖",
+        "suite_id": suite["id"],
+        "driver_config": {"mode": "uia_only"},
+        "preconditions": ["模拟器场景: task-override"],
+    })
+    task = repos.get_task(db_conn, out["task_id"])
+    assert task["driver_config"]["mode"] == "uia_only"
+    assert task["preconditions"] == ["模拟器场景: task-override"]
+
+
+def test_create_task_rejects_ambiguous_scope_and_dedupes_direct_cases(orch, db_conn):
+    suite = orch.suites.create("范围方案", ["TC-1"])
+    with pytest.raises(TestPilotError, match="只能指定一种"):
+        orch.create_task({
+            "name": "歧义",
+            "suite_id": suite["id"],
+            "case_ids": ["TC-2"],
+        })
+
+    out = orch.create_task({
+        "name": "去重",
+        "case_ids": ["TC-1", "TC-1", "TC-2", "TC-2"],
+    })
+    assert repos.get_task(db_conn, out["task_id"])["case_ids"] == ["TC-1", "TC-2"]
+
+
 def test_create_task_remote_when_zentao_available(cfg, registry, db_conn, tmp_path):
     zentao = FakeZentao(configured=True)
     o = _orch(cfg, registry, db_conn, tmp_path, zentao=zentao)
