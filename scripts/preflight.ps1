@@ -47,6 +47,8 @@ Write-Output '== 1. 关键文件与目录 =='
 $required = @(
     'pyproject.toml', 'README.md',
     'testpilot\app\cli.py', 'testpilot\config\default.yaml',
+    'testpilot\agent\pi_rpc_tools.mjs', 'testpilot\agent\pi_runtime.py',
+    'testpilot\agent\change_service.py', 'testpilot\adapters\svn_adapter.py',
     'testpilot\app\desktop\package.json',
     'testpilot\app\desktop\vite.config.ts',
     'testpilot\app\desktop\index.html',
@@ -115,6 +117,10 @@ if ($conf) {
     }
 }
 
+$specText = Get-Content -LiteralPath 'packaging\sidecar.spec' -Raw -Encoding UTF8
+Check ($specText -match 'pi_rpc_tools\.mjs') 'Pi RPC extension 已列入 sidecar datas'
+$buildSidecarText = Get-Content -LiteralPath 'scripts\build-sidecar.ps1' -Raw -Encoding UTF8
+Check ($buildSidecarText -match 'pi_rpc_tools\.mjs;testpilot/agent') 'onefile 构建同样携带 Pi RPC extension'
 Write-Output ''
 Write-Output '== 3. capabilities / 权限最小化 =='
 $capPath = Join-Path $root 'testpilot\app\desktop\src-tauri\capabilities\default.json'
