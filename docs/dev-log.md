@@ -1659,3 +1659,24 @@ GitHub Actions run 对提交：
 - Pi CLI 安全 flags 按 `pi --help` 动态选择；工具白名单 fail-closed；SVN diff Agent 上下文默认 120k / 硬上限 200k。
 - **GitHub Actions run 39884433953 / SHA 4f287f7ad06538804b282c89c778702a30d2f639：Python install + Ruff + 全量 Pytest success；Desktop TypeScript/Vite build success。**
 - 真 SVN/Pi/provider smoke 暂不作为当前功能开发阻塞项，归入 ENV。
+
+
+### 追加：SVN Agent 生成幂等
+
+继续复核发现：重复执行同一 SVN 变更时，旧实现会因为 case_id 冲突自动追加
+`-2/-3`，把同一测试意图变成多条草稿；同一 Agent 回合若自身重复返回 intent，
+UI 还会收到重复 case_id。
+
+已修：
+
+- 主进程计算稳定 `generation.fingerprint`；
+- 同语义已有 case 直接复用，不覆盖人工 DSL / status；
+- 复用的未解析 draft 可在后续一次生成中继续 parse；
+- 同一 Agent 回合内部按 fingerprint 去重；
+- RPC/UI 返回 `created / reused / duplicates_dropped`；
+- Desktop 工作台与 Job 面板明确展示新增/复用/去重数；
+- devMock 与单测同步。
+
+验证：GitHub Actions run `39885272988` / SHA
+`721c86f8b47029150f6c893fbddff7146e91255d`：
+Python install、Ruff、全量 Pytest、Desktop TypeScript/Vite build 全部 success。
