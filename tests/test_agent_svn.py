@@ -640,17 +640,17 @@ def test_change_service_rechecks_related_case_token_inside_write_transaction(
         })
     service.svn = StubSvn(tmp_path)
 
-    original = service._validate_related_case_tokens
-    calls = {"count": 0}
+    original_grounding = service._validate_grounding
 
-    def mutate_between_checks(analysis, evidence):
-        calls["count"] += 1
-        if calls["count"] == 1:
-            repos.save_case_steps(
-                db_conn, "TC-RACE", steps=[{"id": "x", "action": "ui.click"}])
-        return original(analysis, evidence)
+    def mutate_after_grounding(workspace, snapshot, analysis, evidence):
+        grounding = original_grounding(workspace, snapshot, analysis, evidence)
+        # Simulate a writer landing after the normal preflight but before
+        # ChangeAnalysisService acquires BEGIN IMMEDIATE for persistence.
+        repos.save_case_steps(
+            db_conn, "TC-RACE", steps=[{"id": "x", "action": "ui.click"}])
+        return grounding
 
-    monkeypatch.setattr(service, "_validate_related_case_tokens", mutate_between_checks)
+    monkeypatch.setattr(service, "_validate_grounding", mutate_after_grounding)
     with pytest.raises(AgentError, match="已变化"):
         service.generate({"workingCopy": str(tmp_path), "parse": False})
 

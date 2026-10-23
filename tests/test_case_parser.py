@@ -59,6 +59,26 @@ def test_pull_is_idempotent(svc, db_conn):
     assert repos.get_case(db_conn, "TC-1")["last_synced_at"]
 
 
+def test_case_semantic_token_ignores_timestamp_only_refresh_but_tracks_content(
+        svc, db_conn):
+    svc.pull([1])
+    before = repos.get_case(db_conn, "TC-1")
+    token = repos.case_semantic_token(before)
+
+    db_conn.execute(
+        "UPDATE dsl_case SET last_synced_at=?, updated_at=? WHERE case_id=?",
+        ("2099-01-01T00:00:00", "2099-01-01T00:00:01", "TC-1"))
+    db_conn.commit()
+    assert repos.case_semantic_token(repos.get_case(db_conn, "TC-1")) == token
+
+    changed_raw = dict(before["raw"])
+    changed_raw["steps_text"] += "\n3. 新增语义步骤"
+    repos.update_case_raw(
+        db_conn, "TC-1", raw=changed_raw, title=before["title"],
+        zentao_updated_at="2099-01-02T00:00:00", sync_status="conflict")
+    assert repos.case_semantic_token(repos.get_case(db_conn, "TC-1")) != token
+
+
 def test_pull_marks_stale_when_active_case_changed(svc, db_conn, fake_zentao):
     svc.pull([1])
     svc.parse("TC-1")
