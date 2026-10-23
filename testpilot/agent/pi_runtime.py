@@ -69,8 +69,8 @@ class PiAgentRuntime:
                      "--no-prompt-templates", "--no-themes", "--no-extensions"):
             if flag in help_text:
                 command.append(flag)
-        if "-e" in help_text or "--extension" in help_text:
-            command.extend(["-e", str(extension)])
+        if "--extension" in help_text:
+            command.extend(["--extension", str(extension)])
         else:
             raise AgentError("当前 Pi 不支持显式 extension 加载，无法装载 TestPilot RPC 工具")
         return command
