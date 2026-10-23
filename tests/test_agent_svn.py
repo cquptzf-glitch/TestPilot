@@ -213,6 +213,9 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
         "maxCases": 5,
     })
     assert out["created"] == 1
+    assert len(out["generation_run_id"]) == 16
+    assert out["cases"][0]["generation_run_id"] == out["generation_run_id"]
+    assert out["cases"][0]["grounding"]["svn_diff_verified"] is True
     assert out["agent"]["tool_calls"] == 4
     assert out["agent"]["audit"][0]["method"] == "agent.svn.diff"
     assert out["agent"]["evidence"]["successes"]["agent.svn.diff"] == 1
@@ -236,6 +239,8 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     assert generated["raw"]["source"] == "svn_agent"
     assert generated["raw"]["svn"]["source_files"] == ["src/RunController.cpp"]
     assert generated["raw"]["generation"]["fingerprint"]
+    assert generated["raw"]["generation"]["run_id"] == out["generation_run_id"]
+    first_persisted_run_id = generated["raw"]["generation"]["run_id"]
     guard = generated["raw"]["generation"]["snapshot_guard"]
     assert guard["signature"] == out["snapshot_guard"]["signature"]
     assert guard["mode"] == "working_copy"
@@ -258,12 +263,17 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     })
     assert again["created"] == 0
     assert again["reused"] == 1
+    assert again["generation_run_id"] != out["generation_run_id"]
+    assert again["cases"][0]["generation_run_id"] == again["generation_run_id"]
+    assert again["cases"][0]["grounding"]["svn_diff_verified"] is True
     assert again["duplicates_dropped"] == 0
     assert again["cases"][0]["case_id"] == out["cases"][0]["case_id"]
     assert again["cases"][0]["reused"] is True
     assert again["parse"]["parsed"] == 1
     after = repos.get_case(db_conn, out["cases"][0]["case_id"])
     assert len(after["steps"]) > 0
+    # Reuse reports current-run provenance but does not rewrite the old case record.
+    assert after["raw"]["generation"]["run_id"] == first_persisted_run_id
 
     svn_generated = [
         row for row in repos.list_cases(db_conn)

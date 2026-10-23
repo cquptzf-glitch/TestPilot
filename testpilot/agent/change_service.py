@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import uuid
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -116,6 +117,7 @@ class ChangeAnalysisService:
             raise TestPilotError("SVN 范围内没有检测到修改，未生成测试用例")
         snapshot_guard = self._snapshot_guard(
             workspace, snapshot, from_rev=from_rev, to_rev=to_rev)
+        generation_run_id = uuid.uuid4().hex[:16]
         self._report(
             "snapshot", changed=len(changed), working=len(working),
             signature=snapshot_guard["signature"][:12])
@@ -209,6 +211,7 @@ class ChangeAnalysisService:
                         },
                         "generation": {
                             "fingerprint": fingerprint,
+                            "run_id": generation_run_id,
                             "priority": item.priority,
                             "category": item.category,
                             "rationale": item.rationale,
@@ -234,6 +237,8 @@ class ChangeAnalysisService:
                     "case_id": case_id, "title": display_title, "priority": item.priority,
                     "category": item.category, "source_files": item.source_files,
                     "related_case_ids": item.related_case_ids, "reused": reused,
+                    "generation_run_id": generation_run_id,
+                    "grounding": grounding[index - 1],
                 })
                 persist_events.append({
                     "completed": index, "total": len(analysis.cases),
@@ -263,6 +268,7 @@ class ChangeAnalysisService:
 
         return {
             "source": "svn_agent",
+            "generation_run_id": generation_run_id,
             "summary": analysis.summary,
             "impacted_modules": analysis.impacted_modules,
             "risks": analysis.risks,

@@ -236,6 +236,7 @@ export function ChangeAnalysisPage() {
           })}>审核本次 DSL（{parsedIds.length}）→</button>}
         <span className="spacer" />
         <span className="faint">
+          {result.generation_run_id ? `批次 ${result.generation_run_id} · ` : ''}
           Agent {result.agent?.elapsed_ms ?? 0} ms · DSL {result.parse
             ? `成功 ${result.parse.parsed ?? 0} / 失败 ${result.parse.failed?.length ?? 0}`
             : '未生成'}

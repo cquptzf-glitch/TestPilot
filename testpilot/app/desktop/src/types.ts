@@ -532,6 +532,12 @@ export interface SvnGeneratedCase {
   source_files: string[];
   related_case_ids: string[];
   reused?: boolean;
+  generation_run_id?: string;
+  grounding?: {
+    svn_diff_verified?: boolean;
+    source_files?: { path: string; basis: string[] }[];
+    related_case_ids?: { case_id: string; basis: string; case_token?: string }[];
+  };
 }
 
 export interface AgentToolAuditEntry {
@@ -575,6 +581,7 @@ export interface SvnSnapshotGuard {
 
 export interface SvnChangeGenerateResult {
   source: 'svn_agent';
+  generation_run_id?: string;
   summary: string;
   impacted_modules: string[];
   risks: string[];
