@@ -294,6 +294,79 @@ def test_create_task_with_preconditions_override(orch, db_conn):
 
 # ---------- 执行 ----------
 
+def test_fatal_run_setup_error_always_finalizes_run(
+        orch, db_conn, monkeypatch):
+    task = orch.create_task({"name": "致命准备异常", "case_ids": ["TC-1"]})
+    seen = []
+    orch.bus.subscribe(lambda event: seen.append(event.to_dict()))
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("prefetch boom")
+
+    monkeypatch.setattr(orch.kb, "prefetch", boom)
+    with pytest.raises(RuntimeError, match="prefetch boom"):
+        orch.run_task(task["task_id"])
+
+    runs = repos.list_runs(db_conn, limit=10, task_id=task["task_id"])
+    assert len(runs) == 1
+    run = runs[0]
+    assert run["status"] == "error"
+    assert run["finished_at"]
+    assert run["stats"]["status"] == "error"
+    assert "prefetch boom" in run["stats"]["fatal_error"]
+    assert orch._active_run_id is None
+    finished = [
+        event for event in seen
+        if event["event"] == "run.progress"
+        and event["payload"].get("phase") == "finished"
+    ]
+    assert finished
+    assert finished[-1]["payload"]["stats"]["status"] == "error"
+
+
+def test_unexpected_remote_writeback_error_does_not_corrupt_local_run(
+        cfg, registry, db_conn, tmp_path, monkeypatch):
+    zentao = FakeZentao(configured=True)
+    o = _orch(cfg, registry, db_conn, tmp_path, zentao=zentao)
+    o.cases.pull([1])
+    o.cases.parse("TC-1")
+    o.cases.accept("TC-1")
+    task = o.create_task({
+        "name": "回写未知异常",
+        "case_ids": ["TC-1"],
+        "remote": True,
+    })
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("unexpected writeback bug")
+
+    monkeypatch.setattr(o, "_writeback", boom)
+    stats = o.run_task(task["task_id"])
+
+    assert stats["status"] == "completed"
+    assert stats["writeback"] == "error"
+    assert "unexpected writeback bug" in stats["writeback_error"]
+    run = repos.run_detail(db_conn, stats["run_id"])
+    assert run["status"] == "completed"
+    assert run["stats"]["writeback"] == "error"
+    assert repos.get_task(db_conn, task["task_id"])["sync_status"] == "sync_pending"
+
+
+def test_local_task_stays_local_when_writeback_hook_crashes(
+        orch, db_conn, monkeypatch):
+    task = orch.create_task({"name": "本地回写钩子异常", "case_ids": ["TC-1"]})
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("local hook bug")
+
+    monkeypatch.setattr(orch, "_writeback", boom)
+    stats = orch.run_task(task["task_id"])
+
+    assert stats["status"] == "completed"
+    assert stats["writeback"] == "error"
+    assert repos.get_task(db_conn, task["task_id"])["sync_status"] == "local"
+
+
 def test_run_task_happy_path(orch, db_conn, cfg):
     task = orch.create_task({"name": "跑通", "case_ids": ["TC-1", "TC-2"]})
     stats = orch.run_task(task["task_id"])
