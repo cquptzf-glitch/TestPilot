@@ -147,7 +147,28 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     assert generated["zentao_case_id"] is None
     assert generated["raw"]["source"] == "svn_agent"
     assert generated["raw"]["svn"]["source_files"] == ["src/RunController.cpp"]
+    assert generated["raw"]["generation"]["fingerprint"]
     assert generated["steps"] == []       # Agent cannot directly activate/write executable DSL.
+
+    # Same change + same test semantics is idempotent: reuse the draft instead of -2/-3.
+    again = service.generate({
+        "workingCopy": str(tmp_path),
+        "parse": True,
+        "maxCases": 5,
+    })
+    assert again["created"] == 0
+    assert again["reused"] == 1
+    assert again["cases"][0]["case_id"] == out["cases"][0]["case_id"]
+    assert again["cases"][0]["reused"] is True
+    assert again["parse"]["parsed"] == 1
+    after = repos.get_case(db_conn, out["cases"][0]["case_id"])
+    assert len(after["steps"]) > 0
+
+    svn_generated = [
+        row for row in repos.list_cases(db_conn)
+        if (row.get("raw") or {}).get("source") == "svn_agent"
+    ]
+    assert len(svn_generated) == 1
 
 
 def test_change_service_rejects_invalid_agent_output():
