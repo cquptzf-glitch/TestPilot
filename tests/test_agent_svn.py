@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import testpilot.agent.change_service as change_service_mod
 from testpilot.adapters.svn_adapter import SvnAdapter, _revision_args
 from testpilot.agent.change_service import ChangeAnalysisService, _build_prompt, _parse_analysis
 from testpilot.agent.pi_runtime import PiAgentRuntime
@@ -121,6 +122,8 @@ def _agent_evidence(*read_paths: str, case_ids: tuple[str, ...] = ()) -> dict:
         "read_paths": list(read_paths),
         "read_paths_truncated": False,
         "read_hashes": {},
+        "content_hashes": {},
+        "content_hashes_truncated": False,
         "case_ids": list(case_ids),
         "case_ids_truncated": False,
         "diff_paths": [],
@@ -348,7 +351,7 @@ def test_change_service_rejects_agent_read_drift_for_fixed_revision(
 
     service = ChangeAnalysisService(db_conn, cases, {"svn": {}}, agent_runner)
     service.svn = StubSvn(tmp_path)
-    with pytest.raises(TestPilotError, match="已读取源码在分析期间变化"):
+    with pytest.raises(TestPilotError, match="已观察源码在分析期间变化"):
         service.generate({
             "workingCopy": str(tmp_path),
             "fromRevision": "40",
@@ -360,6 +363,53 @@ def test_change_service_rejects_agent_read_drift_for_fixed_revision(
         row for row in repos.list_cases(db_conn)
         if (row.get("raw") or {}).get("source") == "svn_agent"
     ]
+
+
+def test_change_service_rejects_grep_observation_drift_for_fixed_revision(
+        tmp_path, db_conn, fake_zentao, fake_llm):
+    (tmp_path / "src").mkdir()
+    helper = tmp_path / "src" / "helper.cpp"
+    helper.write_text("before", encoding="utf-8")
+    before_hash = hashlib.sha256(helper.read_bytes()).hexdigest()
+    cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    payload = json.loads(_agent_json())
+    payload["cases"][0]["source_files"] = ["src/a.cpp"]
+    payload["cases"][0]["related_case_ids"] = []
+
+    def agent_runner(**_kwargs):
+        helper.write_text("after", encoding="utf-8")
+        evidence = _agent_evidence()
+        evidence["content_hashes"] = {"src/helper.cpp": before_hash}
+        return {
+            "text": json.dumps(payload, ensure_ascii=False),
+            "tool_calls": 2,
+            "evidence": evidence,
+        }
+
+    service = ChangeAnalysisService(db_conn, cases, {"svn": {}}, agent_runner)
+    service.svn = StubSvn(tmp_path)
+    with pytest.raises(TestPilotError, match="已观察源码在分析期间变化"):
+        service.generate({
+            "workingCopy": str(tmp_path),
+            "fromRevision": "40",
+            "toRevision": "42",
+            "parse": False,
+        })
+
+
+def test_snapshot_guard_rejects_oversized_unversioned_content(
+        tmp_path, monkeypatch):
+    (tmp_path / "tmp").mkdir()
+    (tmp_path / "tmp" / "new.txt").write_text("1234", encoding="utf-8")
+    monkeypatch.setattr(change_service_mod, "_SNAPSHOT_UNVERSIONED_BYTE_LIMIT", 3)
+
+    def should_not_run(**_kwargs):
+        raise AssertionError("Agent 不应在快照预算失败后启动")
+
+    service = ChangeAnalysisService(None, None, {"svn": {}}, should_not_run)
+    service.svn = StubSvn(tmp_path)
+    with pytest.raises(TestPilotError, match="快照保护预算"):
+        service.generate({"workingCopy": str(tmp_path), "parse": False})
 
 
 def test_change_service_requires_main_rpc_diff_evidence_before_persist(
@@ -813,9 +863,28 @@ def test_agent_rpc_records_structured_audit_without_source_body(tmp_path, rpc_sv
     assert "工作区" in audit[1]["error"]
     evidence = service.agent_evidence(token)
     assert evidence["read_hashes"]["src.txt"] == expected_hash
+    assert evidence["content_hashes"]["src.txt"] == expected_hash
 
     service.revoke_agent_token(token)
     assert service.agent_audit(token) == []
+
+
+def test_agent_grep_records_hash_for_observed_file(tmp_path, rpc_svc):
+    service = rpc_svc
+    source = tmp_path / "helper.txt"
+    source.write_text("needle here\nother", encoding="utf-8")
+    token = service.issue_agent_token(tmp_path)
+    scope = service._agent_connection_scope("Bearer " + token)
+    request = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "agent.fs.grep",
+        "params": {"query": "needle", "glob": "*.txt"},
+    })
+    reply = asyncio.run(service._handle_raw(request, agent_scope=scope))
+    expected = hashlib.sha256(source.read_bytes()).hexdigest()
+    assert reply["result"]["file_hashes"]["helper.txt"] == expected
+    evidence = service.agent_evidence(token)
+    assert evidence["content_hashes"]["helper.txt"] == expected
+    service.revoke_agent_token(token)
 
 
 def test_agent_evidence_survives_display_audit_trimming(tmp_path, rpc_svc):
@@ -879,6 +948,8 @@ def test_pi_runner_preserves_audit_in_failed_job_progress(
         "read_paths": ["src/a.cpp"],
         "read_paths_truncated": False,
         "read_hashes": {},
+        "content_hashes": {},
+        "content_hashes_truncated": False,
         "case_ids": [],
         "case_ids_truncated": False,
         "diff_paths": [],

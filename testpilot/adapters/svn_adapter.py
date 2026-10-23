@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -141,23 +142,38 @@ class SvnAdapter:
         exe = self.executable_path()
         if not exe:
             raise SvnError(f"SVN 不可执行: {self.executable!r}")
-        try:
-            proc = subprocess.run(
-                [exe, *args], cwd=str(root),
-                capture_output=True, timeout=self.timeout_s, check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise SvnError(f"SVN 命令超时（{self.timeout_s}s）: {args[:4]}") from exc
-        except OSError as exc:
-            raise SvnError(f"启动 SVN 失败: {exc}") from exc
-        if proc.returncode != 0:
-            stderr = proc.stderr.decode("utf-8", "replace")
-            stdout = proc.stdout.decode("utf-8", "replace")
-            raise SvnError(
-                f"SVN 命令失败({proc.returncode}): {(stderr or stdout)[:1000]}")
+        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+            try:
+                proc = subprocess.run(
+                    [exe, *args], cwd=str(root),
+                    stdout=stdout_file, stderr=stderr_file,
+                    timeout=self.timeout_s, check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise SvnError(
+                    f"SVN 命令超时（{self.timeout_s}s）: {args[:4]}") from exc
+            except OSError as exc:
+                raise SvnError(f"启动 SVN 失败: {exc}") from exc
+            if proc.returncode != 0:
+                stderr_file.seek(0)
+                stdout_file.seek(0)
+                stderr = stderr_file.read(1000).decode("utf-8", "replace")
+                stdout = stdout_file.read(1000).decode("utf-8", "replace")
+                raise SvnError(
+                    f"SVN 命令失败({proc.returncode}): {(stderr or stdout)[:1000]}")
+
+            stdout_file.seek(0)
+            digest = hashlib.sha256()
+            total = 0
+            while True:
+                chunk = stdout_file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                digest.update(chunk)
         return {
-            "sha256": hashlib.sha256(proc.stdout).hexdigest(),
-            "bytes": len(proc.stdout),
+            "sha256": digest.hexdigest(),
+            "bytes": total,
             "from_revision": _revision(from_revision),
             "to_revision": _revision(to_revision),
         }

@@ -1097,6 +1097,8 @@ class RpcService:
                 "read_paths": set(),
                 "read_paths_truncated": False,
                 "read_hashes": {},
+                "content_hashes": {},
+                "content_hashes_truncated": False,
                 "case_ids": set(),
                 "case_ids_truncated": False,
                 "diff_paths": set(),
@@ -1132,6 +1134,8 @@ class RpcService:
                 "read_paths": sorted(raw.get("read_paths") or ()),
                 "read_paths_truncated": bool(raw.get("read_paths_truncated")),
                 "read_hashes": dict(raw.get("read_hashes") or {}),
+                "content_hashes": dict(raw.get("content_hashes") or {}),
+                "content_hashes_truncated": bool(raw.get("content_hashes_truncated")),
                 "case_ids": sorted(raw.get("case_ids") or ()),
                 "case_ids_truncated": bool(raw.get("case_ids_truncated")),
                 "diff_paths": sorted(raw.get("diff_paths") or ()),
@@ -1221,8 +1225,20 @@ class RpcService:
                             digest = str(result.get("file_sha256") or "").strip()
                             if digest:
                                 evidence["read_hashes"][path] = digest
+                                evidence["content_hashes"][path] = digest
                         else:
                             evidence["read_paths_truncated"] = True
+                if error is None and method == "agent.fs.grep" and isinstance(result, dict):
+                    for raw_path, raw_digest in (result.get("file_hashes") or {}).items():
+                        path = str(raw_path or "").strip().replace("\\", "/")
+                        digest = str(raw_digest or "").strip()
+                        if not path or not digest:
+                            continue
+                        observed = evidence["content_hashes"]
+                        if len(observed) < _AGENT_EVIDENCE_PATH_LIMIT or path in observed:
+                            observed[path] = digest
+                        else:
+                            evidence["content_hashes_truncated"] = True
                 if error is None and method == "agent.svn.diff" and isinstance(result, dict):
                     diff_paths = [
                         str(path or "").strip().replace("\\", "/")
@@ -1357,7 +1373,7 @@ class RpcService:
         except re.error as exc:
             raise RpcError(INVALID_PARAMS, f"Agent grep 正则非法: {exc}") from exc
         needle = query.lower()
-        out, scanned = [], 0
+        out, scanned, file_hashes = [], 0, {}
         for path in root.glob(glob):
             if len(out) >= limit or scanned >= 2000:
                 break
@@ -1381,12 +1397,15 @@ class RpcService:
             for no, line in enumerate(raw.decode("utf-8", "replace").splitlines(), 1):
                 matched = bool(pattern.search(line)) if pattern else needle in line.lower()
                 if matched:
-                    out.append({"path": rel.as_posix(), "line": no, "text": line[:500]})
+                    rel_text = rel.as_posix()
+                    if rel_text not in file_hashes:
+                        file_hashes[rel_text] = hashlib.sha256(raw).hexdigest()
+                    out.append({"path": rel_text, "line": no, "text": line[:500]})
                     if len(out) >= limit:
                         break
         log.info(f"agent.fs.grep workspace={root} query={query[:80]!r} hits={len(out)}")
         return {"matches": out, "count": len(out), "scanned_files": scanned,
-                "truncated": len(out) >= limit}
+                "truncated": len(out) >= limit, "file_hashes": file_hashes}
 
     def _agent_svn_status(self, p):
         from testpilot.adapters.svn_adapter import SvnAdapter

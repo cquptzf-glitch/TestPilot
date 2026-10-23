@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -19,6 +20,9 @@ from testpilot.adapters.svn_adapter import SvnAdapter
 from testpilot.adapters.zentao_adapter import steps_to_text
 from testpilot.core.errors import AgentError, TestPilotError
 from testpilot.storage import repos
+
+_SNAPSHOT_UNVERSIONED_ENTRY_LIMIT = 10_000
+_SNAPSHOT_UNVERSIONED_BYTE_LIMIT = 256 * 1024 * 1024
 
 
 class GeneratedStep(BaseModel):
@@ -281,13 +285,22 @@ class ChangeAnalysisService:
             for item in (snapshot.get("working_status") or [])
         ], key=lambda item: (item["path"], item["item"], item["props"]))
         unversioned = []
+        unversioned_entries = 0
+        unversioned_bytes = 0
+        seen_unversioned = set()
         for item in working:
-            if item["item"] != "unversioned" or not item["path"]:
+            rel = item["path"]
+            if item["item"] != "unversioned" or not rel or rel in seen_unversioned:
                 continue
-            unversioned.append({
-                "path": item["path"],
-                "sha256": _workspace_path_digest(workspace, item["path"]),
-            })
+            seen_unversioned.add(rel)
+            state = _workspace_path_digest(
+                workspace, rel,
+                max_entries=_SNAPSHOT_UNVERSIONED_ENTRY_LIMIT - unversioned_entries,
+                max_bytes=_SNAPSHOT_UNVERSIONED_BYTE_LIMIT - unversioned_bytes,
+            )
+            unversioned_entries += state["entries"]
+            unversioned_bytes += state["bytes"]
+            unversioned.append({"path": rel, **state})
         info = snapshot.get("info") or {}
         payload = {
             "from_revision": snapshot.get("from_revision"),
@@ -311,6 +324,8 @@ class ChangeAnalysisService:
             "diff_sha256": str(diff.get("sha256") or ""),
             "diff_bytes": int(diff.get("bytes") or 0),
             "unversioned_count": len(unversioned),
+            "unversioned_entries": unversioned_entries,
+            "unversioned_bytes": unversioned_bytes,
         }
 
     def _validate_snapshot_stable(self, workspace: Path, snapshot: dict,
@@ -330,7 +345,7 @@ class ChangeAnalysisService:
         if initial_guard.get("signature") != current_guard.get("signature"):
             reasons.append("SVN 变更集/工作副本已变化")
         if read_drift:
-            reasons.append("Agent 已读取源码在分析期间变化: " + ", ".join(read_drift[:8]))
+            reasons.append("Agent 已观察源码在分析期间变化: " + ", ".join(read_drift[:8]))
         message = "；".join(reasons) + "，请重新执行变更分析"
         self._report(
             "snapshot_changed",
@@ -521,54 +536,111 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _workspace_path_digest(workspace: Path, rel: str) -> str:
-    path = workspace.joinpath(*PurePosixPath(rel).parts)
+def _workspace_path_digest(workspace: Path, rel: str, *,
+                           max_entries: int, max_bytes: int) -> dict:
+    pure = PurePosixPath(rel)
+    if pure.is_absolute() or ".." in pure.parts:
+        raise TestPilotError(f"SVN 快照路径越出工作副本: {rel!r}")
+    path = workspace.joinpath(*pure.parts)
+    root = workspace.resolve()
+
+    def fail_budget() -> None:
+        raise TestPilotError(
+            "未版本控制内容超过快照保护预算"
+            f"（最多 {_SNAPSHOT_UNVERSIONED_ENTRY_LIMIT} 项 / "
+            f"{_SNAPSHOT_UNVERSIONED_BYTE_LIMIT // (1024 * 1024)} MiB），"
+            "请配置 svn:ignore 或缩小工作副本后重试")
+
+    def ensure_budget(entries: int, size: int) -> None:
+        if entries > max_entries or size > max_bytes:
+            fail_budget()
+
     if path.is_symlink():
+        ensure_budget(1, 0)
         try:
             target = str(path.readlink())
         except OSError as exc:
             raise TestPilotError(f"无法读取符号链接 {rel}: {exc}") from exc
-        return hashlib.sha256(("symlink\0" + target).encode("utf-8")).hexdigest()
+        return {
+            "sha256": hashlib.sha256(("symlink\0" + target).encode("utf-8")).hexdigest(),
+            "entries": 1, "bytes": 0,
+        }
     if not path.exists():
-        return hashlib.sha256(b"missing").hexdigest()
+        return {"sha256": hashlib.sha256(b"missing").hexdigest(),
+                "entries": 0, "bytes": 0}
     if path.is_file():
-        return _file_sha256(path)
+        try:
+            size = path.stat().st_size
+        except OSError as exc:
+            raise TestPilotError(f"无法读取未版本控制文件 {rel}: {exc}") from exc
+        ensure_budget(1, size)
+        return {"sha256": _file_sha256(path), "entries": 1, "bytes": size}
     if not path.is_dir():
-        return hashlib.sha256(("other\0" + rel).encode("utf-8")).hexdigest()
+        ensure_budget(1, 0)
+        return {
+            "sha256": hashlib.sha256(("other\0" + rel).encode("utf-8")).hexdigest(),
+            "entries": 1, "bytes": 0,
+        }
 
     digest = hashlib.sha256()
-    base = path
+    entries = 0
+    total_bytes = 0
     try:
-        children = sorted(
-            (child for child in base.rglob("*")
-             if ".svn" not in child.relative_to(base).parts),
-            key=lambda child: child.relative_to(base).as_posix(),
-        )
+        for dirpath, dirnames, filenames in os.walk(path, topdown=True, followlinks=False):
+            dirnames[:] = sorted(name for name in dirnames if name != ".svn")
+            kept_dirs = []
+            for name in dirnames:
+                child = Path(dirpath) / name
+                child_rel = child.relative_to(path).as_posix()
+                entries += 1
+                ensure_budget(entries, total_bytes)
+                digest.update(child_rel.encode("utf-8") + b"\0")
+                if child.is_symlink():
+                    digest.update(b"L\0" + str(child.readlink()).encode("utf-8") + b"\0")
+                    continue
+                try:
+                    child.resolve().relative_to(root)
+                except (OSError, ValueError) as exc:
+                    raise TestPilotError(
+                        f"未版本控制目录包含工作副本外路径: {rel}/{child_rel}") from exc
+                digest.update(b"D\0")
+                kept_dirs.append(name)
+            dirnames[:] = kept_dirs
+
+            for name in sorted(filenames):
+                child = Path(dirpath) / name
+                child_rel = child.relative_to(path).as_posix()
+                entries += 1
+                digest.update(child_rel.encode("utf-8") + b"\0")
+                if child.is_symlink():
+                    ensure_budget(entries, total_bytes)
+                    digest.update(b"L\0" + str(child.readlink()).encode("utf-8") + b"\0")
+                    continue
+                try:
+                    child.resolve().relative_to(root)
+                    size = child.stat().st_size
+                except (OSError, ValueError) as exc:
+                    raise TestPilotError(
+                        f"无法读取未版本控制文件 {rel}/{child_rel}: {exc}") from exc
+                total_bytes += size
+                ensure_budget(entries, total_bytes)
+                digest.update(b"F\0" + _file_sha256(child).encode("ascii") + b"\0")
     except OSError as exc:
         raise TestPilotError(f"无法遍历未版本控制目录 {rel}: {exc}") from exc
-    for child in children:
-        child_rel = child.relative_to(base).as_posix()
-        digest.update(child_rel.encode("utf-8"))
-        digest.update(b"\0")
-        if child.is_symlink():
-            try:
-                digest.update(b"L\0" + str(child.readlink()).encode("utf-8"))
-            except OSError as exc:
-                raise TestPilotError(
-                    f"无法读取未版本控制符号链接 {rel}/{child_rel}: {exc}") from exc
-        elif child.is_file():
-            digest.update(b"F\0" + _file_sha256(child).encode("ascii"))
-        elif child.is_dir():
-            digest.update(b"D")
-        else:
-            digest.update(b"O")
-        digest.update(b"\0")
-    return digest.hexdigest()
+    return {"sha256": digest.hexdigest(), "entries": entries, "bytes": total_bytes}
 
 
 def _changed_agent_reads(workspace: Path, evidence: dict) -> list[str]:
-    hashes = evidence.get("read_hashes") if isinstance(evidence, dict) else None
-    if not isinstance(hashes, dict):
+    if not isinstance(evidence, dict):
+        return []
+    hashes = {}
+    observed = evidence.get("content_hashes")
+    if isinstance(observed, dict):
+        hashes.update(observed)
+    reads = evidence.get("read_hashes")
+    if isinstance(reads, dict):
+        hashes.update(reads)
+    if not hashes:
         return []
     changed = []
     for raw_path, expected in hashes.items():

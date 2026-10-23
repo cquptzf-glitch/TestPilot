@@ -551,6 +551,8 @@ export interface AgentToolEvidence {
   read_paths?: string[];
   read_paths_truncated?: boolean;
   read_hashes?: Record<string, string>;
+  content_hashes?: Record<string, string>;
+  content_hashes_truncated?: boolean;
   case_ids?: string[];
   case_ids_truncated?: boolean;
   diff_paths?: string[];
@@ -565,6 +567,8 @@ export interface SvnSnapshotGuard {
   diff_sha256: string;
   diff_bytes: number;
   unversioned_count: number;
+  unversioned_entries: number;
+  unversioned_bytes: number;
 }
 
 export interface SvnChangeGenerateResult {
