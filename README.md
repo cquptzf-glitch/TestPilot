@@ -1,5 +1,7 @@
 # TestPilot
 
+> 当前发布版本：**v0.2.0**（Windows NSIS）
+
 AI 自动化测试平台：禅道测试用例 -> LLM 解析 DSL -> 双驱动（UIA + 视觉）自动执行设备模拟器联动 -> 轨迹/知识库闭环 -> 结果汇总回写禅道。
 
 > 设计基线：[docs/design/ai-autotest-design-v1.md](docs/design/ai-autotest-design-v1.md)（v1.5）
