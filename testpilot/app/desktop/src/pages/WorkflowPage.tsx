@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { call, caseJob, type ParseBatchResult } from '../bridge';
 import { Badge, Empty, Msg } from '../components/Bits';
 import { msg, navigate, useAsync, useCaseJobBusy } from '../hooks';
+import { caseIsApproved, caseIsSelectable, caseNeedsAnalysis } from '../caseState';
 import type { CaseRow } from '../types';
 import { DslReviewPage } from './DslReviewPage';
 
@@ -69,8 +70,6 @@ function presetDefaultName(windowTitle: string, exe: string): string {
   return normalized.split('/').filter(Boolean).pop() || '被测软件';
 }
 
-function needsAnalysis(c: CaseRow): boolean { return !c.steps?.length || c.sync_status !== 'synced'; }
-function approved(c: CaseRow): boolean { return c.status === 'active' && !needsAnalysis(c); }
 function missingWindow(c: CaseRow): boolean {
   const steps = c.steps as { action?: string; args?: { exe?: string; title_re?: string } }[];
   const firstUI = steps.findIndex(s => s.action?.startsWith('ui.') || ['assert.ui', 'vision.click'].includes(s.action ?? ''));
@@ -120,7 +119,8 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
   useEffect(() => { sessionStorage.setItem('tp-flow-mode', JSON.stringify(mode)); }, [mode]);
   useEffect(() => { sessionStorage.setItem('tp-flow-case-retry', JSON.stringify(caseRetry)); }, [caseRetry]);
   useEffect(() => {
-    if (cases.data) setSelected(ids => ids.filter(id => rows.some(c => c.case_id === id && c.status !== 'rejected')));
+    if (cases.data) setSelected(ids =>
+      ids.filter(id => rows.some(c => c.case_id === id && caseIsSelectable(c))));
   }, [cases.data]);
 
   const applyTargetPreset = (id: string) => {
@@ -233,7 +233,7 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
     // 已审核且目标完整的用例直接复用。只有本身待解析，或确实缺窗口且本次
     // 提供了 appTarget 的用例才重新生成 DSL，避免无意义 LLM 调用与二次审核。
     const ids = chosen
-      .filter(c => needsAnalysis(c) || (!!appTarget && missingWindow(c)))
+      .filter(c => caseNeedsAnalysis(c) || (!!appTarget && missingWindow(c)))
       .map(c => c.case_id);
     setBatch(null);
     if (ids.length) {
@@ -242,7 +242,7 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
     }
     const fresh = (await call<{ cases: CaseRow[] }>('case.list')).cases.filter(c => selected.includes(c.case_id));
     cases.reload();
-    const pending = fresh.find(c => !approved(c));
+    const pending = fresh.find(c => !caseIsApproved(c));
     setReviewId(pending?.case_id);
     setPhase(pending ? 2 : 3);
   });
@@ -252,7 +252,7 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
       // 尚未完成时用旧 chosen 快照把审核队列跳回已通过用例。
       const fresh = (await call<{ cases: CaseRow[] }>('case.list')).cases
         .filter(c => selected.includes(c.case_id));
-      const next = fresh.find(c => !approved(c));
+      const next = fresh.find(c => !caseIsApproved(c));
       cases.reload();
       if (next) {
         setReviewId(next.case_id);
@@ -307,14 +307,14 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
         <button className="btn ghost" disabled={locked} onClick={() => setSelected([])}>清空选择</button></div>
       <div className="flow-case-list">
         <label className="flow-select-all"><input type="checkbox" aria-label="全选搜索结果" disabled={locked}
-          checked={visible.some(c => c.status !== 'rejected') && visible.filter(c => c.status !== 'rejected').every(c => selected.includes(c.case_id))}
-          onChange={e => { const ids = visible.filter(c => c.status !== 'rejected').map(c => c.case_id);
+          checked={visible.some(c => caseIsSelectable(c)) && visible.filter(c => caseIsSelectable(c)).every(c => selected.includes(c.case_id))}
+          onChange={e => { const ids = visible.filter(c => caseIsSelectable(c)).map(c => c.case_id);
             setSelected(prev => e.target.checked ? [...new Set([...prev, ...ids])] : prev.filter(id => !ids.includes(id))); }} />全选搜索结果</label>
         {visible.map(c => <label key={c.case_id} className={selected.includes(c.case_id) ? 'flow-case selected' : 'flow-case'}>
-          <input type="checkbox" aria-label={'测试 ' + c.case_id} disabled={locked || c.status === 'rejected'} checked={selected.includes(c.case_id)}
+          <input type="checkbox" aria-label={'测试 ' + c.case_id} disabled={locked || !caseIsSelectable(c)} checked={selected.includes(c.case_id)}
             onChange={e => setSelected(prev => e.target.checked ? [...prev, c.case_id] : prev.filter(id => id !== c.case_id))} />
           <span className="flow-case-title"><strong>{c.title || c.case_id}</strong><small>{c.case_id} · {c.steps?.length ?? 0} 步</small></span>
-          <Badge status={c.status} /><span className="muted">{c.status === 'rejected' ? '已拒绝，需先修订' : approved(c) ? '可直接执行' : needsAnalysis(c) ? '需要生成 DSL' : '等待确认步骤'}</span>
+          <Badge status={c.status} /><span className="muted">{!caseIsSelectable(c) ? '已拒绝，需先修订' : caseIsApproved(c) ? '可直接执行' : caseNeedsAnalysis(c) ? '需要生成 DSL' : '等待确认步骤'}</span>
         </label>)}
         {!visible.length && <Empty text={cases.loading ? '正在读取用例…' : '暂无用例，请先输入禅道 ID 拉取；也可到用例库导入 DSL。'} />}
       </div>
@@ -376,7 +376,7 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
               placeholder='例如：--test-mode --config "D:\\Config\\test.yaml"' />
           </label></div>
       </details>
-      <div className="flow-footer"><span className="muted">{chosen.filter(needsAnalysis).length} 条待生成 · {chosen.filter(c => !approved(c) && !needsAnalysis(c)).length} 条待确认 · {chosen.filter(approved).length} 条可执行</span>
+      <div className="flow-footer"><span className="muted">{chosen.filter(needsAnalysis).length} 条待生成 · {chosen.filter(c => !caseIsApproved(c) && !caseNeedsAnalysis(c)).length} 条待确认 · {chosen.filter(approved).length} 条可执行</span>
         <button className="btn primary large"
           disabled={locked || chosen.length === 0 || cases.loading
             || (windowMissing.length > 0 && !windowTitle.trim() && !exe.trim())}
@@ -392,7 +392,7 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
       <div className="panel"><h3>核对生成的操作和预期结果</h3>
         <p className="muted">已确认 {chosen.filter(approved).length} / {chosen.length} 条。逐条确认后即可执行。</p>
         {batch && batch.failed.length > 0 && <Msg kind="warn">成功生成 {batch.parsed} 条，失败 {batch.failed.length} 条。修正原文后可重试，或返回移除失败用例。</Msg>}
-        <div className="flow-review-tabs">{chosen.map(c => <span className={'chip ' + (reviewId === c.case_id ? 'on' : '')} key={c.case_id}>{approved(c) ? '✓ ' : ''}{c.case_id}</span>)}</div>
+        <div className="flow-review-tabs">{chosen.map(c => <span className={'chip ' + (reviewId === c.case_id ? 'on' : '')} key={c.case_id}>{caseIsApproved(c) ? '✓ ' : ''}{c.case_id}</span>)}</div>
         {batch?.failed.map(f => <p key={f.case_id} className="msg error">{f.case_id}：{f.error}</p>)}
       </div>
       {reviewId && <DslReviewPage key={reviewId} embedded caseId={reviewId} onAccepted={accepted} onBack={() => { cases.reload(); setPhase(1); }} />}
