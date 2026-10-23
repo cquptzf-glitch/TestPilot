@@ -133,24 +133,36 @@ class TaskOrchestrator:
         if not name:
             raise TestPilotError("任务名不能为空")
 
-        case_ids = list(spec.get("case_ids") or [])
-        preconditions = list(spec.get("preconditions") or [])
-        driver_config = dict(self.cfg["driver"])
-        driver_config.update(spec.get("driver_config") or {})
+        direct_case_ids = list(spec.get("case_ids") or [])
         suite_id = spec.get("suite_id")
+        if suite_id is not None and direct_case_ids:
+            raise TestPilotError("suite_id 与 case_ids 只能指定一种，避免任务范围歧义")
+
+        explicit_preconditions = (
+            list(spec.get("preconditions") or [])
+            if spec.get("preconditions") is not None else None
+        )
+        explicit_driver = dict(spec.get("driver_config") or {})
+        driver_config = dict(self.cfg["driver"])
 
         if suite_id is not None:
             snap = self.suites.expand(int(suite_id))
-            case_ids = snap["case_ids"]
-            if snap["preconditions"]:
-                preconditions = snap["preconditions"]
+            case_ids = list(dict.fromkeys(snap["case_ids"]))
+            preconditions = (explicit_preconditions if explicit_preconditions is not None
+                             else list(snap["preconditions"]))
+            # 优先级：全局默认 < 方案默认 < 本次任务显式选择。
             driver_config.update(snap["driver_config"])
+        else:
+            case_ids = list(dict.fromkeys(direct_case_ids))
+            preconditions = explicit_preconditions
+
+        driver_config.update(explicit_driver)
 
         if not case_ids:
             raise TestPilotError("任务至少需要一条用例（--suite 或 --case）")
 
-        if not preconditions:
-            # 直接按用例建任务时也需要前置场景：与方案口径一致，由成员用例汇总
+        if preconditions is None:
+            # 直接按用例建任务时也需要前置场景：与方案口径一致，由成员用例汇总。
             preconditions = self.cases.preconditions_of(case_ids)
 
         bad = self.cases.not_runnable(case_ids)
