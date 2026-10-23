@@ -11,6 +11,7 @@
 """
 import json
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,10 @@ TS_TYPES = DESKTOP / "src" / "types.ts"
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE_RS = DESKTOP / "src-tauri" / "src" / "engine.rs"
 TAURI_CONF = DESKTOP / "src-tauri" / "tauri.conf.json"
+CARGO_TOML = DESKTOP / "src-tauri" / "Cargo.toml"
+CARGO_LOCK = DESKTOP / "src-tauri" / "Cargo.lock"
+PACKAGE_JSON = DESKTOP / "package.json"
+PYPROJECT = ROOT / "pyproject.toml"
 
 pytestmark = pytest.mark.skipif(not BRIDGE.exists(),
                                 reason="桌面壳源码不在（仅引擎仓部署）")
@@ -39,6 +44,36 @@ def _ts_string_array(source: str, name: str) -> list[str]:
     match = re.search(rf"export const {name} = \[(.*?)\]\s*as const;", source, re.S)
     assert match, f"bridge.ts 中找不到 {name} 数组"
     return re.findall(r"'([^']+)'", match.group(1))
+
+
+def test_release_versions_are_consistent():
+    """发布版本必须在 Python / npm / Tauri / Cargo 四个入口保持一致。"""
+    py_version = tomllib.loads(_read(PYPROJECT))["project"]["version"]
+    package_version = json.loads(_read(PACKAGE_JSON))["version"]
+    tauri_version = json.loads(_read(TAURI_CONF))["version"]
+
+    cargo_text = _read(CARGO_TOML)
+    package_block = cargo_text.split("[package]", 1)[1].split("\n[", 1)[0]
+    cargo_match = re.search(r'^version\s*=\s*"([^"]+)"', package_block, re.M)
+    assert cargo_match, "Cargo.toml [package] 未声明 version"
+    cargo_version = cargo_match.group(1)
+
+    lock_match = re.search(
+        r'\[\[package\]\]\s*\nname = "testpilot-shell"\s*\nversion = "([^"]+)"',
+        _read(CARGO_LOCK),
+    )
+    assert lock_match, "Cargo.lock 未找到 testpilot-shell"
+    lock_version = lock_match.group(1)
+
+    versions = {
+        "pyproject": py_version,
+        "package.json": package_version,
+        "tauri.conf": tauri_version,
+        "Cargo.toml": cargo_version,
+        "Cargo.lock": lock_version,
+    }
+    assert len(set(versions.values())) == 1, f"版本号漂移: {versions}"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", py_version), f"版本号不是 SemVer: {py_version}"
 
 
 def test_step_editor_supports_extended_computer_use_actions():

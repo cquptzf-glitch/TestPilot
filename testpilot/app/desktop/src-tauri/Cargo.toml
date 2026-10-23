@@ -1,6 +1,6 @@
 [package]
 name = "testpilot-shell"
-version = "0.1.0"
+version = "0.2.0"
 description = "TestPilot 桌面壳：sidecar 监督 + JSON-RPC 桥 + 静态资源服务"
 edition = "2021"
 rust-version = "1.77"
