@@ -92,12 +92,19 @@ class SuiteService:
         return suite
 
     def resolve(self, ref) -> dict:
-        """按 id 或名称解析方案。"""
+        """按正整数 id 或非空名称解析方案；bool 不能伪装成方案 #1。"""
+        if isinstance(ref, bool) or isinstance(ref, float):
+            raise TestPilotError(f"方案引用非法: {ref!r}")
         suite = None
-        if isinstance(ref, int) or (isinstance(ref, str) and str(ref).isdigit()):
-            suite = self.get(int(ref))
+        if isinstance(ref, int) or (isinstance(ref, str) and ref.isdigit()):
+            suite_id = int(ref)
+            if suite_id <= 0:
+                raise TestPilotError(f"方案 ID 必须为正整数: {ref!r}")
+            suite = self.get(suite_id)
+        elif isinstance(ref, str) and ref.strip():
+            suite = self.get_by_name(ref.strip())
         else:
-            suite = self.get_by_name(str(ref))
+            raise TestPilotError(f"方案引用必须是正整数 ID 或非空名称: {ref!r}")
         if suite is None:
             raise TestPilotError(f"方案不存在: {ref}")
         return suite
