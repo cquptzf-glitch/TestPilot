@@ -24,9 +24,14 @@ class SuiteService:
     def create(self, name: str, case_ids: list[str], description: str = "",
                driver_config: dict | None = None,
                preconditions: list[str] | None = None) -> dict:
-        case_ids = list(dict.fromkeys(case_ids))
+        name = _required_text(name, "方案名称")
+        case_ids = _string_list(case_ids, "case_ids")
         if not case_ids:
             raise TestPilotError("方案至少需要一条用例")
+        if not isinstance(description, str):
+            raise TestPilotError("description 必须是字符串")
+        if preconditions is not None:
+            preconditions = _string_list(preconditions, "preconditions")
         if repos.get_suite_by_name(self.conn, name) is not None:
             raise TestPilotError(f"方案名已存在: {name}")
         self._validate_driver_config(driver_config)
@@ -46,14 +51,19 @@ class SuiteService:
         if self.get(suite_id) is None:
             raise TestPilotError(f"方案不存在: {suite_id}")
         if name is not None:
+            name = _required_text(name, "方案名称")
             other = repos.get_suite_by_name(self.conn, name)
             if other is not None and other["id"] != suite_id:
                 raise TestPilotError(f"方案名已存在: {name}")
         self._validate_driver_config(driver_config)
+        if description is not None and not isinstance(description, str):
+            raise TestPilotError("description 必须是字符串")
         if case_ids is not None:
-            case_ids = list(dict.fromkeys(case_ids))
+            case_ids = _string_list(case_ids, "case_ids")
             if not case_ids:
                 raise TestPilotError("方案至少需要一条用例")
+        if preconditions is not None:
+            preconditions = _string_list(preconditions, "preconditions")
         if preconditions is None and case_ids is not None:
             preconditions = self.cases.preconditions_of(case_ids)
         try:
@@ -124,8 +134,34 @@ class SuiteService:
 
     @staticmethod
     def _validate_driver_config(cfg: dict | None) -> None:
+        if cfg is None:
+            return
+        if not isinstance(cfg, dict):
+            raise TestPilotError("driver_config 必须是对象")
         if not cfg:
             return
         mode = cfg.get("mode")
         if mode is not None and mode not in VALID_MODES:
             raise TestPilotError(f"非法驱动模式: {mode}（可选 {', '.join(VALID_MODES)}）")
+
+
+
+def _required_text(value, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise TestPilotError(f"{field}必须是非空字符串")
+    return value.strip()
+
+
+def _string_list(value, field: str) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        raise TestPilotError(f"{field} 必须是字符串数组")
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise TestPilotError(f"{field} 必须只包含非空字符串")
+        text = item.strip()
+        if text not in seen:
+            seen.add(text)
+            out.append(text)
+    return out
