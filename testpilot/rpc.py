@@ -104,6 +104,11 @@ class RpcService:
                     drivers=orch.drivers, bus=orch.bus)
             orch = self._case_orchestrator
         self._local.orchestrator = orch
+        if method == "change.svn.generate":
+            service = self._change_service(orch)
+            service.abort, service.progress = abort, progress
+            return service.generate(params)
+
         previous_abort, previous_progress = orch.cases.abort, orch.cases.progress
         orch.cases.abort, orch.cases.progress = abort, progress
         try:
@@ -143,6 +148,8 @@ class RpcService:
             "case.export": self._case_export,
             "case.import": self._case_import,
             "case.parse": self._case_parse,
+            "change.svn.preview": self._change_svn_preview,
+            "change.svn.generate": self._change_svn_generate,
 
             "suite.list": self._suite_list,
             "suite.detail": self._suite_detail,
@@ -224,6 +231,7 @@ class RpcService:
             "job.start", "job.status", "job.cancel",
             "health", "shutdown", "case.pull", "case.sync", "case.list",
             "case.detail", "case.export", "case.import", "case.parse",
+            "change.svn.preview", "change.svn.generate",
             "suite.list", "suite.detail", "suite.create", "suite.update",
             "suite.delete", "task.create", "task.run", "task.abort", "task.list",
             "task.detail", "task.syncPending", "task.reconcile", "run.list", "run.detail",
@@ -304,7 +312,8 @@ class RpcService:
         return self._orch.cases.pull(ids, parse=bool(p.get("parse")))
 
     def _case_sync(self, p):
-        return self._orch.cases.sync(p.get("productId"), parse=bool(p.get("parse")))
+        return self._orch.cases.sync(
+            p.get("productId"), parse=bool(p.get("parse")), full=bool(p.get("full")))
 
     def _case_list(self, p):
         return {"cases": self._orch.cases.list_cases(
@@ -351,6 +360,40 @@ class RpcService:
         if p.get("allStale"):
             return self._orch.cases.parse_many(None, only_stale=True, app_target=target)
         return self._orch.cases.parse(_require(p, "caseId"), app_target=target)
+
+    # ---------- SVN 变更 -> Agent -> 测试用例 ----------
+
+    def _change_service(self, orch=None):
+        from testpilot.agent.change_service import ChangeAnalysisService
+        target = orch or self._orch
+        return ChangeAnalysisService(
+            target.conn, target.cases, target.cfg, self._run_pi_agent)
+
+    def _run_pi_agent(self, *, prompt, workspace, tools, abort=None, progress=None):
+        from testpilot.agent.pi_runtime import PiAgentRuntime
+
+        token = self.issue_agent_token(workspace)
+        cfg = self._orch.cfg
+        rpc_cfg = cfg.get("rpc") or {}
+        host = str(rpc_cfg.get("host") or "127.0.0.1")
+        if host in ("localhost", "::1"):
+            host = "127.0.0.1"
+        url = f"ws://{host}:{int(rpc_cfg.get('port') or 9301)}"
+        try:
+            runtime = PiAgentRuntime(
+                (cfg.get("agent") or {}).get("pi") or {},
+                rpc_url=url, rpc_token=token)
+            return runtime.run(
+                prompt, cwd=workspace, tools=tools, abort=abort, progress=progress)
+        finally:
+            self.revoke_agent_token(token)
+
+    def _change_svn_preview(self, p):
+        return self._change_service().preview(p)
+
+    def _change_svn_generate(self, p):
+        # 桌面端应通过 job.start 调用；保留直接 RPC 便于测试/脚本。
+        return self._change_service().generate(p)
 
     # ---------- 方案 ----------
 
