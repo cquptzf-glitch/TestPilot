@@ -130,6 +130,12 @@ class RpcService:
                     self._io_orchestrator = TaskOrchestrator(
                         orch.cfg, orch.registry, conn=connect(path),
                         drivers=orch.drivers, bus=orch.bus)
+                    # IO orchestrator owns a separate sqlite connection, but remote
+                    # task reconciliation/compensation must share the root run
+                    # lifecycle lock or it can mutate task remote state after run_task
+                    # already froze an older task snapshot.
+                    self._io_orchestrator._run_lock = orch._run_lock
+                    self._io_orchestrator._in_run = orch._in_run
             if self._io_orchestrator is not None:
                 self._local.orchestrator = self._io_orchestrator
         return self.dispatch(method, params)
