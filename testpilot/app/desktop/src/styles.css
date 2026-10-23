@@ -2517,3 +2517,46 @@ details.task-create { margin-bottom: 22px; }
   .flow-preflight { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .flow-run-options { grid-template-columns: 1fr; }
 }
+
+
+/* ---------------------------------------------------------------- SVN 变更 -> Agent 用例生成 */
+
+.change-config { margin-bottom: var(--sp-4); }
+.change-form {
+  grid-template-columns: minmax(300px, 2fr) minmax(150px, 1fr) minmax(150px, 1fr) 150px;
+}
+.change-form > label {
+  display: grid;
+  gap: 6px;
+  color: var(--c-text-dim);
+  font-size: var(--fs-sm);
+}
+.change-form input { width: 100%; }
+.change-layout > .left { flex-basis: 42%; }
+.change-files {
+  max-height: 420px;
+  overflow: auto;
+  margin-top: var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+}
+.change-file-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: var(--sp-3);
+  align-items: center;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+}
+.change-file-row:last-child { border-bottom: 0; }
+.change-file-row .mono { overflow-wrap: anywhere; }
+.change-tags { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+@media (max-width: 1080px) {
+  .change-form { grid-template-columns: 1fr 1fr; }
+  .change-layout { flex-direction: column; }
+  .change-layout > .left { flex-basis: auto; width: 100%; }
+}
+@media (max-width: 680px) {
+  .change-form { grid-template-columns: 1fr; }
+}
