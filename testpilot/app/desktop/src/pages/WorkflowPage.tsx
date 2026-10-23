@@ -322,8 +322,8 @@ export function WorkflowPage({ selection, running, ready = false }: {
       setTask(null); sessionStorage.removeItem('tp-flow-task');
       navigate('run', { runId: result.run_id });
     } catch (e) {
-      // 不靠错误字符串分类。若本次调用已经产生新的 error/aborted run，
-      // 直接给出结果入口；否则保留当前任务，用户可安全重试而不会重复建任务。
+      // 不靠错误字符串分类。若本次调用已经产生新的 run（无论仍在执行、
+      // 已完成、error 或 aborted），优先进入该 run；只有确认没产生新 run 时才允许重试。
       let runId: number | undefined;
       let runStatus: string | undefined;
       if (current && previousRunKnown) {
