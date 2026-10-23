@@ -3,7 +3,7 @@
  *  全局交互入口都收敛在这里：
  *  - Ctrl/Cmd+K 命令面板（页面/run/用例搜索跳转 + 全局动作）—— 取代旧的
  *    window.prompt 输 run 号（无搜索、风格脱节）；
- *  - Alt+1~7 直达页面；`?` 打开快捷键速查；
+ *  - Alt+1~6 直达主页面；`?` 打开快捷键速查；
  *  - 主题切换（浅/深）持久化到 localStorage，首帧前由 index.html 内联脚本定值。
  */
 
@@ -66,7 +66,18 @@ export default function App() {
   });
   const stop = async () => {
     setStopping(true);
-    try { await call('task.abort'); } catch { setStopping(false); }
+    try {
+      const out = await call<{ stopping: boolean }>('task.abort');
+      if (!out.stopping) {
+        // run 可能已在点击瞬间结束；立即回读，避免按钮永久停在“正在停止…”。
+        setStopping(false);
+        const current = await call<{ runs: { id: number; status: string }[] }>(
+          'run.list', { limit: 30 });
+        setRunning(current.runs.find((v) => v.status === 'running')?.id ?? null);
+      }
+    } catch {
+      setStopping(false);
+    }
   };
 
   const [paletteOpen, setPaletteOpen] = useState(false);
