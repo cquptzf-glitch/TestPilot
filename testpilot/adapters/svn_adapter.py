@@ -207,4 +207,6 @@ def _relative_path(root: Path, value: str) -> str:
         rel = path.resolve().relative_to(root)
     except (OSError, ValueError) as exc:
         raise SvnError(f"路径不在工作副本内: {value!r}") from exc
-    return str(rel)
+    # RPC/Agent-facing paths use repository-style "/" on every OS. SVN accepts
+    # forward slashes on Windows, and this keeps prompts/results stable cross-platform.
+    return rel.as_posix()
