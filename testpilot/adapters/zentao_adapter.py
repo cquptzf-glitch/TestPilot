@@ -161,7 +161,10 @@ class ZentaoAdapter:
                                  params={"page": page, "limit": limit})
             rows = data.get("testcases") or data.get("cases") or []
             for row in rows:
-                if since and str(row.get("lastEditedDate") or "") <= str(since):
+                # 水位边界采用重叠语义：只跳过严格早于 since 的记录。
+                # 禅道时间戳常只有秒级精度；同步分页过程中若同秒有晚到更新，
+                # 下次仍必须把 == since 的记录交给本地幂等 ingest 复核。
+                if since and str(row.get("lastEditedDate") or "") < str(since):
                     continue
                 if "steps" not in row:
                     raw = self.fetch_case(_positive_id(row.get("id"), "用例 id"))
