@@ -84,7 +84,7 @@ export function WorkflowPage({ selection, running, ready = false }: {
   const cases = useAsync(() => call<{ cases: CaseRow[] }>('case.list'), []);
   const rows = cases.data?.cases ?? [];
   const [selected, setSelected] = useState<string[]>(() => selection?.split(',').filter(Boolean) ?? restored('tp-flow-selection', []));
-  const [phase, setPhase] = useState(ready ? 3 : 1);
+  const [phase, setPhase] = useState(ready && !!selection ? 3 : 1);
   const [query, setQuery] = useState('');
   const [pullIds, setPullIds] = useState('');
   const [windowTitle, setWindowTitle] = useState(() => restored('tp-flow-window-title', ''));
@@ -421,6 +421,9 @@ export function WorkflowPage({ selection, running, ready = false }: {
       {reviewId && <DslReviewPage key={reviewId} embedded caseId={reviewId} onAccepted={accepted} onBack={() => { cases.reload(); setPhase(1); }} />}
       <div className="flow-footer">
         <span className="muted">确认当前用例后自动进入下一条；全部确认后自动进入执行前确认。</span>
+        {runnable && <button className="btn" disabled={locked} onClick={() => setPhase(3)}>
+          已全部确认，继续执行 →
+        </button>}
       </div>
     </section>}
 
