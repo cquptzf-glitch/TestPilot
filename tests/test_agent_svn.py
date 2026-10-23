@@ -1,0 +1,200 @@
+"""SVN change analysis + Pi RPC-only tool boundary tests.
+
+No real SVN/Pi process is required. These tests pin the main-process trust boundary so a
+future refactor cannot accidentally give the agent native file/shell/database access.
+"""
+import asyncio
+import json
+from pathlib import Path
+
+import pytest
+
+from testpilot.adapters.svn_adapter import SvnAdapter, _revision_args
+from testpilot.agent.change_service import ChangeAnalysisService, _parse_analysis
+from testpilot.case_parser import CaseService
+from testpilot.core.errors import AgentError, RpcError, SvnError
+from testpilot.rpc import RpcService
+from testpilot.storage import repos
+
+
+class StubSvn(SvnAdapter):
+    def __init__(self, root):
+        super().__init__({"executable": "svn"})
+        self.root = Path(root)
+        self.calls = []
+
+    def executable_path(self):
+        return "svn"
+
+    def _run(self, args, *, cwd, limit):
+        self.calls.append((list(args), cwd, limit))
+        if args[:2] == ["info", "--xml"]:
+            return """<?xml version="1.0"?>
+<info><entry kind="dir" path="." revision="42">
+<url>https://svn.local/product/trunk</url>
+<repository><root>https://svn.local/product</root><uuid>u-1</uuid></repository>
+</entry></info>"""
+        if args[:2] == ["status", "--xml"]:
+            return """<?xml version="1.0"?>
+<status><target path=".">
+<entry path="src/a.cpp"><wc-status item="modified" props="none" revision="41"/></entry>
+<entry path="tmp/new.txt"><wc-status item="unversioned" props="none"/></entry>
+</target></status>"""
+        if args[:2] == ["diff", "--summarize"]:
+            return "M       src/a.cpp\nA       src/new.cpp\n"
+        if args and args[0] == "diff":
+            return "Index: src/a.cpp\n+ changed\n"
+        if args[:2] == ["log", "--xml"]:
+            return """<log><logentry revision="42"><author>a</author>
+<date>2026-10-23T00:00:00Z</date><msg>change</msg></logentry></log>"""
+        if args[:2] == ["--version", "--quiet"]:
+            return "1.14.5"
+        raise AssertionError(args)
+
+
+def test_svn_adapter_parses_bounded_read_operations(tmp_path):
+    svn = StubSvn(tmp_path)
+    info = svn.info(tmp_path)
+    assert info["revision"] == "42"
+    assert info["repository_uuid"] == "u-1"
+
+    status = svn.status(tmp_path)
+    assert {item["item"] for item in status} == {"modified", "unversioned"}
+
+    summary = svn.summarize(tmp_path)
+    assert [item["path"] for item in summary["changed"]] == [
+        "src/a.cpp", "src/new.cpp",
+    ]
+    assert summary["working_status"][0]["path"] == "src/a.cpp"
+
+    diff = svn.diff(tmp_path, paths=["src/a.cpp"], max_chars=50_000)
+    assert "+ changed" in diff["text"]
+    assert diff["paths"] == ["src/a.cpp"]
+
+
+def test_svn_adapter_rejects_revision_and_path_injection(tmp_path):
+    assert _revision_args("12", "HEAD") == ["-r", "12:HEAD"]
+    with pytest.raises(SvnError, match="非法 SVN revision"):
+        _revision_args("12; whoami", "HEAD")
+
+    svn = StubSvn(tmp_path)
+    outside = tmp_path.parent / "outside.cpp"
+    outside.write_text("x", encoding="utf-8")
+    with pytest.raises(SvnError, match="不在工作副本"):
+        svn.diff(tmp_path, paths=["../outside.cpp"])
+
+
+def _agent_json():
+    return json.dumps({
+        "summary": "状态机修改会影响启动、完成和异常恢复。",
+        "impacted_modules": ["RunController"],
+        "risks": ["状态竞争"],
+        "cases": [{
+            "title": "检测状态机修改回归",
+            "priority": "P0",
+            "category": "regression",
+            "rationale": "状态切换逻辑修改",
+            "preconditions": ["程序已启动"],
+            "steps": [
+                {"desc": "启动检测", "expect": "进入检测中"},
+                {"desc": "等待完成", "expect": "进入已完成"},
+            ],
+            "source_files": ["src/RunController.cpp"],
+            "related_case_ids": ["TC-1"],
+        }],
+    }, ensure_ascii=False)
+
+
+def test_change_service_agent_only_returns_plan_main_process_persists(
+        tmp_path, db_conn, fake_zentao, fake_llm):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "RunController.cpp").write_text("void run(){}", encoding="utf-8")
+
+    cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    calls = []
+
+    def agent_runner(**kwargs):
+        calls.append(kwargs)
+        return {"text": _agent_json(), "tool_calls": 4, "elapsed_ms": 20}
+
+    service = ChangeAnalysisService(
+        db_conn, cases, {"svn": {}}, agent_runner)
+    service.svn = StubSvn(tmp_path)
+
+    out = service.generate({
+        "workingCopy": str(tmp_path),
+        "parse": False,
+        "maxCases": 5,
+    })
+    assert out["created"] == 1
+    assert out["agent"]["tool_calls"] == 4
+    assert set(calls[0]["tools"]) == {
+        "tp_read_file", "tp_find_files", "tp_grep",
+        "tp_svn_status", "tp_svn_diff", "tp_svn_log",
+        "tp_case_search", "tp_case_detail",
+    }
+
+    generated = repos.get_case(db_conn, out["cases"][0]["case_id"])
+    assert generated is not None
+    assert generated["status"] == "draft"
+    assert generated["zentao_case_id"] is None
+    assert generated["raw"]["source"] == "svn_agent"
+    assert generated["raw"]["svn"]["source_files"] == ["src/RunController.cpp"]
+    assert generated["steps"] == []       # Agent cannot directly activate/write executable DSL.
+
+
+def test_change_service_rejects_invalid_agent_output():
+    with pytest.raises(AgentError):
+        _parse_analysis('{"summary":"x","cases":[]}', max_cases=20)
+    with pytest.raises(AgentError):
+        _parse_analysis("not json", max_cases=20)
+
+
+def test_pi_extension_has_no_native_file_or_shell_tools():
+    source = (Path(__file__).resolve().parents[1]
+              / "testpilot" / "agent" / "pi_rpc_tools.mjs").read_text(encoding="utf-8")
+    assert "agent.fs.read" in source
+    assert "agent.svn.diff" in source
+    assert "node:fs" not in source
+    assert "node:child_process" not in source
+    assert "exec(" not in source
+    runtime = (Path(__file__).resolve().parents[1]
+               / "testpilot" / "agent" / "pi_runtime.py").read_text(encoding="utf-8")
+    assert '"--no-builtin-tools"' in runtime
+    assert '"--no-mcp"' in runtime
+
+
+def test_agent_rpc_scope_allows_only_agent_methods_and_workspace(tmp_path, svc):
+    service, _, _ = svc
+    inside = tmp_path / "src.txt"
+    inside.write_text("hello\nworld", encoding="utf-8")
+    scope = {"workspace": str(tmp_path.resolve())}
+
+    request = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "agent.fs.read",
+        "params": {"path": "src.txt"},
+    })
+    reply = asyncio.run(service._handle_raw(request, agent_scope=scope))
+    assert reply["result"]["content"].startswith("1: hello")
+
+    escape = json.dumps({
+        "jsonrpc": "2.0", "id": 2, "method": "agent.fs.read",
+        "params": {"path": "../outside.txt"},
+    })
+    reply = asyncio.run(service._handle_raw(escape, agent_scope=scope))
+    assert "error" in reply
+
+    forbidden = json.dumps({
+        "jsonrpc": "2.0", "id": 3, "method": "task.run",
+        "params": {"taskId": 1},
+    })
+    reply = asyncio.run(service._handle_raw(forbidden, agent_scope=scope))
+    assert reply["error"]["code"] == -32601
+
+
+def test_agent_capability_token_is_scoped_and_revocable(tmp_path, svc):
+    service, _, _ = svc
+    token = service.issue_agent_token(tmp_path)
+    assert service._agent_connection_scope("Bearer " + token)["workspace"] == str(tmp_path.resolve())
+    service.revoke_agent_token(token)
+    assert service._agent_connection_scope("Bearer " + token) is None
