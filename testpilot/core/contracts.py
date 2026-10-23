@@ -209,6 +209,20 @@ class RecorderPort(Protocol):
 
 
 @runtime_checkable
+class AgentPort(Protocol):
+    """Agentic workflow runtime.
+
+    与 LlmPort 的单次结构化推理分开：需要多轮工具调用、代码库浏览、影响分析的
+    工作流统一依赖本端口。默认实现为 Pi RPC 子进程，业务服务不依赖 Pi 细节。
+    """
+
+    def health(self) -> HealthReport: ...
+    def run(self, prompt: str, *, cwd: str | None = None,
+            tools: list[str] | None = None, timeout_s: int | None = None,
+            abort: Any = None, progress: Any = None) -> dict: ...
+
+
+@runtime_checkable
 class LlmPort(Protocol):
     def parse_case(self, raw: dict) -> dict: ...
     def ground(self, image_b64: str, desc: str, region: Rect | None) -> dict: ...
