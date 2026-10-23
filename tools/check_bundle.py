@@ -16,6 +16,12 @@ import ast
 import sys
 from pathlib import Path
 
+# Windows CI / 英文系统的默认控制台可能是 cp1252。这个工具会输出中文诊断，
+# 不显式切到 UTF-8 会在“产物已经打好”之后因为 print() 编码失败而误判打包失败。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).resolve().parents[1]
 
 # 必进包的模块（= packaging/sidecar.spec 的 _REQUIRED）：动态导入，静态分析看不到，
