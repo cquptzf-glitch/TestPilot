@@ -557,6 +557,21 @@ class TaskOrchestrator:
                 if not spec:
                     out.append({"task_id": task["id"], "result": "no_zentao_id"})
                     continue
+                # Fail-closed at the orchestration boundary: after a process crash or
+                # an uncertain POST response we do not know whether Zentao created the
+                # remote task. Never rely on a specific adapter to prevent a duplicate.
+                # A caller-supplied existing ID is safe to verify/rebind, so it bypasses
+                # this gate and create_testtask() will take its verify-only path.
+                existing_remote = spec.get("zentao_task_id")
+                if not existing_remote and (
+                        spec.get("creation_uncertain") or
+                        spec.get("creation_attempted")):
+                    out.append({
+                        "task_id": task["id"],
+                        "result": "creation_uncertain",
+                        "action": "reconcile_remote_id",
+                    })
+                    continue
                 try:
                     zid = self.zentao.create_testtask(spec)
                     repos.set_task_sync(self.conn, task["id"], "sync_pending", zid)
