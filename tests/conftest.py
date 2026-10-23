@@ -385,7 +385,7 @@ class FakeZentao:
     def fetch_cases(self, product_id=None, since=None):
         out = []
         for raw in self._cases.values():
-            if since and str(raw.get("updated_at", "")) <= str(since):
+            if since and str(raw.get("updated_at", "")) < str(since):
                 continue
             out.append(dict(raw))
         return out
