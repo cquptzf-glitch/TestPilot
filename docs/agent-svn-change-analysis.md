@@ -411,7 +411,76 @@ SVN Agent 的最终 JSON 现在只是“候选计划”，**不能直接成为�
 
 这样后续审核、问题追踪或真实 Pi/provider 调优时，不依赖后台 Job 仍在内存中，也能知道用例当时基于什么证据生成。
 
-## 11. 当前自动验证证据
+## 11. SVN 分析快照稳定性 / 漂移保护
+
+Grounding 只能证明“Agent 看过什么”，还需要保证 **Agent 看过的内容在生成结果落库前没有变化**。当前 `change.svn.generate` 因此增加双阶段 snapshot guard：
+
+```text
+主进程建立初始 SVN snapshot
+  -> 生成 snapshot_guard
+  -> Pi Agent 通过主 RPC 研究 diff / source / cases
+  -> 解析 Agent JSON
+  -> 主进程重新读取 SVN snapshot + observed source hashes
+  -> signature/hash 一致才进入 grounding 与持久化
+```
+
+### 11.1 snapshot_guard 内容
+
+初始 guard 由主进程确定性生成，包含：
+
+- from/to revision；
+- repository root / UUID；
+- working-copy revision；
+- 排序后的 `svn diff --summarize` 变更路径；
+- working-copy status；
+- **完整 SVN diff 的 SHA-256 与字节数**；
+- unversioned 路径及其内容摘要。
+
+完整 diff 不经过 Agent 的 120k/200k 上下文裁剪。`SvnAdapter.diff_digest()` 把 SVN stdout 写入临时文件，再按 1 MiB 分块计算 SHA-256，因此既能覆盖超大 diff，又不会在 Python 内存中保留整份正文。
+
+### 11.2 Agent 实际观察内容也纳入稳定性
+
+固定 revision 分析本身的 SVN diff 可以保持不变，但 Agent 仍可能读取当前工作副本中的辅助源码。因此主 RPC 还记录：
+
+- `agent.fs.read`：完整原始文件 SHA-256；
+- `agent.fs.grep`：只有真正命中、把文本暴露给 Agent 的文件才记录完整文件 SHA-256；
+- 同一路径被多次观察时，`content_hashes` 保持最后一次真实观察结果。
+
+Agent 返回后，主进程重新计算这些文件的 hash。若任一文件被修改、删除或替换，即使固定 revision 的 SVN diff 没变化，也会以 `snapshot_changed` 拒绝本轮结果。
+
+### 11.3 working copy 与 unversioned 内容
+
+working-copy 模式除了完整 SVN diff/status 外，还对 unversioned 内容做摘要，因为普通 `svn diff` 不包含未版本控制文件正文。
+
+为避免未忽略的构建目录把后台任务拖死，快照保护采用硬预算：
+
+- 最多 10,000 个 unversioned 文件/目录条目；
+- 最多 256 MiB unversioned 文件内容；
+- 超限直接 fail-fast，提示配置 `svn:ignore` 或缩小工作副本；
+- 递归目录与根目录都会校验 resolve 后仍位于 workspace 内，避免 symlink/junction/reparse 越界。
+
+### 11.4 漂移时的行为
+
+只要初始和最终 snapshot signature 不一致，或 Agent 实际观察过的源码 hash 改变：
+
+1. 不创建/复用任何新的 SVN Agent case；
+2. Job progress 写入 `phase=snapshot_changed`；
+3. 保留 agent audit/evidence、前后 signature 摘要与 changed read paths；
+4. 返回明确错误，要求重新执行变更分析。
+
+通过校验后，新创建的用例会把本次 guard 持久化到 `raw.generation.snapshot_guard`，与 `raw.generation.grounding` 一起形成可追溯的“分析快照 + 生成依据”。
+
+自动化回归覆盖包括：
+
+- working-copy diff 内容在 Agent 分析期间变化时拒绝落库；
+- 固定 revision 下，Agent `fs.read` 过的辅助源码变化时拒绝；
+- grep 命中文件变化时拒绝；
+- 同一路径多次观察以最后一次内容 hash 为准；
+- unversioned 快照超过预算时在 Agent 启动前拒绝；
+- Windows CRLF 文件按真实原始字节计算 hash；
+- snapshot guard 持久化到生成用例。
+
+## 12. 当前自动验证证据
 
 GitHub Actions run `39884433953`（RPC/权限 hardening 基线 `4f287f7ad06538804b282c89c778702a30d2f639`）：
 
@@ -429,4 +498,6 @@ Agent progress/失败诊断/参数边界增量基线 `03b47bf4f691fcdc1d56c4eddf
 
 Agent grounding fail-closed 与持久化 provenance 基线 `e22cf2530d3d0e92a79a8d47cc542182bc06fac9` 对应 GitHub Actions run `39919509437`：Desktop TypeScript/Vite、Ruff、全量 Pytest 全部 success。
 
-真实公司 SVN、真实 Pi provider/model、真实大仓库级联影响质量仍属于 ENV 验证，不作为当前功能开发阻塞项。
+SVN snapshot drift / observed-source hash / bounded unversioned guard 最终基线 `6dbd2662d5e7e658be342840dce2a8ade74f22cc` 对应 GitHub Actions run `39924766570`：Desktop TypeScript/Vite、Ruff、全量 Pytest 全部 success。中间 `2e09f3ab` 的 Windows 测试仅因 LF/CRLF 期望 hash 不一致失败，`424cc307` 改为按真实文件字节断言后全绿；生产实现始终按原始字节计算 SHA-256。
+
+真实公司 SVN、真实 Pi provider/model、真实大仓库级级联影响质量仍属于 ENV 验证，不作为当前功能开发阻塞项。

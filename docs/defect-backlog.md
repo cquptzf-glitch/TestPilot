@@ -3,7 +3,7 @@
 > 更新时间：2026-10-23  
 > 当前策略：**先堆功能 + 单元测试/契约测试 + 前端编译门禁；暂不把真机 smoke 作为开发阻塞项。**  
 > 真机/UIA/DPI/干净机安装验证保留，但放到功能面稳定后集中执行。  
-> 最新业务代码门禁证据：GitHub Actions run 39919509437 / SHA e22cf2530d3d0e92a79a8d47cc542182bc06fac9 全绿（Desktop TypeScript/Vite、Ruff、全量 Pytest）。
+> 最新业务代码门禁证据：GitHub Actions run 39924766570 / SHA 6dbd2662d5e7e658be342840dce2a8ade74f22cc 全绿（Desktop TypeScript/Vite、Ruff、全量 Pytest）。
 
 ## 状态约定
 
@@ -90,6 +90,7 @@
 | AG-110 | P0 | DONE | Agent progress 契约与失败现场保留 | 修复真实 Pi `phase=agent_tool` 经 ChangeAnalysisService 二次传参导致 `multiple values for argument 'phase'` 的 P0 缺陷；Agent 异常、无效 JSON/Schema、取消均在 token 吊销前把主 RPC audit 快照写入 Job progress，桌面页与全局后台任务面板均可展开失败/终止前轨迹。 |
 | AG-111 | P1 | DONE | Agent/SVN 参数 fail-fast | `parse/maxCases/max_chars` 不再使用宽松 `bool()/int()` 转换；拒绝 bool、分数、非法下界；空 find/grep/case search 与非字符串 diff paths 直接拒绝，svn.log limit 与工具 schema 统一到 100。Actions run 39916844147 / SHA 03b47bf4f691fcdc1d56c4eddf1377f991481b27 两个门禁 Job 均 success。 |
 | AG-112 | P1 | DONE | Agent 生成依据 fail-closed | 主 RPC 新增独立于 200 条展示 audit 的 evidence 摘要，持续记录成功/失败工具、实际 `fs.read` 路径、`case.search/detail` 见过的 case、完整/截断 SVN diff 与按路径 diff 覆盖。生成前必须成功读取 diff；`source_files` 必须被 diff/read 真实覆盖，unversioned 必须 `fs.read`；`related_case_ids` 必须真实存在且本轮 Agent 看过。所有用例统一预检后再写库，避免半提交；新建 case 将证据写入 `raw.generation.grounding`。Actions run 39919509437 / SHA e22cf2530d3d0e92a79a8d47cc542182bc06fac9 全绿。 |
+| AG-113 | P1 | DONE | SVN Agent 分析快照漂移保护 | Agent 启动前对完整 SVN diff、revision/repository/status 与 unversioned 内容生成稳定 snapshot guard；返回后、任何落库前再次校验。主 RPC 对 `fs.read` 与 grep 实际暴露给 Agent 的文件记录内容 SHA，固定 revision 分析也能发现本地依赖源码变化；漂移时以 `snapshot_changed` fail-closed 并要求重跑。完整 diff 通过临时文件流式 SHA-256，unversioned 快照限制 10000 项/256 MiB，并校验 workspace/junction 边界；guard 持久化到 `raw.generation.snapshot_guard`。Actions run 39924766570 / SHA 6dbd2662d5e7e658be342840dce2a8ade74f22cc 全绿。 |
 
 ## 环境验证项（当前不阻塞功能开发）
 
@@ -110,3 +111,4 @@
 5. 真机 smoke 暂不作为提交阻塞项；待 P1 功能基本收口后集中验证。
 6. Agent 工具审计以主 RPC 实际执行为准；只保存摘要元数据，禁止把源码、diff 正文或 capability token 写入审计。
 7. Agent 生成用例必须 fail-closed：模型文本不是证据，`source_files/related_case_ids` 必须由主 RPC evidence 证明；任何一条依据不成立时，整批在落库前拒绝。
+8. SVN Agent 分析必须基于稳定快照：分析期间变更集、unversioned 内容或 Agent 实际观察过的源码发生变化时，不允许继续落库，必须重新分析。
