@@ -201,6 +201,38 @@ vision 不支持 select
 
 同样修复了 `ui.wait state=gone` 在 `vision_first` 下被 Vision 的能力缺失提前击穿、无法落到 UIA 的问题。
 
+### 2.11 DSL 动作白名单单一来源
+
+复审 CI 时发现：`core.dsl` 已经支持 `ui.right_click / ui.scroll / ui.drag`，
+Prompt 也会引导模型生成这些动作，但 `llm_gateway` 仍保存一份旧版
+`KNOWN_ACTIONS` 副本。
+
+这会造成：
+
+- DSL 层认可；
+- Prompt 层生成；
+- LLM 归一化层却把它标成 uncertain。
+
+现在 `llm_gateway` 直接复用 `core.dsl.KNOWN_ACTIONS`，动作表只保留一个权威来源。
+对应测试按动作构造合法最小参数，避免 scroll / drag 因测试输入本身非法产生误报。
+
+### 2.12 内嵌 DSL 审核队列使用最新状态推进
+
+Workflow 之前在 `dsl.accept` 后调用异步 `cases.reload()`，然后立即基于旧
+`chosen` 快照寻找下一条待审核用例。
+
+在 reload 尚未完成的竞争窗口中，旧快照可能再次包含刚刚已经通过的用例，导致
+“自动下一条”跳回旧项。
+
+现在每次 accept 后：
+
+1. 直接回读最新 `case.list`；
+2. 只在本次 selection 中寻找仍未 approved 的下一条；
+3. 无待审核项时进入执行阶段；
+4. 后台再刷新页面缓存。
+
+因此批量审核不再依赖 React 异步刷新时序。
+
 ---
 
 ## 3. UI / UX 复审与简化
@@ -409,3 +441,29 @@ Vision 同样把模板、稳定 key、region、diff、手势动作降为高级�
 6. 干净机器安装验证。
 
 当前阶段继续遵循：正常回归执行必须保持确定性 DSL 主链，Agent / LLM 只参与生成、探索、归因等辅助路径。
+
+
+---
+
+## 8. 最终自动验证
+
+最终业务代码基线：
+
+```text
+8c5bd4f08071f4d85dacf6f0dcbd053df4ba5fa1
+```
+
+GitHub Actions run：
+
+```text
+39898403051
+```
+
+结果：
+
+- Desktop TypeScript typecheck + Vite build：**success**；
+- Ruff：**success**（All checks passed）；
+- 全量 Pytest：**success**；
+- Workflow 总结：**success**。
+
+本轮后续只允许文档类 `[skip ci]` 提交，不再修改业务代码。
