@@ -387,8 +387,6 @@ class Executor:
                 continue
             res.driver = driver_name
             res.locate_ms = int((time.monotonic() - t_loc) * 1000)
-            self.kb.feedback_router(step.target.key, driver_name, True,
-                                    res.locate_ms)
             log.info("定位成功", extra={"driver": driver_name,
                                         "target_key": step.target.key,
                                         "locate_ms": res.locate_ms})
@@ -404,15 +402,18 @@ class Executor:
                                       res.locate_ms + res.act_ms,
                                       "action_failed"))
                 res.driver_chain = chain
-                # 动作失败同样计入该驱动失败（但本步不再换驱动重试：可能已有副作用）
+                # 一次驱动尝试只反馈一次最终结果。定位已成功但动作失败仍算该
+                # 驱动尝试失败；耗时字段保持“定位耗时”口径，不把动作时间混入。
                 self.kb.feedback_router(step.target.key, driver_name, False,
-                                        res.act_ms)
+                                        res.locate_ms)
                 res.status = FAIL
                 return False
             res.act_ms = int((time.monotonic() - t_act) * 1000)
             chain.append(_attempt(driver_name, True,
                                   res.locate_ms + res.act_ms))
             res.driver_chain = chain
+            self.kb.feedback_router(step.target.key, driver_name, True,
+                                    res.locate_ms)
             self._maybe_learn_template(drv, loc, el, ctx)
             return True
 
