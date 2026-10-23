@@ -133,16 +133,21 @@ class TaskOrchestrator:
         if not name:
             raise TestPilotError("任务名不能为空")
 
-        direct_case_ids = list(spec.get("case_ids") or [])
+        raw_case_ids = spec.get("case_ids")
+        direct_case_ids = _string_list_arg(
+            [] if raw_case_ids is None else raw_case_ids, "case_ids")
         suite_id = spec.get("suite_id")
         if suite_id is not None and direct_case_ids:
             raise TestPilotError("suite_id 与 case_ids 只能指定一种，避免任务范围歧义")
 
         explicit_preconditions = (
-            list(spec.get("preconditions") or [])
+            _string_list_arg(spec.get("preconditions"), "preconditions")
             if spec.get("preconditions") is not None else None
         )
-        explicit_driver = dict(spec.get("driver_config") or {})
+        raw_driver = spec.get("driver_config")
+        if raw_driver is not None and not isinstance(raw_driver, dict):
+            raise TestPilotError("driver_config 必须是对象")
+        explicit_driver = dict(raw_driver or {})
         if explicit_driver.get("mode") is not None:
             from testpilot.core.dsl import DriverMode
             try:
@@ -915,3 +920,20 @@ def _usage_delta(before: dict, after: dict) -> dict:
     if not after:
         return {}
     return {k: int(after.get(k, 0)) - int((before or {}).get(k, 0)) for k in after}
+
+
+
+def _string_list_arg(value, field: str) -> list[str]:
+    """Normalize an application-level string list without iterating raw strings."""
+    if not isinstance(value, (list, tuple)):
+        raise TestPilotError(f"{field} 必须是字符串数组")
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise TestPilotError(f"{field} 必须只包含非空字符串")
+        text = item.strip()
+        if text not in seen:
+            seen.add(text)
+            out.append(text)
+    return out
