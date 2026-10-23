@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from testpilot.core.errors import AbortRequested, TestPilotError
 from testpilot.infra.abort import AbortSignal
 
-CASE_METHODS = frozenset({"case.pull", "case.sync", "case.parse"})
+CASE_METHODS = frozenset({"case.pull", "case.sync", "case.parse", "change.svn.generate"})
 
 
 class CaseJobs:
@@ -20,7 +20,7 @@ class CaseJobs:
 
     def start(self, method, params):
         if method not in CASE_METHODS:
-            raise TestPilotError("后台任务仅支持用例拉取、同步和解析")
+            raise TestPilotError("后台任务仅支持用例拉取/同步/解析与 SVN 变更生成")
         if not isinstance(params, dict):
             raise TestPilotError("后台任务参数必须为对象")
         with self._lock:
