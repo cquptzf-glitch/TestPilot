@@ -2621,3 +2621,54 @@ details.task-create { margin-bottom: 22px; }
   align-items: center;
   gap: var(--sp-2);
 }
+
+
+/* Simplified SVN change generation */
+.change-primary-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-top: var(--sp-4);
+}
+.change-snapshot > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.change-snapshot > summary::-webkit-details-marker { display: none; }
+.change-files.compact {
+  max-height: 240px;
+  overflow: auto;
+  margin-top: var(--sp-3);
+}
+.change-result-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-6);
+  justify-content: space-between;
+}
+.change-result-head h3 { margin-top: 0; }
+.change-result-head p { margin-bottom: 0; }
+.change-kpis {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.change-kpis span {
+  min-width: 72px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-panel-soft);
+  color: var(--c-text-dim);
+  font-size: var(--fs-xs);
+}
+.change-kpis strong {
+  display: block;
+  color: var(--c-text);
+  font: 600 17px/1.2 var(--c-mono);
+}
