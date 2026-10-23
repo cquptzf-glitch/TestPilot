@@ -8,6 +8,7 @@ AI 自动化测试平台：禅道测试用例 -> LLM 解析 DSL -> 双驱动（U
 > 自动化会话层增强：[docs/automation-runtime-ocu-2026-10-22.md](docs/automation-runtime-ocu-2026-10-22.md)（参考 open-computer-use：观察/查询/element_index/写后回读/MCP 会话安全）
 > Agent/SVN 变更生成：[docs/agent-svn-change-analysis.md](docs/agent-svn-change-analysis.md)（Pi 只推理；所有工具通过主 RPC 执行）
 > 禅道复审：[docs/review-zentao-2026-10-23.md](docs/review-zentao-2026-10-23.md)（真实增量水位 + 全量校准）
+> 流程/UI 全面复审：[docs/review-flow-ui-2026-10-23.md](docs/review-flow-ui-2026-10-23.md)（日常主路径收敛 + 执行逻辑缺陷修复 + 渐进式 UI）
 > 逐轮变更流水：[docs/dev-log.md](docs/dev-log.md) ｜ 打包/排障：[docs/build-and-verify.md](docs/build-and-verify.md)
 
 ## 核心能力
