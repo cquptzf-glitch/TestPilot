@@ -71,14 +71,25 @@ class CaseService:
         """
         counters = _counters()
         pid = product_id or (self.cfg.get("zentao") or {}).get("product_id")
-        since = None if full else self._sync_watermark(pid)
+        scope = str(pid or "default")
+        state = repos.get_sync_state(self.conn, "zentao", scope)
+        since = None if full else (
+            (state or {}).get("watermark") or self._sync_watermark(pid))
         raws = self.zentao.fetch_cases(product_id, since=since)
+        watermark = str(since or "")
         for raw in raws:
             self._checkpoint("sync", raw.get("case_id"))
             action = self._ingest(raw, counters)
+            remote_ts = str(raw.get("updated_at") or "")
+            if remote_ts > watermark:
+                watermark = remote_ts
             if action != "unchanged":
                 log.info(f"用例同步 {raw.get('case_id')}: {action}")
-        out = {**counters, "scanned": len(raws), "since": since, "full": bool(full)}
+        sync_state = repos.set_sync_state(
+            self.conn, "zentao", scope, watermark=watermark or None,
+            detail={"scanned": len(raws), "full": bool(full)})
+        out = {**counters, "scanned": len(raws), "since": since,
+               "full": bool(full), "sync_state": sync_state}
         if parse:
             # rejected 用例按设计不再自动解析（人审已否决）：留在清单里只会
             # 每次 sync --parse 都产出注定失败的条目
