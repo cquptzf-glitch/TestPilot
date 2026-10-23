@@ -675,13 +675,19 @@ class RpcService:
         return {"entries": kb_pending(self._orch.conn)}
 
     def _kb_confirm(self, p):
-        entry_id = _to_int(p, "entryId")
-        self._orch.kb.confirm(entry_id, "active")
+        entry_id = _positive_int_param(p, "entryId")
+        try:
+            self._orch.kb.confirm(entry_id, "active")
+        except ValueError as e:
+            raise RpcError(INVALID_PARAMS, str(e)) from e
         return {"entryId": entry_id, "status": "active"}
 
     def _kb_reject(self, p):
-        entry_id = _to_int(p, "entryId")
-        self._orch.kb.confirm(entry_id, "rejected")
+        entry_id = _positive_int_param(p, "entryId")
+        try:
+            self._orch.kb.confirm(entry_id, "rejected")
+        except ValueError as e:
+            raise RpcError(INVALID_PARAMS, str(e)) from e
         return {"entryId": entry_id, "status": "rejected"}
 
     def _kb_set_disposition(self, p):
