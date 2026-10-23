@@ -75,7 +75,9 @@ class CaseService:
         state = repos.get_sync_state(self.conn, "zentao", scope)
         since = None if full else (
             (state or {}).get("watermark") or self._sync_watermark(pid))
-        raws = self.zentao.fetch_cases(product_id, since=since)
+        # 查询范围与 watermark scope 使用同一个最终 product id，避免调用层与
+        # adapter 各自回退配置后产生隐式双重语义。
+        raws = self.zentao.fetch_cases(pid, since=since)
         watermark = str(since or "")
         for raw in raws:
             self._checkpoint("sync", raw.get("case_id"))
@@ -106,7 +108,9 @@ class CaseService:
                         continue
                 if row["sync_status"] in ("stale", "conflict") or not row.get("steps"):
                     stale_ids.append(row["case_id"])
-            out["parse"] = self.parse_many(stale_ids) if stale_ids else {}
+            out["parse"] = self.parse_many(stale_ids) if stale_ids else {
+                "parsed": 0, "failed": [], "items": [], "total": 0,
+            }
         return out
 
     def _sync_watermark(self, product_id: int | None) -> str | None:
