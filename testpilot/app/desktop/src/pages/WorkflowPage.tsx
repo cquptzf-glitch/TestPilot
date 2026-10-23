@@ -24,6 +24,7 @@ interface ExecuteFailure {
   text: string;
   taskId?: number;
   runId?: number;
+  runStatus?: string;
 }
 
 const TARGET_PRESETS_KEY = 'tp-flow-target-presets-v1';
@@ -291,6 +292,7 @@ export function WorkflowPage({ selection, running, ready = false }: {
     setExecuteFailure(null);
     let current = reusable;
     let previousRunId: number | null = null;
+    let previousRunKnown = false;
     try {
       if (!runnable) throw new Error('请先审核所选用例');
       if (windowMissing.length)
@@ -311,6 +313,7 @@ export function WorkflowPage({ selection, running, ready = false }: {
           limit: 1, taskId: current.id,
         });
         previousRunId = before.runs[0]?.id ?? null;
+        previousRunKnown = true;
       } catch { /* recovery hint only */ }
 
       const result = await call<{ run_id: number }>('task.run', {
@@ -322,19 +325,22 @@ export function WorkflowPage({ selection, running, ready = false }: {
       // 不靠错误字符串分类。若本次调用已经产生新的 error/aborted run，
       // 直接给出结果入口；否则保留当前任务，用户可安全重试而不会重复建任务。
       let runId: number | undefined;
-      if (current) {
+      let runStatus: string | undefined;
+      if (current && previousRunKnown) {
         try {
           const after = await call<{ runs: RunRow[] }>('run.list', {
             limit: 1, taskId: current.id,
           });
           const latest = after.runs[0];
-          if (latest && latest.id !== previousRunId
-              && ['error', 'aborted'].includes(latest.status)) {
+          if (latest && latest.id !== previousRunId) {
             runId = latest.id;
+            runStatus = latest.status;
           }
         } catch { /* 保留原始执行错误 */ }
       }
-      setExecuteFailure({ text: msg(e), taskId: current?.id, runId });
+      setExecuteFailure({
+        text: msg(e), taskId: current?.id, runId, runStatus,
+      });
     } finally {
       gate.current = false;
       setBusy('');
@@ -354,8 +360,9 @@ export function WorkflowPage({ selection, running, ready = false }: {
       执行未完成：{executeFailure.text}
       <span className="hstack" style={{ marginTop: 'var(--sp-2)' }}>
         {executeFailure.runId && <button className="btn primary"
+          title={executeFailure.runStatus ? `本次 run 当前状态：${executeFailure.runStatus}` : undefined}
           onClick={() => navigate('run', { runId: executeFailure.runId })}>
-          查看失败运行 →
+          查看本次运行 →
         </button>}
         {!executeFailure.runId && executeFailure.taskId && <button className="btn primary"
           disabled={locked} onClick={() => void execute()}>
