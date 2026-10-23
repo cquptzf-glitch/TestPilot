@@ -218,9 +218,11 @@ def test_definite_remote_create_failure_can_retry_safely(
 
     zentao.fail_create = False
     result = o.sync_pending_tasks(task["task_id"])
-    assert result[0]["result"] == "no_run_stats"
+    assert result[0]["result"] == "remote_ready"
     assert len(zentao.created) == 1
-    assert o.list_tasks()[0]["zentao_task_id"] is not None
+    saved = o.list_tasks()[0]
+    assert saved["zentao_task_id"] is not None
+    assert saved["sync_status"] == "synced"
 
 
 def test_create_task_with_preconditions_override(orch, db_conn):
@@ -367,8 +369,10 @@ def test_sync_pending_reports_missing_zentao_id(cfg, registry, db_conn, tmp_path
     o.cases.accept("TC-1")
     task = o.create_task({"name": "本地", "case_ids": ["TC-1"]})
     repos.set_task_sync(db_conn, task["task_id"], "sync_pending")
-    assert o.sync_pending_tasks()[0]["result"] == "no_run_stats"
-    assert o.list_tasks()[0]["zentao_task_id"] is not None
+    assert o.sync_pending_tasks()[0]["result"] == "remote_ready"
+    saved = o.list_tasks()[0]
+    assert saved["zentao_task_id"] is not None
+    assert saved["sync_status"] == "synced"
 
 
 def test_sync_pending_can_target_single_task(cfg, registry, db_conn, tmp_path):
@@ -586,16 +590,16 @@ def test_compensation_never_completes_unfinished_run(orch, db_conn, status):
     assert repos.get_task(db_conn, task["task_id"])["sync_status"] == "sync_pending"
 
 
-def test_compensation_retains_pending_after_create_without_run(orch, db_conn):
+def test_compensation_marks_remote_ready_before_first_run(orch, db_conn):
     task = orch.create_task({"name": "create-only", "case_ids": ["TC-1"]})
     repos.set_task_sync(db_conn, task["task_id"], "sync_pending")
     result = orch.sync_pending_tasks(task["task_id"])
-    assert result[0]["result"] == "no_run_stats"
+    assert result[0]["result"] == "remote_ready"
     saved = repos.get_task(db_conn, task["task_id"])
     assert saved["zentao_task_id"] is not None
-    assert saved["sync_status"] == "sync_pending"
+    assert saved["sync_status"] == "synced"
     before = len(orch.zentao.created)
-    orch.sync_pending_tasks(task["task_id"])
+    assert orch.sync_pending_tasks(task["task_id"]) == []
     assert len(orch.zentao.created) == before
 
 
