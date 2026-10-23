@@ -400,11 +400,13 @@ class TaskOrchestrator:
                 log.exception(f"禅道回写意外异常(不阻断本地 run): run#{run_id}")
                 stats["writeback"] = "error"
                 stats["writeback_error"] = str(e)
-                try:
-                    from testpilot.storage import repos
-                    repos.set_task_sync(self.conn, task["id"], "sync_pending")
-                except Exception:
-                    log.exception("写回 sync_pending 失败")
+                if (task.get("zentao_task_id")
+                        or task.get("sync_status") in ("synced", "sync_pending")):
+                    try:
+                        from testpilot.storage import repos
+                        repos.set_task_sync(self.conn, task["id"], "sync_pending")
+                    except Exception:
+                        log.exception("写回 sync_pending 失败")
         else:
             stats["writeback"] = "skipped"
         self.recorder.finish_run(run_id, stats)
