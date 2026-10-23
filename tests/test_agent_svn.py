@@ -397,6 +397,20 @@ def test_change_service_rejects_grep_observation_drift_for_fixed_revision(
         })
 
 
+def test_changed_agent_reads_prefers_latest_content_observation(tmp_path):
+    source = tmp_path / "same.cpp"
+    source.write_text("newer", encoding="utf-8")
+    newer_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    older_hash = hashlib.sha256(b"older").hexdigest()
+
+    changed = change_service_mod._changed_agent_reads(tmp_path, {
+        "read_hashes": {"same.cpp": older_hash},
+        "content_hashes": {"same.cpp": newer_hash},
+    })
+
+    assert changed == []
+
+
 def test_snapshot_guard_rejects_oversized_unversioned_content(
         tmp_path, monkeypatch):
     (tmp_path / "tmp").mkdir()

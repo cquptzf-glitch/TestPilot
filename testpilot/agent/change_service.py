@@ -581,6 +581,11 @@ def _workspace_path_digest(workspace: Path, rel: str, *,
             "sha256": hashlib.sha256(("other\0" + rel).encode("utf-8")).hexdigest(),
             "entries": 1, "bytes": 0,
         }
+    try:
+        path.resolve().relative_to(root)
+    except (OSError, ValueError) as exc:
+        raise TestPilotError(
+            f"未版本控制目录越出工作副本: {rel}") from exc
 
     digest = hashlib.sha256()
     entries = 0
@@ -633,13 +638,15 @@ def _workspace_path_digest(workspace: Path, rel: str, *,
 def _changed_agent_reads(workspace: Path, evidence: dict) -> list[str]:
     if not isinstance(evidence, dict):
         return []
-    hashes = {}
+    # content_hashes is maintained in actual observation order by the trusted
+    # main RPC boundary (fs.read and grep both update it). Prefer it wholesale
+    # so an older read_hash cannot overwrite a newer grep observation.
     observed = evidence.get("content_hashes")
-    if isinstance(observed, dict):
-        hashes.update(observed)
-    reads = evidence.get("read_hashes")
-    if isinstance(reads, dict):
-        hashes.update(reads)
+    if isinstance(observed, dict) and observed:
+        hashes = dict(observed)
+    else:
+        reads = evidence.get("read_hashes")
+        hashes = dict(reads) if isinstance(reads, dict) else {}
     if not hashes:
         return []
     changed = []
