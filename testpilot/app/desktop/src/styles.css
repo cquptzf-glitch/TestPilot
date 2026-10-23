@@ -2701,3 +2701,67 @@ details.task-create { margin-bottom: 22px; }
   padding-top: var(--sp-3);
   border-top: 1px solid var(--c-border);
 }
+
+
+/* Automation workbench: progressive disclosure */
+.automation-session-menu,
+.automation-advanced {
+  position: relative;
+}
+.automation-session-menu > summary,
+.automation-advanced > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.automation-session-menu > summary::-webkit-details-marker,
+.automation-advanced > summary::-webkit-details-marker { display: none; }
+.automation-session-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--sp-2));
+  z-index: var(--z-popover);
+  min-width: 260px;
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--c-panel);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-2);
+}
+.automation-advanced {
+  margin-top: var(--sp-3);
+  border-top: 1px solid var(--c-border);
+  padding-top: var(--sp-3);
+}
+.automation-advanced > summary {
+  color: var(--c-text-dim);
+  font-weight: 600;
+}
+.automation-advanced > summary::after {
+  content: "展开";
+  margin-left: var(--sp-2);
+  color: var(--c-text-faint);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+}
+.automation-advanced[open] > summary::after { content: "收起"; }
+.automation-advanced-body {
+  display: grid;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--c-panel-soft);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+}
+.automation-action-grid.primary {
+  margin-top: var(--sp-3);
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+}
+.automation-secondary-actions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
