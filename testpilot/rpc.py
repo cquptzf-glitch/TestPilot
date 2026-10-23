@@ -437,15 +437,26 @@ class RpcService:
         })
 
     def _task_run(self, p):
+        from testpilot.core.dsl import DriverMode
+
         task_id = _to_int(p, "taskId")
+        run_cfg: dict = {}
+        if p.get("mode"):
+            try:
+                run_cfg["mode"] = DriverMode(str(p["mode"])).value
+            except ValueError:
+                allowed = ", ".join(mode.value for mode in DriverMode)
+                raise RpcError(INVALID_PARAMS,
+                               f"非法驱动模式: {p['mode']!r}（可选 {allowed}）") from None
+        if p.get("caseRetry") is not None:      # 单次 run 覆盖任务快照的复跑次数
+            retry = _to_int(p, "caseRetry")
+            if retry < 0 or retry > 3:
+                raise RpcError(INVALID_PARAMS, "caseRetry 需为 0..3")
+            run_cfg["case_retry"] = retry
+
         if not self._interaction_lock.acquire(blocking=False):
             raise RpcError(INVALID_PARAMS, "自动化探索正在操作界面，请稍后再执行测试")
         try:
-            run_cfg: dict = {}
-            if p.get("mode"):
-                run_cfg["mode"] = p["mode"]
-            if p.get("caseRetry") is not None:      # 单次 run 覆盖任务快照的复跑次数
-                run_cfg["case_retry"] = _to_int(p, "caseRetry")
             return self._orch.run_task(task_id, run_cfg or None,
                                        writeback=bool(p.get("writeback", True)))
         finally:
