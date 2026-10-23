@@ -149,6 +149,39 @@ EDITABLE: dict[str, dict] = {
         "type": "integer", "default": 60, "min": 5, "max": 600,
         "label": "请求超时（秒）",
     },
+    # Agent Runtime（所有工具实际执行仍走主 RPC）
+    "agent.pi.executable": {
+        "type": "string", "default": "pi", "label": "Pi 可执行文件",
+        "hint": "默认 pi；也可填写绝对路径。Agent 内置文件/shell 工具会被禁用",
+    },
+    "agent.pi.provider": {
+        "type": "string", "default": "", "label": "Pi Provider",
+        "hint": "留空使用 Pi 自身默认配置",
+    },
+    "agent.pi.model": {
+        "type": "string", "default": "", "label": "Pi 模型",
+        "hint": "留空使用 Pi 自身默认配置",
+    },
+    "agent.pi.timeout_s": {
+        "type": "integer", "default": 300, "min": 10, "max": 3600,
+        "label": "Agent 流程总超时（秒）",
+    },
+    # SVN
+    "svn.executable": {
+        "type": "string", "default": "svn", "label": "SVN 可执行文件",
+    },
+    "svn.working_copy": {
+        "type": "string", "default": "", "label": "默认 SVN 工作副本",
+        "hint": "变更分析默认目录；生成页可单次覆盖",
+    },
+    "svn.timeout_s": {
+        "type": "integer", "default": 30, "min": 5, "max": 600,
+        "label": "SVN 命令超时（秒）",
+    },
+    "svn.max_output_chars": {
+        "type": "integer", "default": 800000, "min": 10000, "max": 5000000,
+        "label": "SVN diff 最大字符数",
+    },
     # 禅道
     "zentao.api_version": {
         "type": "enum", "default": "v1", "enum": ["v1"],
@@ -243,6 +276,12 @@ GROUPS: list[tuple[str, str, list[str]]] = [
     ("对话模型", "用例解析与失败归因（内网部署）",
      ["llm.model", "llm.api_base", "llm.temperature", "llm.max_tokens",
       "llm.timeout_s"]),
+    ("Agent Runtime", "需要代码库浏览/多轮工具调用的流程统一使用 Pi；工具执行由主 RPC 承担",
+     ["agent.pi.executable", "agent.pi.provider", "agent.pi.model",
+      "agent.pi.timeout_s"]),
+    ("SVN 变更分析", "SVN 修改级联生成测试用例；Agent 只读分析，主进程执行工具",
+     ["svn.executable", "svn.working_copy", "svn.timeout_s",
+      "svn.max_output_chars"]),
     ("禅道", "用例来源与任务回写（含凭据）",
      ["zentao.api_version", "zentao.build", "zentao.base_url", "zentao.account", "zentao.password",
       "zentao.product_id", "zentao.sync_interval_min", "zentao.create_task"]),
