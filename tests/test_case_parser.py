@@ -150,6 +150,21 @@ def test_sync_with_parse_reparses_stale_only(svc, fake_zentao, fake_llm, db_conn
     assert repos.get_case(db_conn, "TC-1")["status"] == "draft"   # 重解析后待复审
 
 
+def test_zentao_sync_parse_does_not_consume_local_svn_drafts(
+        svc, db_conn, fake_llm):
+    repos.create_case(
+        db_conn, case_id="SVN-WC-LOCAL-01", zentao_case_id=None,
+        title="本地 SVN Agent 用例",
+        raw={"source": "svn_agent", "steps_text": "1. 本地步骤", "product": None},
+        zentao_updated_at=None)
+    svc.pull([1])
+
+    out = svc.sync(product_id=1, parse=True)
+    assert out["parse"]["parsed"] >= 1
+    parsed_ids = {call["case_id"] for call in fake_llm.parse_calls}
+    assert "SVN-WC-LOCAL-01" not in parsed_ids
+
+
 def test_pull_with_parse(svc, db_conn):
     out = svc.pull([1], parse=True)
     assert out["parse"]["parsed"] == 1
