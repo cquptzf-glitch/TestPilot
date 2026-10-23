@@ -24,6 +24,7 @@ import { Toaster } from './components/Ui';
 import { useEngine, useRoute, navigate, useEngineEvents } from './hooks';
 import { ensureTheme, toggleTheme } from './theme';
 import { CasesPage } from './pages/CasesPage';
+import { ChangeAnalysisPage } from './pages/ChangeAnalysisPage';
 import { DslReviewPage } from './pages/DslReviewPage';
 import { KBReviewPage } from './pages/KBReviewPage';
 import { RunDetailPage } from './pages/RunDetailPage';
@@ -46,7 +47,9 @@ export default function App() {
   const route = useRoute();
   const engine = useEngine();
   const page = route.page;
-  const section = page === 'overview' ? 'home' : page === 'dsl' ? 'cases' : ['run', 'tasks'].includes(page) ? 'runs' : page;
+  const section = page === 'overview' ? 'home'
+    : ['dsl', 'changes'].includes(page) ? 'cases'
+    : ['run', 'tasks'].includes(page) ? 'runs' : page;
   const [running, setRunning] = useState<number | null>(null);
   const [stopping, setStopping] = useState(false);
   useEffect(() => {
@@ -125,7 +128,11 @@ export default function App() {
           </div>
         </header>
         {running && <div className="execution-bar" role="status"><span className="pulse-dot" /><strong>测试 #{running} 正在执行</strong><span className="spacer" /><button className="btn" onClick={() => navigate('run', { runId: running })}>查看进度</button><button className="btn danger" disabled={stopping} onClick={() => void stop()}>{stopping ? '正在停止…' : '停止执行'}</button></div>}
-        {section === 'cases' && <div className="section-tabs"><a className={page === 'cases' ? 'on' : ''} href="#/cases">用例库</a><a className={page === 'dsl' ? 'on' : ''} href="#/dsl">审核与编辑</a></div>}
+        {section === 'cases' && <div className="section-tabs">
+          <a className={page === 'cases' ? 'on' : ''} href="#/cases">用例库</a>
+          <a className={page === 'changes' ? 'on' : ''} href="#/changes">SVN 变更生成</a>
+          <a className={page === 'dsl' ? 'on' : ''} href="#/dsl">审核与编辑</a>
+        </div>}
         {section === 'runs' && page !== 'run' && <div className="section-tabs"><a className={page === 'runs' ? 'on' : ''} href="#/runs">执行记录</a><a className={page === 'tasks' ? 'on' : ''} href="#/tasks">任务管理</a></div>}
         <CaseJobsPanel compact={page === 'home'} />
         {page === 'home' && <WorkflowPage key={route.params.get('selection') ?? 'default'} selection={route.params.get('selection') ?? undefined} running={running} />}
@@ -133,6 +140,7 @@ export default function App() {
         {page === 'overview' && <HomePage />}
 
       {page === 'cases' && <CasesPage selection={route.params.get('selection') ?? undefined} />}
+      {page === 'changes' && <ChangeAnalysisPage />}
       {page === 'suites' && <SuitesPage />}
       {page === 'runs' && <RunsPage />}
       {page === 'run' && (runId > 0
