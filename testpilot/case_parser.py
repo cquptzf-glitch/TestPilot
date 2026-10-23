@@ -349,6 +349,9 @@ class CaseService:
 
     def export_case(self, case_id: str, fmt: str = "json") -> str:
         """导出 DSL（json/yaml），供人工编辑后再导入。"""
+        fmt = str(fmt or "json").lower()
+        if fmt not in ("json", "yaml"):
+            raise TestPilotError("DSL format 仅支持 json/yaml")
         row = repos.get_case(self.conn, case_id)
         if row is None:
             raise TestPilotError(f"本地不存在该用例: {case_id}")
@@ -365,13 +368,24 @@ class CaseService:
 
     def import_draft(self, text: str, fmt: str = "json",
                      case_id: str | None = None) -> dict:
-        """导入人工编辑后的 DSL 草稿；结构与校验由 pydantic 兜底。"""
-        data = loads(text, fmt)
+        """导入人工编辑后的 DSL 草稿；语法/结构错误统一转为可读业务错误。"""
+        fmt = str(fmt or "json").lower()
+        if fmt not in ("json", "yaml"):
+            raise TestPilotError("DSL format 仅支持 json/yaml")
+        if not isinstance(text, str) or not text.strip():
+            raise TestPilotError("DSL 文本不能为空")
+        try:
+            data = loads(text, fmt)
+        except Exception as e:
+            raise TestPilotError(f"DSL {fmt} 解析失败: {e}") from e
         if not isinstance(data, dict):
             raise TestPilotError("DSL 文件顶层必须是对象")
         if case_id:
             data["case_id"] = case_id
-        case: TestCase = TestCase.model_validate(data)
+        try:
+            case: TestCase = TestCase.model_validate(data)
+        except Exception as e:
+            raise TestPilotError(f"DSL 结构校验失败: {e}") from e
 
         if repos.get_case(self.conn, case.case_id) is None:
             repos.create_case(self.conn, case_id=case.case_id,
