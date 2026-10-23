@@ -305,11 +305,16 @@ class Executor:
 
         primary = step.target.primary
         fallback = step.target.fallback
+        capable = 0
         for driver_name in plan.attempts:
             drv = self.drivers.get(driver_name)
             if drv is None:
                 continue
-            self._require(drv, "wait_gone")
+            caps = getattr(getattr(drv, "manifest", None), "capabilities", None)
+            if caps is not None and "wait_gone" not in caps:
+                log.info(f"驱动 {driver_name} 不支持 wait_gone，跳过")
+                continue
+            capable += 1
             loc = primary
             if driver_name != "uia" and fallback is not None \
                     and fallback.type in ("visual", "template"):
@@ -344,8 +349,14 @@ class Executor:
             res.status = FAIL
             return res
         res.driver_chain = chain
-        res.error = {"type": "locate_timeout",
-                     "message": f"无可用的 wait_gone 驱动: {step.target.key}"}
+        res.error = {
+            "type": "capability_missing" if capable == 0 else "locate_timeout",
+            "message": (
+                f"当前驱动均不支持 wait_gone: {step.target.key}"
+                if capable == 0
+                else f"无可用的 wait_gone 驱动: {step.target.key}"
+            ),
+        }
         res.status = FAIL
         return res
 
