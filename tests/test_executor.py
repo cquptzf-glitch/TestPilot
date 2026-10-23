@@ -400,6 +400,45 @@ def test_app_launch_without_uia_driver_fails(env):
     assert result.steps[0].error["type"] == "app_error"
 
 
+def test_wait_gone_skips_driver_without_capability(env):
+    env.cfg["driver"]["mode"] = "vision_first"
+    env.drivers = {
+        "vision": FakeDriver("vision", capabilities={"click", "grab"}),
+        "uia": FakeDriver("uia"),
+    }
+    env.rebuild()
+    case = make_case("TC-1", steps=[
+        make_step(
+            id="s1",
+            action="ui.wait",
+            args={"state": "gone"},
+        ),
+    ])
+    _, _, ctx = _start(env, case)
+    result = env.executor.run_case(case, ctx, None)
+
+    assert result.status == "pass"
+    assert result.steps[0].driver == "uia"
+    assert env.drivers["vision"].locate_calls == 0
+    assert len(env.drivers["uia"].waited_gone) == 1
+
+
+def test_wait_gone_reports_missing_capability_without_crashing_case(env):
+    env.cfg["driver"]["mode"] = "vision_only"
+    env.drivers = {
+        "vision": FakeDriver("vision", capabilities={"click", "grab"}),
+    }
+    env.rebuild()
+    case = make_case("TC-1", steps=[
+        make_step(id="s1", action="ui.wait", args={"state": "gone"}),
+    ])
+    _, _, ctx = _start(env, case)
+    result = env.executor.run_case(case, ctx, None)
+
+    assert result.status == "fail"
+    assert result.steps[0].error["type"] == "capability_missing"
+
+
 def test_right_click_action_reaches_driver(env):
     env.cfg["driver"]["mode"] = "uia_only"
     env.rebuild()
