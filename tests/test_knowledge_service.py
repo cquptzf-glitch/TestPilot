@@ -34,6 +34,14 @@ def test_save_and_exact_match_increments_hits(mem_conn):
     assert hits == 1
 
 
+def test_confirm_rejects_missing_entry(mem_conn):
+    kb = KnowledgeService(mem_conn, {})
+    import pytest
+
+    with pytest.raises(ValueError, match="不存在"):
+        kb.confirm(999999, "active")
+
+
 def test_pending_entry_is_not_matched(mem_conn):
     kb = KnowledgeService(mem_conn, {})
     sig = FailureSignature("verify_failed", "ui.click", "btn.a", "main")
