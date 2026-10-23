@@ -69,6 +69,7 @@
 | AG-105 | P1 | DONE | 桌面 SVN 变更工作流 | 新增“用例与审核 → SVN 变更生成”页：预览变更、revision 范围、最大用例数、Agent 生成、DSL 审核跳转。 |
 | AG-106 | P1 | DONE | Agent/SVN 单测与 CI | revision/path 越权、RPC capability、输出 schema、来源追踪、上下文预算、Pi CLI 兼容均有回归；Actions run 39884433953：Python unit+ruff / Desktop build 全绿。 |
 | AG-107 | P1 | DONE | Agent 最小权限与 Pi 兼容硬化 | 工具白名单 fail-closed；空列表=0 工具；Pi flags 按 --help 选择安全兼容项；Node 20.10/21 才注入原生 WebSocket 实验开关，22+不注入。 |
+| AG-108 | P1 | DONE | SVN Agent 生成幂等 | 相同 SVN 变更 + 相同测试语义按稳定 fingerprint 复用已有 case；同一 Agent 回合重复 intent 主进程直接去重，避免 -2/-3 重复草稿。Actions run 39885272988 全绿。 |
 
 ## 环境验证项（当前不阻塞功能开发）
 
