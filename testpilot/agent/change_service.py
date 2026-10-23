@@ -10,10 +10,10 @@ import hashlib
 import json
 import re
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from testpilot.adapters.svn_adapter import SvnAdapter
 from testpilot.adapters.zentao_adapter import steps_to_text
@@ -29,12 +29,30 @@ class GeneratedStep(BaseModel):
 class GeneratedCase(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     priority: Literal["P0", "P1", "P2", "P3"] = "P1"
-    category: str = Field(default="regression", max_length=80)
+    category: Literal[
+        "regression", "boundary", "error", "compatibility",
+        "integration", "performance", "security",
+    ] = "regression"
     rationale: str = Field(default="", max_length=4000)
     preconditions: list[str] = Field(default_factory=list, max_length=30)
     steps: list[GeneratedStep] = Field(min_length=1, max_length=50)
     source_files: list[str] = Field(default_factory=list, max_length=50)
     related_case_ids: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator("source_files")
+    @classmethod
+    def _source_files_are_workspace_relative(cls, values: list[str]) -> list[str]:
+        out = []
+        for raw in values:
+            text = str(raw or "").strip().replace("\\", "/")
+            if not text:
+                continue
+            path = PurePosixPath(text)
+            if text.startswith("/") or re.match(r"^[A-Za-z]:/", text) or ".." in path.parts:
+                raise ValueError(f"source_files 必须是工作副本内相对路径: {raw!r}")
+            if text not in out:
+                out.append(text)
+        return out
 
 
 class ChangeAnalysis(BaseModel):
@@ -190,7 +208,17 @@ class ChangeAnalysisService:
 
 
 def _build_prompt(snapshot: dict, *, max_cases: int) -> str:
-    changed = snapshot.get("changed") or snapshot.get("working_status") or []
+    # Working-copy analysis needs both tracked diff entries and unversioned/status-only
+    # paths. De-duplicate by path so a modified tracked file doesn't appear twice.
+    changed = []
+    seen = set()
+    for item in [*(snapshot.get("changed") or []),
+                 *(snapshot.get("working_status") or [])]:
+        path = str(item.get("path") or "")
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        changed.append(item)
     changed_text = "\n".join(
         f"- {item.get('status') or item.get('item')}: {item.get('path')}"
         for item in changed[:200])
