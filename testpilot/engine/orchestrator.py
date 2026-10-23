@@ -501,7 +501,10 @@ class TaskOrchestrator:
 
         zid = task.get("zentao_task_id")
         if not zid:
-            return "local_only"
+            # 区分“本来就是本地任务”和“用户要求远端，但创建仍待补偿”。
+            # 两者都没有远端 ID，但报告/RunDetail 的语义完全不同。
+            return "sync_pending" if task.get("sync_status") == "sync_pending" \
+                else "local_only"
         if stats.get("status") != "completed":
             return "not_completed"
         try:
