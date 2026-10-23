@@ -777,6 +777,19 @@ def test_kb_flow(svc):
     assert service.dispatch("kb.pending", {})["entries"] == []
 
 
+@pytest.mark.parametrize(("method", "entry_id"), [
+    ("kb.confirm", 999999),
+    ("kb.reject", 999999),
+    ("kb.confirm", 0),
+    ("kb.reject", True),
+])
+def test_kb_review_rejects_missing_or_invalid_entry(svc, method, entry_id):
+    service, _, _ = svc
+    with pytest.raises(RpcError) as exc:
+        service.dispatch(method, {"entryId": entry_id})
+    assert exc.value.code == INVALID_PARAMS
+
+
 def test_kb_reject(svc):
     service, orch, _ = svc
     from testpilot.knowledge.service import FailureKnowledge
