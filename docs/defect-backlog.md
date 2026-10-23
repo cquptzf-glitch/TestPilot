@@ -3,7 +3,7 @@
 > 更新时间：2026-10-23  
 > 当前策略：**先堆功能 + 单元测试/契约测试 + 前端编译门禁；暂不把真机 smoke 作为开发阻塞项。**  
 > 真机/UIA/DPI/干净机安装验证保留，但放到功能面稳定后集中执行。  
-> 最新代码门禁证据：GitHub Actions run 39947666563 / SHA dc67e6c34f277a54fedd0724022b11dfe76bf907 全绿（Desktop TypeScript/Vite、Ruff、全量 Pytest）。
+> 最新代码门禁证据：GitHub Actions run 39949392634 / SHA 91d8e3f49f7db37d3c91575275ba353ac1df0022 全绿（Desktop TypeScript/Vite、Ruff、全量 Pytest）。
 
 ## 状态约定
 
@@ -74,6 +74,7 @@
 | U-106 | P2 | DONE | 探索固化一键进入审核 | Automation 将“生成草稿 → 保存并进入审核”压成一个“固化并进入审核”主动作；每次固化都按当前历史/用例 ID/标题重新生成 DSL，避免导入过期预览草稿。草稿预览降为次操作，修改 ID/标题会清除旧预览。复用现有 RPC，无新增后端结构。Actions run 39941744599 / SHA 5b4cf53d5be599402d08982c27e8a6e98a1414e7 全绿。 |
 | U-107 | P2 | DONE | 审核完成直接进入开始测试 | 独立 DslReview 每次 accept 后基于最新 case.list + caseIsApproved 重新计算真实待审队列，修复“手动跳到最后一条即误判整批完成”；真正全部通过后携带原 selection 直接进入 Workflow，不再返回用例库重新选。最终动作文案同步显示“保存并通过，开始测试”。无新增 RPC/后端结构。Actions run 39943804776 / SHA a12ae4ae593b26d6bc3bc664ef4eb4fdb6047f78 全绿。 |
 | U-108 | P2 | DONE | 审核后直达执行前确认 | 独立审核完成后使用 selection + ready=1 直接进入 Workflow phase 3，省掉已选用例再次点“下一步”的重复确认；真正“开始执行”仍必须人工点击。ready 必须有显式 selection，且 Workflow 会重新校验 runnable / 被测窗口，状态不满足即退回选择页。嵌入审核正常路径自动推进，重复 footer 主按钮改为仅 runnable 时的异常恢复入口。仅 Desktop 路由/状态调整，无新增 RPC。Actions run 39947666563 / SHA dc67e6c34f277a54fedd0724022b11dfe76bf907 全绿。 |
+| U-109 | P1 | DONE | 执行异常恢复避免重复运行 | Workflow 不再把 task.run RPC 失败直接等同于“未执行”。执行前记录该 task 最近 run 作为恢复基线；失败后若检测到新 run（running/completed/error/aborted 均可）则优先“查看本次运行”，不直接重试；确认无新 run 才保留 task 并“重试已有任务”。同时提供“返回修改范围”，配置/范围变化会清掉旧错误恢复状态。恢复基于 run.list(taskId) 事实，不做错误字符串匹配。仅 Desktop 调整。Actions run 39949392634 / SHA 91d8e3f49f7db37d3c91575275ba353ac1df0022 全绿。 |
 
 ## 禅道 / Agent / SVN 专项
 
