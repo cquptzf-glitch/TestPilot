@@ -30,6 +30,7 @@ import hmac
 import re
 import threading
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as futures_wait
 
@@ -1208,11 +1209,26 @@ class RpcService:
 
     # ---------- 服务循环 ----------
 
-    def _agent_connection_scope(self, supplied: str) -> dict | None:
+    def _agent_connection_scope(self, supplied: str = "",
+                                request_path: str = "") -> dict | None:
+        """Resolve a short-lived Agent capability from header or WS query.
+
+        Desktop clients keep using the long-lived Bearer token. Pi extensions use the
+        browser-compatible WebSocket API, which cannot set custom headers, so the Agent
+        token is also accepted as the agent_token query on this loopback-only endpoint.
+        """
+        token = ""
         prefix = "Bearer "
-        if not isinstance(supplied, str) or not supplied.startswith(prefix):
+        if isinstance(supplied, str) and supplied.startswith(prefix):
+            token = supplied[len(prefix):]
+        if not token and request_path:
+            try:
+                values = parse_qs(urlsplit(str(request_path)).query).get("agent_token") or []
+                token = str(values[0]) if values else ""
+            except (TypeError, ValueError):
+                token = ""
+        if not token:
             return None
-        token = supplied[len(prefix):]
         with self._agent_tokens_lock:
             scope = self._agent_tokens.get(token)
             return dict(scope) if scope is not None else None
@@ -1227,7 +1243,9 @@ class RpcService:
             request = getattr(ws, "request", None)
             headers = getattr(request, "headers", None) or getattr(ws, "request_headers", {})
             supplied = headers.get("Authorization", "") if headers is not None else ""
-            agent_scope = self._agent_connection_scope(supplied)
+            request_path = (getattr(request, "path", None) or path
+                            or getattr(ws, "path", "") or "")
+            agent_scope = self._agent_connection_scope(supplied, request_path)
             if agent_scope is None:
                 self._subs.add(ws)
             lock = asyncio.Lock()
@@ -1265,10 +1283,11 @@ class RpcService:
             headers = getattr(request, "headers", request)
             origin = headers.get("Origin")
             supplied = headers.get("Authorization", "")
+            request_path = getattr(request, "path", "") or ""
             allowed = origin in (None, "tauri://localhost", "http://tauri.localhost",
                                  "https://tauri.localhost")
             main_ok = hmac.compare_digest(supplied, f"Bearer {self.token}")
-            agent_ok = self._agent_connection_scope(supplied) is not None
+            agent_ok = self._agent_connection_scope(supplied, request_path) is not None
             if allowed and (main_ok or agent_ok):
                 return None
             if hasattr(request, "headers"):
