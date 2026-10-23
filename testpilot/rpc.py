@@ -275,7 +275,7 @@ class RpcService:
         """
         orch = self._orch
         self._jobs.cancel_all()
-        abort = bool(p.get("abortRunning", True))
+        abort = _bool_param(p, "abortRunning", default=True)
         if abort:
             orch.abort()
         if self._loop is not None and self._stop is not None:
@@ -312,11 +312,14 @@ class RpcService:
 
     def _case_pull(self, p):
         ids = _to_int_list(p, "caseIds")
-        return self._orch.cases.pull(ids, parse=bool(p.get("parse")))
+        return self._orch.cases.pull(
+            ids, parse=_bool_param(p, "parse", default=False))
 
     def _case_sync(self, p):
         return self._orch.cases.sync(
-            p.get("productId"), parse=bool(p.get("parse")), full=bool(p.get("full")))
+            p.get("productId"),
+            parse=_bool_param(p, "parse", default=False),
+            full=_bool_param(p, "full", default=False))
 
     def _case_list(self, p):
         from testpilot.storage import repos
@@ -355,7 +358,8 @@ class RpcService:
                         f"appTarget.{key} 需为 1..{limit} 字符的非空字符串")
             if target.get("args") and not target.get("exe"):
                 raise RpcError(INVALID_PARAMS, "appTarget.args 只能与 exe 一起使用")
-        scopes = sum(("caseIds" in p, bool(p.get("allStale")), bool(p.get("caseId"))))
+        all_stale = _bool_param(p, "allStale", default=False)
+        scopes = sum(("caseIds" in p, all_stale, bool(p.get("caseId"))))
         if scopes != 1:
             raise RpcError(INVALID_PARAMS, "指定 caseId、caseIds 或 allStale 中的一项")
         if "caseIds" in p:
@@ -364,7 +368,7 @@ class RpcService:
                     or any(not isinstance(cid, str) or not cid.strip() for cid in ids)):
                 raise RpcError(INVALID_PARAMS, "caseIds 必须为 1–500 条非空用例 ID 字符串")
             return self._orch.cases.parse_many(ids, app_target=target)
-        if p.get("allStale"):
+        if all_stale:
             return self._orch.cases.parse_many(None, only_stale=True, app_target=target)
         return self._orch.cases.parse(_require(p, "caseId"), app_target=target)
 
@@ -435,8 +439,8 @@ class RpcService:
             "case_ids": p.get("caseIds") or [],
             "preconditions": p.get("preconditions"),
             "driver_config": p.get("driverConfig"),
-            "force": bool(p.get("force")),
-            "remote": p.get("remote"),
+            "force": _bool_param(p, "force", default=False),
+            "remote": _bool_param(p, "remote", default=None, allow_none=True),
             "product_id": p.get("productId"),
             "build": p.get("build"), "begin": p.get("begin"), "end": p.get("end"),
             "zentao_task_id": p.get("zentaoTaskId"),
@@ -460,11 +464,12 @@ class RpcService:
                 raise RpcError(INVALID_PARAMS, "caseRetry 需为 0..3")
             run_cfg["case_retry"] = retry
 
+        writeback = _bool_param(p, "writeback", default=True)
         if not self._interaction_lock.acquire(blocking=False):
             raise RpcError(INVALID_PARAMS, "自动化探索正在操作界面，请稍后再执行测试")
         try:
             return self._orch.run_task(task_id, run_cfg or None,
-                                       writeback=bool(p.get("writeback", True)))
+                                       writeback=writeback)
         finally:
             self._interaction_lock.release()
 
@@ -1064,7 +1069,7 @@ class RpcService:
         if glob.startswith("/") or ".." in Path(glob).parts:
             raise RpcError(INVALID_PARAMS, "Agent grep glob 非法")
         limit = _bounded_int(p, "limit", default=100, max_value=300)
-        use_regex = bool(p.get("regex"))
+        use_regex = _bool_param(p, "regex", default=False)
         try:
             pattern = re.compile(query, re.IGNORECASE) if use_regex else None
         except re.error as exc:
@@ -1416,6 +1421,26 @@ def _require(params: dict, key: str):
     value = params.get(key)
     if value is None or value == "":
         raise RpcError(INVALID_PARAMS, f"缺少必填参数: {key}")
+    return value
+
+
+def _bool_param(params: dict, key: str, *, default=False,
+                allow_none: bool = False):
+    """Strict JSON boolean parameter.
+
+    Strings such as "false" are truthy in Python and can accidentally enable
+    external side effects. Only actual JSON booleans are accepted. For tri-state
+    options such as task.remote, an omitted/null value can remain None so the
+    application-level configuration still supplies the default.
+    """
+    if key not in params or params.get(key) is None:
+        if allow_none:
+            return None
+        return bool(default)
+    value = params[key]
+    if not isinstance(value, bool):
+        raise RpcError(INVALID_PARAMS,
+                       f"参数 {key} 需为布尔值 true/false（得到 {value!r}）")
     return value
 
 
