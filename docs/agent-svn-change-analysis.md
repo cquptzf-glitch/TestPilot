@@ -54,7 +54,7 @@ Pi Agent
   │  Tool Call: tp_svn_diff / tp_read_file / tp_case_search ...
   ▼
 pi_rpc_tools.mjs
-  │  WebSocket JSON-RPC + scoped bearer token
+  │  WebSocket JSON-RPC + scoped capability token
   ▼
 TestPilot Main RPC
   ├─ agent.fs.*
@@ -70,7 +70,10 @@ TestPilot Main RPC
 
 Pi 不持有桌面主 RPC Token。
 
-每个 Agent 流程由主进程签发一个短生命周期 capability token，该 token：
+每个 Agent 流程由主进程签发一个短生命周期 capability token。Pi 的原生 WebSocket
+无法设置自定义 Authorization header，因此扩展使用本机回环 RPC URL 的
+`?agent_token=<ephemeral>`；主进程仍兼容 Bearer 形式，但两者最终映射到同一份
+workspace scope。该 token：
 
 - 只允许 `agent.*` 内部方法；
 - 绑定一个 canonical workspace；
@@ -87,7 +90,7 @@ Pi 不持有桌面主 RPC Token。
 | `tp_find_files` | `agent.fs.find` | 只读；工作区 glob；跳过 .svn/.git/node_modules |
 | `tp_grep` | `agent.fs.grep` | 只读；有文件数/命中数/单文件体积上限 |
 | `tp_svn_status` | `agent.svn.status` | 主进程执行 svn status |
-| `tp_svn_diff` | `agent.svn.diff` | 主进程执行受限 svn diff |
+| `tp_svn_diff` | `agent.svn.diff` | 主进程执行受限 svn diff；默认 120k 字符，硬上限 200k，超限后按文件分片读取 |
 | `tp_svn_log` | `agent.svn.log` | 主进程执行受限 svn log |
 | `tp_case_search` | `agent.case.search` | 只读查询已有本地用例 |
 | `tp_case_detail` | `agent.case.detail` | 只读读取单条用例原文/DSL |
@@ -183,17 +186,25 @@ SVN-<revision>-<signature>-NN
 
 Pi 采用 RPC 子进程，而不是嵌入 Node：
 
+Pi 各版本的禁用参数有演进，因此 TestPilot **不硬编码一组假定版本的 flags**，
+而是启动前读取 `pi --help`，组装当前版本能支持的最严格命令：
+
 ```text
-pi --mode rpc
-   --no-session
-   --no-builtin-tools
-   --no-mcp
-   --no-skills
-   --no-context-files
-   --no-prompt-templates
-   --no-extensions
-   -e testpilot/agent/pi_rpc_tools.mjs
+pi --mode rpc --no-session
+   [--no-builtin-tools | --no-tools]
+   [当前版本支持的 --no-mcp / --no-skills / --no-context-files / ...]
+   --extension testpilot/agent/pi_rpc_tools.mjs
 ```
+
+若当前 Pi 既不支持禁用内置工具，也不支持显式 extension，TestPilot 会拒绝启动，
+不会为了兼容而降级成“Agent 可直接读写本机”。
+
+`pi_rpc_tools.mjs` 不依赖 `undici/ws/node:fs/node:child_process`，只使用 Pi 提供的
+TypeBox 与运行时原生 WebSocket。Node 20.10~21 会按实际版本启用
+`--experimental-websocket`，Node 22+ 直接使用默认 WebSocket。
+
+工具白名单采用 **fail-closed**：只有 TestPilot 本次工作流显式传入的 `tp_*` 才注册；
+空白名单代表 0 个工具，而不是“注册全部工具”。
 
 TestPilot Python 主进程：
 
@@ -271,8 +282,11 @@ Agent 流程不能直接跑在普通 RPC 单线程 IO executor。
 - 工作区路径逃逸拒绝；
 - Agent 输出 schema 校验；
 - Agent 只得到 `tp_*` RPC proxy tools；
-- Pi runtime 必须包含 `--no-builtin-tools`；
-- extension 不得导入 `node:fs` / `node:child_process`；
+- Pi runtime 必须根据当前 CLI 选择 `--no-builtin-tools` 或 `--no-tools`，无法安全禁用时拒绝启动；
+- extension 不得导入 `node:fs` / `node:child_process` / `undici` / `ws`；
+- Agent 工具白名单为空时必须注册 0 个工具；
+- Node WebSocket flag 必须按版本启用，不能污染 Node 22+；
+- SVN diff Agent 上下文有独立 120k/200k 预算；
 - scoped Agent RPC 不能调用非 `agent.*` 方法；
 - Agent 不能直接写 executable DSL / active case；
 - SVN 生成结果的来源追踪入库。
@@ -283,3 +297,15 @@ Agent 流程不能直接跑在普通 RPC 单线程 IO executor。
 - 实际 Pi provider/model；
 - 大 revision diff 的上下文与耗时；
 - 真实项目级级联影响召回率。
+
+
+## 9. 当前自动验证证据
+
+GitHub Actions run `39884433953`（代码基线 `4f287f7ad06538804b282c89c778702a30d2f639`）：
+
+- Windows Python install：success；
+- Ruff：success；
+- 全量 Pytest：success；
+- Desktop TypeScript + Vite build：success。
+
+真实公司 SVN、真实 Pi provider/model、真实大仓库级联影响质量仍属于 ENV 验证，不作为当前功能开发阻塞项。
