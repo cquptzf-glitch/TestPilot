@@ -800,6 +800,33 @@ def test_kb_reject(svc):
     assert service.dispatch("kb.reject", {"entryId": entry_id})["status"] == "rejected"
 
 
+@pytest.mark.parametrize(("method", "params"), [
+    ("dsl.save", {
+        "text": '{"case_id":"TC-X","steps":[}',
+        "format": "json",
+    }),
+    ("dsl.save", {
+        "text": '{"case_id":"TC-X","steps":[]}',
+        "format": "xml",
+    }),
+    ("dsl.reject", {"caseId": "TC-NOT-FOUND"}),
+    ("kb.setDisposition", {
+        "entryId": 999999,
+        "disposition": "retry_ready",
+    }),
+    ("kb.caseCtxSave", {
+        "caseId": "TC-NOT-FOUND",
+        "payload": {"notes": "x"},
+    }),
+    ("kb.caseCtxDelete", {"caseId": "TC-NOT-FOUND"}),
+])
+def test_human_review_input_errors_are_invalid_params(svc, method, params):
+    service, _, _ = svc
+    with pytest.raises(RpcError) as exc:
+        service.dispatch(method, params)
+    assert exc.value.code == INVALID_PARAMS
+
+
 def test_dsl_review_save_accept_reject(svc):
     service, orch, _ = svc
     orch.cases.pull([1])                       # 新增草稿 TC-1 不变，另建草稿用例
