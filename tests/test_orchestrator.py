@@ -130,6 +130,24 @@ def test_create_task_rejects_malformed_collection_inputs(orch):
         })
 
 
+def test_create_task_rejects_unsafe_ids_and_boolean_flags(orch):
+    bad_specs = [
+        {"name": "bool-suite", "suite_id": True, "case_ids": []},
+        {"name": "float-suite", "suite_id": 1.0, "case_ids": []},
+        {"name": "zero-suite", "suite_id": 0, "case_ids": []},
+        {"name": "bad-force", "case_ids": ["TC-1"], "force": "false"},
+        {"name": "bad-remote", "case_ids": ["TC-1"], "remote": "false"},
+        {
+            "name": "bad-remote-id",
+            "case_ids": ["TC-1"],
+            "zentao_task_id": True,
+        },
+    ]
+    for spec in bad_specs:
+        with pytest.raises(TestPilotError):
+            orch.create_task(spec)
+
+
 def test_create_task_rejects_ambiguous_scope_and_dedupes_direct_cases(orch, db_conn):
     suite = orch.suites.create("范围方案", ["TC-1"])
     with pytest.raises(TestPilotError, match="只能指定一种"):
