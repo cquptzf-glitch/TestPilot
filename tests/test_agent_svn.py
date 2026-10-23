@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from testpilot.adapters.svn_adapter import SvnAdapter, _revision_args
-from testpilot.agent.change_service import ChangeAnalysisService, _parse_analysis
+from testpilot.agent.change_service import ChangeAnalysisService, _build_prompt, _parse_analysis
 from testpilot.agent.pi_runtime import PiAgentRuntime
 from testpilot.case_parser import CaseService
 from testpilot.core.errors import AgentError, SvnError
@@ -157,6 +157,34 @@ def test_change_service_rejects_invalid_agent_output():
         _parse_analysis("not json", max_cases=20)
 
 
+def test_change_service_rejects_unbounded_agent_metadata():
+    bad_category = json.loads(_agent_json())
+    bad_category["cases"][0]["category"] = "whatever"
+    with pytest.raises(AgentError, match="输出结构无效"):
+        _parse_analysis(json.dumps(bad_category), max_cases=20)
+
+    escaped_path = json.loads(_agent_json())
+    escaped_path["cases"][0]["source_files"] = ["../outside.cpp"]
+    with pytest.raises(AgentError, match="输出结构无效"):
+        _parse_analysis(json.dumps(escaped_path), max_cases=20)
+
+
+def test_change_prompt_merges_tracked_and_status_only_paths():
+    prompt = _build_prompt({
+        "working_copy": "D:/wc",
+        "from_revision": None,
+        "to_revision": None,
+        "changed": [{"status": "M", "path": "src/a.cpp"}],
+        "working_status": [
+            {"item": "modified", "path": "src/a.cpp"},
+            {"item": "unversioned", "path": "src/new.cpp"},
+        ],
+    }, max_cases=5)
+    assert prompt.count("src/a.cpp") == 1
+    assert "src/new.cpp" in prompt
+    assert "unversioned" in prompt
+
+
 def test_pi_runtime_builds_only_supported_safe_flags(tmp_path):
     extension = tmp_path / "tool.mjs"
     extension.write_text("export default () => {}", encoding="utf-8")
@@ -193,6 +221,7 @@ def test_pi_runtime_builds_only_supported_safe_flags(tmp_path):
     with pytest.raises(AgentError, match="不支持禁用内置工具"):
         runtime._command("pi", extension)
 
+
 def test_pi_extension_has_no_native_file_or_shell_tools():
     source = (Path(__file__).resolve().parents[1]
               / "testpilot" / "agent" / "pi_rpc_tools.mjs").read_text(encoding="utf-8")
@@ -209,6 +238,22 @@ def test_pi_extension_has_no_native_file_or_shell_tools():
                / "testpilot" / "agent" / "pi_runtime.py").read_text(encoding="utf-8")
     assert '"--no-builtin-tools"' in runtime
     assert '"--no-mcp"' in runtime
+
+
+def test_agent_svn_diff_enforces_model_context_cap(tmp_path, rpc_svc, monkeypatch):
+    captured = {}
+
+    def fake_diff(_self, _working_copy, **kwargs):
+        captured.update(kwargs)
+        return {"text": "", "truncated": False, "chars": 0, "paths": []}
+
+    monkeypatch.setattr(SvnAdapter, "diff", fake_diff)
+    out = rpc_svc.dispatch("agent.svn.diff", {
+        "_agentScope": {"workspace": str(tmp_path.resolve())},
+        "max_chars": 999_999,
+    })
+    assert captured["max_chars"] == 200_000
+    assert out["agent_limit_chars"] == 200_000
 
 
 def test_agent_rpc_scope_allows_only_agent_methods_and_workspace(tmp_path, rpc_svc):
