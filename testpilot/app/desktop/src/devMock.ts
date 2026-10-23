@@ -19,6 +19,8 @@ const HEALTH: EngineHealth = {
     vision: { ok: true, detail: 'opencv 4.10；VLM 未装配（仅 L1 模板可用）' },
   },
   zentao: { configured: true },
+  agent: { ok: true, detail: 'pi 0.52.12 · RPC-only tools' },
+  svn: { ok: true, detail: '1.14.5' },
   emulator: { connected: true },
   dpi: {
     aware: true, scale: 1.5, space: 'physical', resolution: '2560x1440',
@@ -45,12 +47,13 @@ const METRICS: ShellMetrics = {
 // ---------------------------------------------------------------- 可变存储
 
 interface MockCase {
-  case_id: string; zentao_case_id: number; title: string; version: number;
+  case_id: string; zentao_case_id: number | null; title: string; version: number;
   status: string; sync_status: string; steps: unknown[]; updated_at: string;
   last_synced_at: string; module_id: number; module_name: string;
   source_text?: string; preconditions?: string[];
 }
 
+let mockZentaoSyncedAt = '2026-09-12 09:00:00';
 let suiteSeq = 3;
 let taskSeq = 4;
 let runSeq = 43;
@@ -290,6 +293,47 @@ async function runMockJob(job: MockJob, params: Record<string, unknown>): Promis
         catch (e) { result.failed.push({ case_id: id, error: String(e) }); }
         job.progress.completed = result.parsed + result.failed.length;
       }
+    } else if (job.method === 'change.svn.generate') {
+      job.progress = { phase: 'snapshot', changed: 3, working: 0 };
+      await new Promise(resolve => setTimeout(resolve, 350));
+      job.progress = { phase: 'agent_tool', tool: 'tp_svn_diff', tool_calls: 1, events: 4 };
+      await new Promise(resolve => setTimeout(resolve, 350));
+      job.progress = { phase: 'agent_tool', tool: 'tp_grep', tool_calls: 2, events: 9 };
+      await new Promise(resolve => setTimeout(resolve, 350));
+      const ids = ['SVN-WC-START-01', 'SVN-WC-RESULT-02'];
+      const titles = ['开始检测状态机变更回归', '结果计算边界与异常传播'];
+      ids.forEach((id, index) => {
+        if (CASES.some(c => c.case_id === id)) return;
+        CASES.push({
+          case_id: id, zentao_case_id: null, title: titles[index],
+          version: 0, status: 'draft', sync_status: 'synced',
+          steps: params.parse ? structuredClone(CASES[0].steps) : [],
+          updated_at: now(), last_synced_at: now(), module_id: 0, module_name: '',
+          source_text: index === 0
+            ? '1. 配置样本并启动检测 [期望: 状态进入检测中]\n2. 等待完成 [期望: 状态为已完成]'
+            : '1. 输入边界样本 [期望: 结果计算正确]\n2. 模拟异常 [期望: 明确提示且可恢复]',
+        });
+      });
+      const parse = params.parse ? {
+        total: ids.length, parsed: ids.length,
+        items: ids.map(id => ({ case_id: id, step_count: 3, uncertain_steps: [] })),
+        failed: [],
+      } : {};
+      job.result = {
+        source: 'svn_agent',
+        summary: '检测状态机与结果计算逻辑发生修改，需要覆盖直接行为、异常路径与级联影响。',
+        impacted_modules: ['检测流程', '结果计算'],
+        risks: ['状态切换时序变化', '异常传播影响结果展示'],
+        snapshot: await rpc('change.svn.preview', params),
+        cases: ids.map((id, index) => ({
+          case_id: id, title: titles[index], priority: index === 0 ? 'P0' : 'P1',
+          category: index === 0 ? 'regression' : 'boundary',
+          source_files: index === 0 ? ['src/RunController.cpp'] : ['src/ResultCalculator.cpp'],
+          related_case_ids: index === 0 ? ['TC-1024'] : [],
+        })),
+        created: ids.length, parse,
+        agent: { runtime: 'pi', tool_calls: 4, elapsed_ms: 1260 },
+      };
     } else {
       job.result = await rpc(job.method, params);
     }
@@ -815,7 +859,8 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
     case 'job.start': {
       if (mockJobs.some(j => j.status === 'queued' || j.status === 'running')) throw new Error('已有用例后台任务');
       const method = String(params.method);
-      if (!['case.pull', 'case.sync', 'case.parse'].includes(method)) throw new Error('不支持的后台任务');
+      if (!['case.pull', 'case.sync', 'case.parse', 'change.svn.generate'].includes(method))
+        throw new Error('不支持的后台任务');
       const job: MockJob = { id: `preview-${Date.now()}`, method, status: 'queued', progress: {} };
       mockJobs.unshift(job); mockJobs.splice(100);
       setTimeout(() => void runMockJob(job, (params.params ?? {}) as Record<string, unknown>), 0);
@@ -943,7 +988,10 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
       }
       return s ?? {};
     }
-    case 'case.list': return { cases: CASES };
+    case 'case.list': return { cases: CASES, sync_state: {
+      source: 'zentao', scope: '1', watermark: '2026-09-12T08:30:00',
+      synced_at: mockZentaoSyncedAt, detail: { scanned: 0 },
+    } };
     case 'case.detail': {
       const c = CASES.find((x) => x.case_id === params.caseId) ?? CASES[0];
       return { ...c, uncertain_steps: [], step_count: c.steps.length,
@@ -1009,11 +1057,41 @@ async function rpc(method: string, params: Record<string, unknown>): Promise<unk
                cases: created, parse };
     }
     case 'case.sync': {
-      const n = Math.min(CASES.length, 2);
-      for (const c of CASES.slice(0, n)) c.last_synced_at = now();
+      mockZentaoSyncedAt = now();
+      const full = !!params.full;
+      const n = full ? CASES.filter(c => c.zentao_case_id != null).length : 0;
+      if (full) {
+        for (const item of CASES.filter(c => c.zentao_case_id != null)) {
+          item.last_synced_at = mockZentaoSyncedAt;
+        }
+      }
       const parse = params.parse ? await rpc('case.parse', { allStale: true }) : undefined;
-      return { scanned: CASES.length, unchanged: n, new: 0, stale: 0, conflict: 0, parse };
+      return {
+        scanned: n, unchanged: n, new: 0, stale: 0, conflict: 0, parse,
+        since: full ? null : '2026-09-12T08:30:00', full,
+        sync_state: { source: 'zentao', scope: '1',
+          watermark: '2026-09-12T08:30:00', synced_at: mockZentaoSyncedAt,
+          detail: { scanned: n, full } },
+      };
     }
+    case 'change.svn.preview':
+      return {
+        working_copy: String(params.workingCopy || 'D:/work/Analyzer'),
+        from_revision: params.fromRevision ?? null,
+        to_revision: params.toRevision ?? null,
+        info: {
+          revision: '1528',
+          url: 'https://svn.example.com/product/trunk',
+          repository_root: 'https://svn.example.com/product',
+          repository_uuid: 'demo-uuid',
+        },
+        changed: [
+          { status: 'M', path: 'src/RunController.cpp' },
+          { status: 'M', path: 'src/ResultCalculator.cpp' },
+          { status: 'M', path: 'ui/MainWindow.cpp' },
+        ],
+        working_status: [],
+      };
     case 'kb.caseCtxSave': {
       const cid = String(params.caseId);
       const found = KB_CTX.find((x) => x.case_id === cid);
