@@ -157,6 +157,8 @@ export function AutomationPage() {
     () => elements.find((item) => item.element_index === selectedIndex) ?? null,
     [elements, selectedIndex],
   );
+  const canQuery = !!query.trim() || !!controlType.trim();
+  const hasVisualLocator = !!visualDesc.trim() || !!visualTemplate.trim();
 
   const highlight = useMemo(() => {
     if (queryResult || !observation) return null;
@@ -869,7 +871,8 @@ export function AutomationPage() {
                  onKeyDown={(e) => { if (e.key === 'Enter') void doQuery(); }} />
           <input value={controlType} onChange={(e) => setControlType(e.target.value)}
                  placeholder="控件类型，如 Button" />
-          <button className="btn" disabled={!!busy} onClick={() => void doQuery()}>查询</button>
+          <button className="btn" disabled={!!busy || !canQuery}
+                  onClick={() => void doQuery()}>查询</button>
           <label className="automation-filter-check">
             <input type="checkbox" checked={actionableOnly}
                    onChange={(e) => setActionableOnly(e.target.checked)} />
@@ -1071,11 +1074,11 @@ export function AutomationPage() {
                  placeholder="可空" />
         </label>
         <div className="automation-action-grid primary">
-          <button className="btn" disabled={!!busy}
+          <button className="btn" disabled={!!busy || !hasVisualLocator}
                   onClick={() => void visualAction('ui.locate')}>定位</button>
-          <button className="btn primary" disabled={!!busy}
+          <button className="btn primary" disabled={!!busy || !hasVisualLocator}
                   onClick={() => void visualAction('ui.click')}>点击</button>
-          <button className="btn" disabled={!!busy || !actionValue}
+          <button className="btn" disabled={!!busy || !hasVisualLocator || !actionValue}
                   onClick={() => void visualAction('ui.input')}>输入</button>
         </div>
         <details className="automation-advanced">
@@ -1109,7 +1112,8 @@ export function AutomationPage() {
                      aria-label="视觉动作画面变化阈值" />
             </div>
             <div className="automation-secondary-actions">
-              <button className="btn" disabled={!!busy || !toolNames.has('ui.right_click')}
+              <button className="btn"
+                      disabled={!!busy || !hasVisualLocator || !toolNames.has('ui.right_click')}
                       onClick={() => void visualAction('ui.right_click')}>右键</button>
             </div>
             <div className="automation-gesture-controls compact">
@@ -1122,14 +1126,15 @@ export function AutomationPage() {
               </label>
               <label>格数<input type="number" min={1} max={20} value={scrollAmount}
                 onChange={(e) => setScrollAmount(Number(e.target.value))} /></label>
-              <button className="btn" disabled={!!busy || !toolNames.has('ui.scroll')}
+              <button className="btn"
+                disabled={!!busy || !hasVisualLocator || !toolNames.has('ui.scroll')}
                 onClick={() => void visualAction('ui.scroll')}>滚动</button>
               <label>拖 X<input type="number" value={dragDx}
                 onChange={(e) => setDragDx(Number(e.target.value))} /></label>
               <label>Y<input type="number" value={dragDy}
                 onChange={(e) => setDragDy(Number(e.target.value))} /></label>
-              <button className="btn" disabled={!!busy || !toolNames.has('ui.drag')
-                    || (dragDx === 0 && dragDy === 0)}
+              <button className="btn" disabled={!!busy || !hasVisualLocator
+                    || !toolNames.has('ui.drag') || (dragDx === 0 && dragDy === 0)}
                 onClick={() => void visualAction('ui.drag')}>拖拽</button>
             </div>
           </div>
