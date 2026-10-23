@@ -91,6 +91,12 @@ class PiAgentRuntime:
             command.extend(["--model", self.model])
 
         env = dict(os.environ)
+        # Pi supports Node >=20; native WebSocket is flag-gated on Node 20.10-20.x
+        # and enabled by default on Node 22+. Standalone Pi/Bun ignores NODE_OPTIONS.
+        node_options = str(env.get("NODE_OPTIONS") or "")
+        if ("--experimental-websocket" not in node_options
+                and "--no-experimental-websocket" not in node_options):
+            env["NODE_OPTIONS"] = (node_options + " --experimental-websocket").strip()
         env.update({
             "TESTPILOT_AGENT_RPC_URL": self.rpc_url,
             "TESTPILOT_AGENT_RPC_TOKEN": self.rpc_token,
