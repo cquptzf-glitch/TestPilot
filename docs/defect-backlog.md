@@ -49,6 +49,7 @@
 
 | ID | 状态 | 缺口 | 下一步 |
 |---|---|---|---|
+| R-101 | DOING | RPC 数值分页参数缺少统一边界 | run.list 等查询的 limit 直接 int()，非法值会变 INTERNAL_ERROR，负数在 SQLite 可退化为无限 LIMIT；统一为受限整数解析并补回归。 |
 | A-201 | DONE | 大截图资产化传输 | 128KB 以下继续 inline；大图写入 screenshot_root/_explore/<sessionId> 并返回 asset_path，Desktop 走壳白名单读取；会话 reset/close 自动清理。 |
 | A-202 | DONE | ObservationDriver 公共协议 | core 定义可选 ObservationDriver；UIADriver 提供 observation_root/observation_rect，Explore 不再读取 _top/_rect_of 私有字段。 |
 | A-203 | DONE | keypress 常用键预设 | Explore UI 提供 Enter、Tab、Esc、Ctrl+A/C/V/S、F5 快捷填充，并保留高级原文输入。 |
@@ -63,7 +64,7 @@
 | Z-101 | P1 | DONE | 禅道真正增量同步 | CaseService 使用按产品隔离 watermark 调用 fetch_cases(since)，只对新增/变更候选补详情；保留 full=true 全量校准。 |
 | Z-102 | P1 | DONE | 来源级同步状态 | 新增 source_sync_state；0 变更同步仍记录 synced_at/watermark，UI 不再拿单条 case.last_synced_at 冒充全局同步时间。 |
 | Z-103 | P1 | DONE | 增量/全量 UI 语义 | 用例页显式提供“增量同步”和“全量校准”；CLI 增加 case sync --full。 |
-| Z-104 | P0 | DOING | 远端测试单创建崩溃幂等 | Orchestrator 上提 creation_attempted/creation_uncertain fail-closed 门禁；POST 已发生但本地未保存远端 ID 时禁止自动重建，任务页只允许人工核对远端 ID；已补崩溃窗口与安全重试回归测试，等待 CI。 |
+| Z-104 | P0 | DONE | 远端测试单创建崩溃幂等 | Orchestrator 上提 creation_attempted/creation_uncertain fail-closed 门禁；POST 已发生但本地未保存远端 ID 时禁止自动重建；远端已就绪但未执行时状态回到 synced；补偿/核对与正式 run 共用生命周期锁，避免快照撕裂。Actions run 39892332857 / SHA ab5ac610f885422323cd493e837307d33ab47df8 全绿。 |
 | AG-101 | P0 | DONE | Agent 工具统一主 RPC 执行 | Pi 禁用 built-in/MCP/skills；自定义 tp_* 工具只做 RPC proxy；主进程执行 fs/SVN/case 读取。 |
 | AG-102 | P0 | DONE | Agent capability 隔离 | 每次 Agent 会话使用短期 workspace-bound token，仅允许 agent.* 内部方法；不暴露桌面主 Token。 |
 | AG-103 | P1 | DONE | SVN 变更级联生成 | SVN snapshot → Pi 影响分析 → Pydantic 校验 → 主进程落本地 draft → 可选解析 DSL → 人审。 |
