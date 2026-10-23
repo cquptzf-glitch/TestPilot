@@ -47,7 +47,7 @@ export function TasksPage({ taskId }: { taskId?: number }) {
   const [name, setName] = useState('');
   const [suiteId, setSuiteId] = useState('');
   const [caseIds, setCaseIds] = useState('');
-  const [createMode, setCreateMode] = useState('auto');
+  const [createMode, setCreateMode] = useState('');
   const [force, setForce] = useState(false);
   const [remote, setRemote] = useState(false);
   const [build, setBuild] = useState('');
@@ -89,7 +89,8 @@ export function TasksPage({ taskId }: { taskId?: number }) {
     }
     const payload: Record<string, unknown> = {
       name: name.trim(),
-      driverConfig: createMode === 'auto' ? undefined : { mode: createMode },
+      driverConfig: createMode ? { mode: createMode } : undefined,
+      remote,
     };
     if (remote) {
       if (build.trim()) payload.build = build.trim();
@@ -98,7 +99,6 @@ export function TasksPage({ taskId }: { taskId?: number }) {
     if (suiteId) payload.suiteId = Number(suiteId);
     if (caseIds.trim()) payload.caseIds = caseIds.split(/[,，\s]+/).filter(Boolean);
     if (force) payload.force = true;
-    if (remote) payload.remote = true;
     const out = await run('建任务', () => call<{
       task_id: number; sync_status: string;
       not_runnable?: { case_id: string; reason: string }[];
@@ -146,8 +146,9 @@ export function TasksPage({ taskId }: { taskId?: number }) {
                    onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="field">
-            <label>驱动模式（写入任务快照）</label>
+            <label>驱动模式（可选覆盖）</label>
             <select value={createMode} onChange={(e) => setCreateMode(e.target.value)}>
+              <option value="">使用方案 / 全局默认</option>
               {MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
           </div>
