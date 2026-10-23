@@ -32,6 +32,15 @@ def test_create_rejects_empty_cases(svc):
         suites.create("空方案", [])
 
 
+def test_suite_case_ids_are_deduped_preserving_order(svc):
+    suites, _ = svc
+    suite = suites.create("去重方案", ["TC-1", "TC-1", "TC-2", "TC-1"])
+    assert suite["case_ids"] == ["TC-1", "TC-2"]
+
+    updated = suites.update(suite["id"], case_ids=["TC-2", "TC-2", "TC-1"])
+    assert updated["case_ids"] == ["TC-2", "TC-1"]
+
+
 def test_create_rejects_duplicate_name(svc):
     suites, _ = svc
     suites.create("重名", ["TC-1"])
