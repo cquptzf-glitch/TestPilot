@@ -528,11 +528,11 @@ class RpcService:
     def _run_case_detail(self, p):
         from testpilot.engine.stats import signature_history
         from testpilot.storage.repos import run_case_execs
-        case_exec_id = _to_int(p, "caseExecId")
-        run_id = p.get("runId")
+        case_exec_id = _positive_int_param(p, "caseExecId")
+        run_id = _optional_positive_int(p, "runId")
         out = None
         if run_id is not None:
-            for row in run_case_execs(self._orch.conn, int(run_id)) or []:
+            for row in run_case_execs(self._orch.conn, run_id) or []:
                 if row["id"] == case_exec_id:
                     out = dict(row)
                     break
@@ -551,10 +551,13 @@ class RpcService:
 
     def _run_step_trace(self, p):
         from testpilot.storage.repos import case_steps
-        attempt = p.get("attempt")
-        return {"steps": case_steps(self._orch.conn,
-                                    _to_int(p, "caseExecId"),
-                                    int(attempt) if attempt else None)}
+        case_exec_id = _positive_int_param(p, "caseExecId")
+        attempt = _optional_positive_int(p, "attempt", max_value=1000)
+        row = self._orch.conn.execute(
+            "SELECT id FROM case_exec WHERE id=?", (case_exec_id,)).fetchone()
+        if row is None:
+            raise RpcError(INVALID_PARAMS, f"case_exec 不存在: {case_exec_id}")
+        return {"steps": case_steps(self._orch.conn, case_exec_id, attempt)}
 
     def _run_report(self, p):
         from testpilot.report.reporter import Reporter
@@ -587,16 +590,38 @@ class RpcService:
         from testpilot.storage.repos import case_steps
         from testpilot.storage.shotstore import ShotStore
 
-        run_id = _to_int(p, "runId")
-        case_exec_id = _to_int(p, "caseExecId")
-        step_no = _to_int(p, "stepNo")
-        store = ShotStore(self._orch.cfg["app"]["screenshot_root"])
+        run_id = _positive_int_param(p, "runId")
+        case_exec_id = _positive_int_param(p, "caseExecId")
+        step_no = _positive_int_param(p, "stepNo")
+        attempt = _optional_positive_int(p, "attempt", max_value=1000)
+        trace_id = _optional_positive_int(p, "traceId")
+        force = _bool_param(p, "force", default=False)
 
-        attempt = int(p.get("attempt") or 0) or None
+        case_row = self._orch.conn.execute(
+            "SELECT run_id FROM case_exec WHERE id=?", (case_exec_id,)).fetchone()
+        if case_row is None:
+            raise RpcError(INVALID_PARAMS, f"case_exec 不存在: {case_exec_id}")
+        actual_run = int(case_row["run_id"])
+        if actual_run != run_id:
+            raise RpcError(
+                INVALID_PARAMS,
+                f"caseExecId {case_exec_id} 不属于 run {run_id}（实际 run {actual_run}）")
+
+        store = ShotStore(self._orch.cfg["app"]["screenshot_root"])
         steps = case_steps(self._orch.conn, case_exec_id, attempt)
         step_rows = [s for s in steps if s.get("step_no") == step_no]
-        step_row = next((s for s in step_rows if s["id"] == p.get("traceId")), None)
-        if step_row is None and step_rows:
+        if not step_rows:
+            raise RpcError(
+                INVALID_PARAMS,
+                f"步骤轨迹不存在: caseExecId={case_exec_id} stepNo={step_no}"
+                + (f" attempt={attempt}" if attempt is not None else ""))
+        if trace_id is not None:
+            step_row = next((s for s in step_rows if s["id"] == trace_id), None)
+            if step_row is None:
+                raise RpcError(
+                    INVALID_PARAMS,
+                    f"traceId {trace_id} 与当前 case/step/attempt 不匹配")
+        else:
             step_row = step_rows[-1]
         attempt_key = str((step_row or {}).get("id") or attempt or "missing")
         rel = f"{run_id}/{case_exec_id}/diff_{attempt_key}_{step_no}.png"
@@ -604,7 +629,7 @@ class RpcService:
         meta_rel = f"{run_id}/{case_exec_id}/diff_{attempt_key}_{step_no}.json"
         meta_path = store.resolve(meta_rel)
 
-        if path.exists() and not p.get("force"):
+        if path.exists() and not force:
             import json as _json
             try:
                 stats = _json.loads(meta_path.read_text(encoding="utf-8"))
@@ -1459,6 +1484,28 @@ def _parse_int_value(value, key: str) -> int:
 def _to_int(params: dict, key: str) -> int:
     """整型参数统一入口：类型/取值错误一律 INVALID_PARAMS。"""
     return _parse_int_value(_require(params, key), key)
+
+
+def _positive_int_param(params: dict, key: str) -> int:
+    parsed = _to_int(params, key)
+    if parsed <= 0:
+        raise RpcError(INVALID_PARAMS,
+                       f"参数 {key} 需为正整数（得到 {parsed}）")
+    return parsed
+
+
+def _optional_positive_int(params: dict, key: str,
+                           max_value: int | None = None) -> int | None:
+    if key not in params or params.get(key) in (None, ""):
+        return None
+    parsed = _parse_int_value(params[key], key)
+    if parsed <= 0:
+        raise RpcError(INVALID_PARAMS,
+                       f"参数 {key} 需为正整数（得到 {parsed}）")
+    if max_value is not None and parsed > max_value:
+        raise RpcError(INVALID_PARAMS,
+                       f"参数 {key} 需 <= {max_value}（得到 {parsed}）")
+    return parsed
 
 
 def _bounded_int(params: dict, key: str, *, default: int,
