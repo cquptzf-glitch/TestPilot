@@ -2,7 +2,7 @@
  * TestPilot Pi tools.
  *
  * Pi has NO native filesystem/bash/edit/write tools in TestPilot. Every tool below is
- * a thin JSON-RPC proxy to the main TestPilot process. The bearer token is short-lived
+ * a thin JSON-RPC proxy to the main TestPilot process. The capability token is short-lived
  * and server-scoped to agent.* methods + one canonical workspace.
  */
 import { Type } from "@sinclair/typebox";
@@ -15,7 +15,8 @@ const ENABLED = new Set(
 );
 
 function enabled(name) {
-  return ENABLED.size === 0 || ENABLED.has(name);
+  // Fail closed: an empty/missing whitelist means zero tools, never "all registered tools".
+  return ENABLED.has(name);
 }
 
 function rpc(method, params = {}) {
