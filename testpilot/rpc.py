@@ -393,6 +393,21 @@ class RpcService:
         if host in ("localhost", "::1"):
             host = "127.0.0.1"
         url = f"ws://{host}:{int(rpc_cfg.get('port') or 9301)}"
+        def report_terminal(phase: str, error: str | None = None) -> None:
+            if progress is None:
+                return
+            payload = {
+                "phase": phase,
+                "agent_audit": self.agent_audit(token),
+            }
+            if error:
+                payload["agent_error"] = str(error)[:500]
+            try:
+                progress(payload)
+            except Exception:
+                # 诊断上报失败不能覆盖真正的 Agent 异常。
+                log.exception("Agent 终态诊断写入后台任务失败")
+
         try:
             runtime = PiAgentRuntime(
                 (cfg.get("agent") or {}).get("pi") or {},
@@ -403,6 +418,12 @@ class RpcService:
             # 不重复携带源码正文 / diff 正文。
             result["audit"] = self.agent_audit(token)
             return result
+        except AbortRequested:
+            report_terminal("agent_cancelled")
+            raise
+        except Exception as exc:
+            report_terminal("agent_failed", str(exc))
+            raise
         finally:
             self.revoke_agent_token(token)
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { call, notifyCaseJob, type CaseJob, type ParseBatchResult } from '../bridge';
+import { AgentAuditTrail } from './AgentAuditTrail';
 import { msg, navigate } from '../hooks';
 import type { SvnChangeGenerateResult } from '../types';
 
@@ -67,6 +68,7 @@ export function CaseJobsPanel({ compact = false }: { compact?: boolean }) {
   const failures = result?.failed ?? [];
   const items = result?.items ?? [];
   const generated = changeResult?.cases ?? [];
+  const agentAudit = changeResult?.agent?.audit ?? job.progress.agent_audit ?? [];
   return <div className="case-job-panel">
     <div className={`msg ${job.status === 'failed' || failures.length ? 'warn' : 'info'}`} role="status">
       <strong>{methods[job.method] ?? job.method} · {labels[job.status]}</strong>
@@ -89,9 +91,11 @@ export function CaseJobsPanel({ compact = false }: { compact?: boolean }) {
         setExpanded(false);
         setDismissedId(job.id);
       }}>关闭</button>}
-      {!!(items.length || failures.length || generated.length) && <button className="btn" onClick={() => setExpanded(!expanded)}>
-        {expanded ? '收起结果' : '查看逐条结果'}
-      </button>}
+      {!!(items.length || failures.length || generated.length || agentAudit.length) &&
+        <button className="btn" onClick={() => setExpanded(!expanded)}>
+          {expanded ? '收起详情' : job.status === 'failed' && agentAudit.length
+            ? '查看失败轨迹' : '查看逐条结果'}
+        </button>}
       {!compact && items.length > 0 && <button className="btn primary" onClick={() => navigate('dsl', { caseId: items[0].case_id, queue: items.map(i => i.case_id).join(',') })}>逐条审核（{items.length}）</button>}
       {!compact && generated.length > 0 && <button className="btn primary"
         onClick={() => navigate('cases', { selection: generated.map(i => i.case_id).join(',') })}>
@@ -99,6 +103,17 @@ export function CaseJobsPanel({ compact = false }: { compact?: boolean }) {
       </button>}
       {error && <span>{error}</span>}
     </div>
+    {expanded && agentAudit.length > 0 && <div className="panel batch-results">
+      <AgentAuditTrail
+        audit={agentAudit}
+        title={job.status === 'failed' || job.status === 'cancelled'
+          ? 'Agent 终止前工具轨迹' : 'Agent 工具轨迹'}
+        open
+      />
+      {job.progress.agent_error && <p className="msg warn pre-wrap">
+        Agent：{job.progress.agent_error}
+      </p>}
+    </div>}
     {expanded && result && <div className="panel batch-results">
       <table className="grid"><thead><tr><th>用例</th><th>分析结果</th><th>下一步</th></tr></thead>
         <tbody>{items.map(i => <tr key={i.case_id}><td>{i.case_id}</td>

@@ -120,8 +120,16 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     cases = CaseService(db_conn, fake_zentao, fake_llm, {})
     calls = []
 
+    progress_events = []
+
     def agent_runner(**kwargs):
         calls.append(kwargs)
+        kwargs["progress"]({
+            "phase": "agent_tool",
+            "tool": "tp_svn_diff",
+            "tool_calls": 1,
+            "events": 2,
+        })
         return {
             "text": _agent_json(), "tool_calls": 4, "elapsed_ms": 20,
             "audit": [{
@@ -134,6 +142,7 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     service = ChangeAnalysisService(
         db_conn, cases, {"svn": {}}, agent_runner)
     service.svn = StubSvn(tmp_path)
+    service.progress = progress_events.append
 
     out = service.generate({
         "workingCopy": str(tmp_path),
@@ -143,6 +152,11 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     assert out["created"] == 1
     assert out["agent"]["tool_calls"] == 4
     assert out["agent"]["audit"][0]["method"] == "agent.svn.diff"
+    assert any(
+        event.get("phase") == "agent_tool"
+        and event.get("tool") == "tp_svn_diff"
+        for event in progress_events
+    )
     assert set(calls[0]["tools"]) == {
         "tp_read_file", "tp_find_files", "tp_grep",
         "tp_svn_status", "tp_svn_diff", "tp_svn_log",
@@ -198,6 +212,32 @@ def test_change_service_dedupes_duplicate_intents_from_one_agent_turn(
     assert out["reused"] == 0
     assert out["duplicates_dropped"] == 1
     assert len(out["cases"]) == 1
+
+
+def test_change_service_preserves_audit_when_agent_output_is_invalid(
+        tmp_path, db_conn, fake_zentao, fake_llm):
+    cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    audit = [{
+        "seq": 1, "method": "agent.svn.diff", "params": {},
+        "ok": True, "elapsed_ms": 2,
+        "result": {"chars": 12, "truncated": False},
+    }]
+
+    def agent_runner(**_kwargs):
+        return {"text": "not json", "tool_calls": 1, "audit": audit}
+
+    service = ChangeAnalysisService(db_conn, cases, {"svn": {}}, agent_runner)
+    service.svn = StubSvn(tmp_path)
+    progress = []
+    service.progress = progress.append
+
+    with pytest.raises(AgentError):
+        service.generate({"workingCopy": str(tmp_path), "parse": False})
+
+    last = progress[-1]
+    assert last["phase"] == "agent_output_invalid"
+    assert last["agent_audit"] == audit
+    assert "JSON" in last["agent_error"]
 
 
 def test_change_service_rejects_invalid_agent_output():
@@ -405,3 +445,40 @@ def test_agent_rpc_records_structured_audit_without_source_body(tmp_path, rpc_sv
 
     service.revoke_agent_token(token)
     assert service.agent_audit(token) == []
+
+
+
+def test_pi_runner_preserves_audit_in_failed_job_progress(
+        tmp_path, rpc_svc, monkeypatch):
+    service = rpc_svc
+    events = []
+    revoked = []
+
+    monkeypatch.setattr(service, "issue_agent_token", lambda _workspace: "agent-token")
+    monkeypatch.setattr(service, "agent_audit", lambda _token: [{
+        "seq": 1,
+        "method": "agent.fs.read",
+        "params": {"path": "src/a.cpp"},
+        "ok": True,
+        "elapsed_ms": 4,
+        "result": {"path": "src/a.cpp", "lines": 20},
+    }])
+    monkeypatch.setattr(service, "revoke_agent_token", revoked.append)
+
+    def fail_run(self, *args, **kwargs):
+        raise AgentError("provider unavailable")
+
+    monkeypatch.setattr(PiAgentRuntime, "run", fail_run)
+
+    with pytest.raises(AgentError, match="provider unavailable"):
+        service._run_pi_agent(
+            prompt="inspect",
+            workspace=str(tmp_path),
+            tools=["tp_read_file"],
+            progress=events.append,
+        )
+
+    assert events[-1]["phase"] == "agent_failed"
+    assert events[-1]["agent_error"] == "provider unavailable"
+    assert events[-1]["agent_audit"][0]["method"] == "agent.fs.read"
+    assert revoked == ["agent-token"]

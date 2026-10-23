@@ -105,7 +105,18 @@ class ChangeAnalysisService:
             ],
             abort=self.abort, progress=self._agent_progress,
         )
-        analysis = _parse_analysis(result.get("text"), max_cases=max_cases)
+        try:
+            analysis = _parse_analysis(result.get("text"), max_cases=max_cases)
+        except AgentError as exc:
+            # Agent 进程已正常返回，但最终 JSON/Schema 无效时，也要把主 RPC
+            # 工具审计留在后台 Job progress 中，避免失败现场随异常一起丢失。
+            self._report(
+                "agent_output_invalid",
+                tool_calls=result.get("tool_calls", 0),
+                agent_error=str(exc)[:500],
+                agent_audit=result.get("audit") or [],
+            )
+            raise
         self._report("agent_done", cases=len(analysis.cases),
                      tool_calls=result.get("tool_calls", 0))
 
@@ -261,7 +272,12 @@ class ChangeAnalysisService:
         return candidate
 
     def _agent_progress(self, value: dict) -> None:
-        self._report("agent", **dict(value or {}))
+        # Pi runtime 自身会携带 phase=agent_tool。旧代码再次以
+        # _report("agent", **value) 传入 phase，会触发 "multiple values for
+        # argument 'phase'"，导致真实 Pi 第一次工具调用即中断。
+        payload = dict(value or {})
+        phase = str(payload.pop("phase", "agent") or "agent")
+        self._report(phase, **payload)
 
     def _report(self, phase: str, **extra) -> None:
         if self.abort is not None:

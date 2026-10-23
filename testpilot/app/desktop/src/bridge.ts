@@ -9,7 +9,9 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-import type { EngineHealth, EngineStatus, ShellMetrics } from './types';
+import type {
+  AgentToolAuditEntry, EngineHealth, EngineStatus, ShellMetrics,
+} from './types';
 
 /** 与 testpilot/rpc.py 的 RpcService.methods() 对齐（新增方法必须同时改两处）。 */
 export const RPC_METHODS = [
@@ -192,6 +194,7 @@ export interface CaseJob {
     phase?: string; case_id?: string | number; total?: number; completed?: number;
     result?: ParseBatchResult;
     tool?: string; tool_calls?: number; events?: number;
+    agent_audit?: AgentToolAuditEntry[]; agent_error?: string;
     changed?: number; working?: number; cases?: number;
   };
   error?: string; result?: unknown;
