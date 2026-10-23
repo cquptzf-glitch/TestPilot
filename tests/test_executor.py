@@ -308,6 +308,18 @@ def test_low_confidence_vision_assert_blocks_with_review_marker(env):
     assert trace[0]["verify_result"] == "unknown"
 
 
+def test_invalid_sleep_is_dsl_error_not_unexpected_error(env):
+    case = make_case("TC-1", steps=[
+        make_step(id="s1", action="sleep", args={"ms": "later"}),
+    ])
+    _, _, ctx = _start(env, case)
+    result = env.executor.run_case(case, ctx, None)
+
+    assert result.status == "fail"
+    assert result.steps[0].error["type"] == "dsl_error"
+    assert "整数毫秒" in result.steps[0].error["message"]
+
+
 def test_device_steps_record_state_snapshot(env):
     case = make_case("TC-1", steps=[
         make_step(id="s1", action="device.scene", key="dev.scene",
