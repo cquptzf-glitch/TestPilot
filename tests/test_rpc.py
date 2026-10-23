@@ -56,18 +56,37 @@ def test_missing_required_param(svc):
     assert e.value.code == INVALID_PARAMS
 
 
-def test_non_integer_param_maps_to_invalid_params(svc):
-    """整型参数传非整数：INVALID_PARAMS（-32602），而不是兜成 INTERNAL_ERROR。"""
+@pytest.mark.parametrize("value", ["abc", True, 1.5])
+def test_non_integer_param_maps_to_invalid_params(svc, value):
+    """非法整数不能被 Python bool/int 强转或小数截断成真实对象 ID。"""
     service, _, _ = svc
     with pytest.raises(RpcError) as e:
-        service.dispatch("run.detail", {"runId": "abc"})
+        service.dispatch("run.detail", {"runId": value})
     assert e.value.code == INVALID_PARAMS
 
 
-def test_case_pull_rejects_non_integer_ids(svc):
+@pytest.mark.parametrize("value", ["many", 0, -1, 1.5, True])
+def test_run_list_rejects_unsafe_limit(svc, value):
+    service, _, _ = svc
+    with pytest.raises(RpcError) as exc:
+        service.dispatch("run.list", {"limit": value})
+    assert exc.value.code == INVALID_PARAMS
+
+
+def test_run_list_limit_accepts_numeric_string_and_clamps_large_value(svc):
+    from testpilot.rpc import _bounded_int
+
+    service, _, _ = svc
+    assert service.dispatch("run.list", {"limit": "2"}) == {"runs": []}
+    assert _bounded_int({"limit": 99999}, "limit", default=50,
+                        max_value=1000) == 1000
+
+
+@pytest.mark.parametrize("bad", ["x", True, 1.5])
+def test_case_pull_rejects_non_integer_ids(svc, bad):
     service, _, _ = svc
     with pytest.raises(RpcError) as e:
-        service.dispatch("case.pull", {"caseIds": [1, "x"], "parse": False})
+        service.dispatch("case.pull", {"caseIds": [1, bad], "parse": False})
     assert e.value.code == INVALID_PARAMS
 
 
