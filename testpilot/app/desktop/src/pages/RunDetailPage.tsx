@@ -254,16 +254,23 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
               复跑 {run.stats.retry_cases} 例（通过 {run.stats.retry_passed ?? 0}）
             </span>
           )}
-          <span className="chip">被测版本 {run.env.test_app_version ?? 'unknown'}</span>
-          <span className="chip">模拟器 {run.env.emulator_version ?? 'unknown'}</span>
-          <span className="chip">驱动 {run.env.driver_mode ?? '—'}</span>
-          <span className="chip">DPI {(run.env.dpi?.scale ?? 1).toFixed(2)}x</span>
           <span className="spacer" />
-          <span className="muted mono" title={run.started_at}>{fmtTime(run.started_at)} ~ {fmtTime(run.finished_at)}</span>
-          <button className="btn" title="复制可直开的深链（含当前用例/步骤定位）"
-                  onClick={() => copyText(deepLink(run.id, caseExecId, stepNo))}>复制深链</button>
-          <button className="btn" disabled={busy} onClick={genReport}>生成报告</button>
+          <span className="muted mono" title={run.started_at}>
+            {fmtTime(run.started_at)} ~ {fmtTime(run.finished_at)}
+          </span>
           <button className="btn" onClick={() => detail.reload()}>刷新</button>
+          <details className="inline-more">
+            <summary className="btn ghost">更多</summary>
+            <div className="more-actions-popover">
+              <button className="btn" title="复制可直开的深链（含当前用例/步骤定位）"
+                      onClick={() => copyText(deepLink(run.id, caseExecId, stepNo))}>
+                复制当前深链
+              </button>
+              <button className="btn" disabled={busy} onClick={genReport}>
+                重新生成文本报告
+              </button>
+            </div>
+          </details>
         </div>
       </div>
 
