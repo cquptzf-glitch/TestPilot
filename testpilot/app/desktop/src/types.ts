@@ -539,6 +539,7 @@ export interface SvnChangeGenerateResult {
   cases: SvnGeneratedCase[];
   created: number;
   reused: number;
+  duplicates_dropped?: number;
   parse?: ParseBatchLike;
   agent?: { runtime: string; tool_calls?: number; elapsed_ms?: number };
 }
