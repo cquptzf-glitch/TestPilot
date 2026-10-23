@@ -623,6 +623,20 @@ class TaskOrchestrator:
             db_ok, db_detail = True, str(self.cfg["app"]["db"])
         except Exception as e:
             db_ok, db_detail = False, str(e)
+
+        try:
+            from testpilot.adapters.svn_adapter import SvnAdapter
+            svn_health = SvnAdapter(self.cfg.get("svn", {})).health()
+        except Exception as e:
+            svn_health = {"ok": False, "detail": str(e)}
+        try:
+            from testpilot.agent.pi_runtime import PiAgentRuntime
+            agent_rep = PiAgentRuntime(
+                (self.cfg.get("agent") or {}).get("pi") or {},
+                rpc_url="ws://127.0.0.1:0", rpc_token="health-only").health()
+            agent_health = {"ok": agent_rep.ok, "detail": agent_rep.detail}
+        except Exception as e:
+            agent_health = {"ok": False, "detail": str(e)}
         # 待回写任务数：壳侧导航的"禅道告警"徽章数据源（前端此前读的字段
         # 引擎从不产出，告警点恒不亮）
         try:
@@ -637,6 +651,8 @@ class TaskOrchestrator:
             "db": {"ok": db_ok, "detail": db_detail},
             "drivers": drivers,
             "zentao": {"configured": self.zentao.is_configured()},
+            "agent": agent_health,
+            "svn": svn_health,
             "sync_pending": sync_pending,
             "emulator": {"connected": getattr(self.emulator, "connected", False)},
             "paths": self.resource_paths(),
