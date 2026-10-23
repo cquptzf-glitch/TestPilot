@@ -263,6 +263,28 @@ def test_definite_remote_create_failure_can_retry_safely(
     assert saved["sync_status"] == "synced"
 
 
+def test_run_without_remote_id_keeps_pending_writeback_semantics(
+        cfg, registry, db_conn, tmp_path):
+    zentao = FakeZentao(configured=True, fail_create=True)
+    o = _orch(cfg, registry, db_conn, tmp_path, zentao=zentao)
+    o.cases.pull([1])
+    o.cases.parse("TC-1")
+    o.cases.accept("TC-1")
+
+    task = o.create_task({
+        "name": "远端待补偿仍先执行",
+        "case_ids": ["TC-1"],
+        "remote": True,
+    })
+    assert task["sync_status"] == "sync_pending"
+    assert task["zentao_task_id"] is None
+
+    stats = o.run_task(task["task_id"])
+    assert stats["status"] == "completed"
+    assert stats["writeback"] == "sync_pending"
+    assert repos.get_task(db_conn, task["task_id"])["sync_status"] == "sync_pending"
+
+
 def test_create_task_with_preconditions_override(orch, db_conn):
     out = orch.create_task({"name": "自定义前置", "case_ids": ["TC-1"],
                             "preconditions": ["模拟器场景: custom"]})
