@@ -564,29 +564,33 @@ export function AutomationPage() {
       setDraft(null);
     });
 
-  const generateDraft = () => run('正在生成 DSL 草稿…', async () => {
-    const out = await call<AutomationDraft>('automation.draft', {
-      sessionId: sessionId,
-      caseId: caseId.trim() || 'TC-EXPLORE',
-      title: caseTitle.trim() || '自动化探索路径',
-      format: 'json',
-    });
-    setDraft(out);
+  const buildDraft = () => call<AutomationDraft>('automation.draft', {
+    sessionId,
+    caseId: caseId.trim() || 'TC-EXPLORE',
+    title: caseTitle.trim() || '自动化探索路径',
+    format: 'json',
   });
 
-  const importDraft = () => run('正在保存待审用例…', async () => {
-    if (!draft) throw new Error('请先生成 DSL 草稿');
-    if (!draft.case.steps.length) throw new Error('当前探索历史没有可固化的执行步骤');
+  const generateDraft = () => run('正在生成 DSL 草稿预览…', async () => {
+    setDraft(await buildDraft());
+  });
+
+  const solidifyAndReview = () => run('正在固化并进入审核…', async () => {
+    // 主路径始终基于“当前历史 + 当前 ID/标题”重新生成，避免导入过期预览草稿。
+    const currentDraft = await buildDraft();
+    setDraft(currentDraft);
+    if (!currentDraft.case.steps.length)
+      throw new Error('当前探索历史没有可固化的执行步骤');
     const all = await call<{ cases: { case_id: string; status: string }[] }>('case.list');
-    const existing = all.cases.find((item) => item.case_id === draft.case.case_id);
+    const existing = all.cases.find((item) => item.case_id === currentDraft.case.case_id);
     if (existing?.status === 'active')
       throw new Error('该用例 ID 已存在且已生效，请换一个用例 ID，避免覆盖正式回归用例');
     await call('case.import', {
-      text: draft.text,
+      text: currentDraft.text,
       format: 'json',
-      caseId: draft.case.case_id,
+      caseId: currentDraft.case.case_id,
     });
-    navigate('dsl', { caseId: draft.case.case_id });
+    navigate('dsl', { caseId: currentDraft.case.case_id });
   });
 
   const reset = () => run('正在清空探索会话…', async () => {
@@ -1282,17 +1286,27 @@ export function AutomationPage() {
           <div><strong>5. 固化为 DSL</strong><span className="muted">临时 element_index 自动转换成稳定 locator 候选</span></div>
         </div>
         <div className="form-2col">
-          <label>用例 ID<input value={caseId} onChange={(e) => setCaseId(e.target.value)} /></label>
-          <label>标题<input value={caseTitle} onChange={(e) => setCaseTitle(e.target.value)} /></label>
+          <label>用例 ID<input value={caseId} onChange={(e) => {
+            setCaseId(e.target.value);
+            setDraft(null);
+          }} /></label>
+          <label>标题<input value={caseTitle} onChange={(e) => {
+            setCaseTitle(e.target.value);
+            setDraft(null);
+          }} /></label>
         </div>
         <div className="hstack">
-          <button className="btn" disabled={!!busy || historyCount === 0}
-                  onClick={() => void generateDraft()}>生成草稿</button>
-          <button className="btn primary"
-                  disabled={!draft || draft.case.steps.length === 0 || !!busy}
-                  onClick={() => void importDraft()}>保存并进入审核</button>
+          <button className="btn primary" disabled={!!busy || historyCount === 0}
+                  onClick={() => void solidifyAndReview()}>
+            固化并进入审核 →
+          </button>
+          <button className="btn ghost" disabled={!!busy || historyCount === 0}
+                  onClick={() => void generateDraft()}>预览 DSL 草稿</button>
         </div>
-        {draft && <textarea className="automation-draft-text" readOnly value={draft.text} />}
+        {draft && <>
+          <p className="hint">草稿仅用于预览；最终固化始终按当前历史、用例 ID 和标题重新生成。</p>
+          <textarea className="automation-draft-text" readOnly value={draft.text} />
+        </>}
       </div>
     </section>
   </div>;
