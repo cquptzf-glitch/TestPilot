@@ -14,7 +14,7 @@ import { fmtDuration, fmtRelative, fmtTime, passRate, statusLabel } from '../for
 import { navigate, useAsync, useEngineEvents } from '../hooks';
 import type { RunRow, TaskRow } from '../types';
 
-type SortKey = 'id' | 'task' | 'pass' | 'fail' | 'kb' | 'tokens' | 'started' | 'duration';
+type SortKey = 'id' | 'task' | 'pass' | 'fail' | 'started' | 'duration';
 
 export function RunsPage() {
   const runs = useAsync(() => call<{ runs: RunRow[] }>('run.list', { limit: 200 }), []);
@@ -69,8 +69,6 @@ export function RunsPage() {
         case 'task': return dir * (a.task_id - b.task_id);
         case 'pass': return dir * (passRate(a.stats).rate - passRate(b.stats).rate);
         case 'fail': return dir * (passRate(a.stats).fail - passRate(b.stats).fail);
-        case 'kb': return dir * ((a.stats.kb_hit_cases ?? 0) - (b.stats.kb_hit_cases ?? 0));
-        case 'tokens': return dir * ((a.stats.llm_usage?.tokens ?? 0) - (b.stats.llm_usage?.tokens ?? 0));
         case 'duration': {
           const da = durationMs(a); const db = durationMs(b);
           return dir * (num(da) - num(db));
@@ -86,15 +84,13 @@ export function RunsPage() {
 
   // 顶部汇总：一眼看出近期整体健康度，不用逐个 run 点进去
   const summary = useMemo(() => {
-    let pass = 0; let fail = 0; let blocked = 0; let skip = 0; let tokens = 0; let kb = 0;
+    let pass = 0; let fail = 0; let blocked = 0; let skip = 0;
     for (const r of allRows) {
       const pr = passRate(r.stats);
       pass += pr.pass; fail += pr.fail; blocked += pr.blocked; skip += pr.skip;
-      tokens += r.stats.llm_usage?.tokens ?? 0;
-      kb += r.stats.kb_hit_cases ?? 0;
     }
     const total = pass + fail + blocked + skip;
-    return { pass, fail, blocked, skip, total, tokens, kb };
+    return { pass, fail, blocked, skip, total };
   }, [allRows]);
 
   // 趋势：最近 30 次 run 的通过率走势（回答"在变好还是变差"——计数卡回答不了）
@@ -138,8 +134,6 @@ export function RunsPage() {
           </span>
           <span className="stat tone-fail"><b>{summary.fail}</b><span>失败</span></span>
           <span className="stat tone-blocked"><b>{summary.blocked}</b><span>阻塞</span></span>
-          <span className="stat tone-accent"><b>{summary.kb}</b><span>KB 命中</span></span>
-          <span className="stat"><b>{summary.tokens.toLocaleString()}</b><span>LLM token</span></span>
         </div>
         <div className="trend-wrap">
           <TrendChart points={trend} />
@@ -176,15 +170,13 @@ export function RunsPage() {
         <thead>
           <tr>
             {th('id', 'Run')}{th('task', '任务')}{th('started', '开始')}
-            <th>状态</th>{th('pass', '通过率')}{th('fail', '失败', true)}
-            {th('kb', 'KB 命中', true)}{th('tokens', 'LLM token', true)}
-            <th>禅道回写</th>{th('duration', '耗时', true)}
+            <th>状态</th>{th('pass', '结果')}{th('fail', '失败', true)}
+            <th>同步</th>{th('duration', '耗时', true)}
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => {
             const pr = passRate(r.stats);
-            const hit = r.stats.kb_hit_cases ?? 0;
             const running = r.status === 'running';
             return (
               <tr key={r.id} className={`clickable ${r.status === 'aborted' ? 'row-blocked' : ''}`}
@@ -206,8 +198,6 @@ export function RunsPage() {
                 <td className="num" style={pr.fail > 0 ? { color: 'var(--s-fail)', fontWeight: 600 } : undefined}>
                   {pr.fail || '—'}
                 </td>
-                <td className="num">{hit > 0 ? `${hit}/${pr.total}` : '—'}</td>
-                <td className="num muted">{(r.stats.llm_usage?.tokens ?? 0).toLocaleString()}</td>
                 <td>{r.stats.writeback
                   ? <Badge status={writebackTone(r.stats.writeback)}
                            text={statusLabel(writebackLabel(r.stats.writeback))} />
@@ -224,9 +214,9 @@ export function RunsPage() {
       </table>
       {rows.length === 0 && !runs.loading && (
         <Empty
-          text={allRows.length > 0 ? '当前筛选条件下没有记录' : '还没有执行记录：先建任务并执行一次回归'}
+          text={allRows.length > 0 ? '当前筛选条件下没有记录' : '还没有执行记录：从“开始测试”选择用例并执行一次回归'}
           action={allRows.length === 0
-            ? <button className="btn primary" onClick={() => navigate('tasks')}>去任务页</button>
+            ? <button className="btn primary" onClick={() => navigate('home')}>开始测试</button>
             : <button className="btn" onClick={() => { setQuery(''); setStatus(''); setOnlyProblems(false); }}>清除筛选</button>}
         />
       )}
