@@ -137,6 +137,18 @@ class TaskOrchestrator:
         direct_case_ids = _string_list_arg(
             [] if raw_case_ids is None else raw_case_ids, "case_ids")
         suite_id = spec.get("suite_id")
+        if suite_id is not None:
+            suite_id = _positive_int_arg(suite_id, "suite_id")
+        force = spec.get("force", False)
+        if not isinstance(force, bool):
+            raise TestPilotError("force 必须是布尔值")
+        remote = spec.get("remote")
+        if remote is not None and not isinstance(remote, bool):
+            raise TestPilotError("remote 必须是布尔值或 None")
+        if spec.get("zentao_task_id") is not None:
+            spec = dict(spec)
+            spec["zentao_task_id"] = _positive_int_arg(
+                spec["zentao_task_id"], "zentao_task_id")
         if suite_id is not None and direct_case_ids:
             raise TestPilotError("suite_id 与 case_ids 只能指定一种，避免任务范围歧义")
 
@@ -179,13 +191,13 @@ class TaskOrchestrator:
             preconditions = self.cases.preconditions_of(case_ids)
 
         bad = self.cases.not_runnable(case_ids)
-        if bad and not spec.get("force"):
+        if bad and not force:
             detail = "; ".join(f"{b['case_id']}({b['reason']})" for b in bad[:5])
             raise TestPilotError(
                 f"存在不可执行用例，请先人审/解析，或显式 --force: {detail}")
 
         import json
-        want_remote = spec.get("remote")
+        want_remote = remote
         if want_remote is None:
             want_remote = bool(self.cfg["zentao"].get("create_task", False))
         remote_spec = {key: spec.get(key) for key in
@@ -921,6 +933,18 @@ def _usage_delta(before: dict, after: dict) -> dict:
         return {}
     return {k: int(after.get(k, 0)) - int((before or {}).get(k, 0)) for k in after}
 
+
+
+def _positive_int_arg(value, field: str) -> int:
+    if isinstance(value, bool) or isinstance(value, float):
+        raise TestPilotError(f"{field} 必须是正整数")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise TestPilotError(f"{field} 必须是正整数") from None
+    if parsed <= 0:
+        raise TestPilotError(f"{field} 必须是正整数")
+    return parsed
 
 
 def _string_list_arg(value, field: str) -> list[str]:
