@@ -285,9 +285,11 @@ class KnowledgeService:
         """人审入口：``active`` 生效 / ``rejected`` 留档不删。"""
         if verdict not in ("active", "rejected", "stale", "pending"):
             raise ValueError(f"非法 verdict: {verdict}")
-        self.conn.execute(
+        cur = self.conn.execute(
             "UPDATE kb_entry SET status=?, updated_at=? WHERE id=?",
             (verdict, _now(), entry_id))
+        if cur.rowcount == 0:
+            raise ValueError(f"kb_entry 不存在: {entry_id}")
         self.conn.commit()
 
     def status_of(self, entry_id: int) -> str | None:
