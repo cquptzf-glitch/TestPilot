@@ -236,6 +236,23 @@ def test_automation_io_dispatch_uses_root_driver_factory(svc):
     assert "uia" in out["drivers"]
 
 
+def test_io_orchestrator_shares_root_run_lifecycle_guard(svc):
+    service, root, _ = svc
+    service._dispatch_io("health", {})
+    io = service._io_orchestrator
+    assert io is not None
+    assert io._run_lock is root._run_lock
+    assert io._in_run is root._in_run
+
+    assert root._run_lock.acquire(blocking=False)
+    try:
+        with pytest.raises(RpcError) as exc:
+            service._dispatch_io("task.syncPending", {})
+        assert "执行中" in exc.value.message
+    finally:
+        root._run_lock.release()
+
+
 def test_automation_sessions_use_independent_driver_instances(svc):
     service, _, _ = svc
     session_a = service._automation({"sessionId": "driver-a"})
