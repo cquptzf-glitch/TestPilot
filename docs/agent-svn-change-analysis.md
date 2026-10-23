@@ -328,7 +328,51 @@ Agent 流程不能直接跑在普通 RPC 单线程 IO executor。
 - 真实项目级级联影响召回率。
 
 
-## 9. 当前自动验证证据
+## 9. 主进程结构化 Agent 工具审计
+
+Agent 的工具调用现在不仅“经过主 RPC”，还由主 RPC 产生结构化审计证据。
+
+记录点位于 JSON-RPC capability 边界：
+
+```text
+Pi tp_* tool
+  -> agent.* RPC
+  -> 主进程校验 capability / workspace
+  -> 主进程执行 fs / SVN / case 查询
+  -> 主进程记录 audit entry
+  -> 返回摘要给 Pi
+```
+
+每条轨迹包含：
+
+- `seq`：会话内完成序号；
+- `method`：实际执行的 `agent.*` 方法；
+- `params`：裁剪后的输入摘要；
+- `ok`：主进程实际执行是否成功；
+- `elapsed_ms`：主进程执行耗时；
+- `result` 或 `error`：结果元数据或失败原因。
+
+安全约束：
+
+1. 审计由主进程产生，不信任 Agent 自报；
+2. capability token、内部 `_agentScope`、workspace 注入字段不写入轨迹；
+3. `fs.read` 不记录文件正文；
+4. `svn.diff` 不记录 diff 正文，只记录 chars / truncated / path_count；
+5. `case.detail` 不复制完整用例正文，只记录状态与 step_count；
+6. 每个 Agent 会话最多保留 200 条，结束后 capability 与内存审计一起销毁；
+7. SVN 变更生成完成后，将审计快照挂到 `result.agent.audit`，桌面端按需展开。
+
+这样真实 Pi/provider 联调时可以回答“Agent 实际调用了什么、主进程是否执行成功、耗时在哪里”，同时不会把大段源码再次复制到 UI 或任务结果中。
+
+自动测试覆盖：
+
+- 成功的 `agent.fs.read` 会生成结构化轨迹；
+- 轨迹结果不包含 `content` 正文；
+- workspace 越界失败同样记录 `ok=false + error`；
+- token revoke 后审计不可继续读取；
+- ChangeAnalysisService 会把主进程审计透传到最终 Agent 结果。
+
+## 10. 当前自动验证证据
 
 GitHub Actions run `39884433953`（RPC/权限 hardening 基线 `4f287f7ad06538804b282c89c778702a30d2f639`）：
 
@@ -339,5 +383,7 @@ GitHub Actions run `39884433953`（RPC/权限 hardening 基线 `4f287f7ad0653880
 
 后续幂等生成基线 `721c86f8b47029150f6c893fbddff7146e91255d` 对应
 GitHub Actions run `39885272988` 同样 Python / Ruff / Pytest / Desktop 全绿。
+
+结构化 Agent 审计增量基线 `c7c318480e1e9b6967267526c958d17f7b1db602` 对应 GitHub Actions run `39914605156`：Desktop TypeScript/Vite、Ruff、全量 Pytest 全部 success。
 
 真实公司 SVN、真实 Pi provider/model、真实大仓库级联影响质量仍属于 ENV 验证，不作为当前功能开发阻塞项。

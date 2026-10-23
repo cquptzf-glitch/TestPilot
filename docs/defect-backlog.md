@@ -3,7 +3,7 @@
 > 更新时间：2026-10-23  
 > 当前策略：**先堆功能 + 单元测试/契约测试 + 前端编译门禁；暂不把真机 smoke 作为开发阻塞项。**  
 > 真机/UIA/DPI/干净机安装验证保留，但放到功能面稳定后集中执行。  
-> 最新业务代码门禁证据：GitHub Actions run 39898403051 / SHA 8c5bd4f08071f4d85dacf6f0dcbd053df4ba5fa1 全绿。
+> 最新业务代码门禁证据：GitHub Actions run 39914605156 / SHA c7c318480e1e9b6967267526c958d17f7b1db602 全绿（Desktop TypeScript/Vite、Ruff、全量 Pytest）。
 
 ## 状态约定
 
@@ -86,6 +86,7 @@
 | AG-106 | P1 | DONE | Agent/SVN 单测与 CI | revision/path 越权、RPC capability、输出 schema、来源追踪、上下文预算、Pi CLI 兼容均有回归；Actions run 39884433953：Python unit+ruff / Desktop build 全绿。 |
 | AG-107 | P1 | DONE | Agent 最小权限与 Pi 兼容硬化 | 工具白名单 fail-closed；空列表=0 工具；Pi flags 按 --help 选择安全兼容项；Node 20.10/21 才注入原生 WebSocket 实验开关，22+不注入。 |
 | AG-108 | P1 | DONE | SVN Agent 生成幂等 | 相同 SVN 变更 + 相同测试语义按稳定 fingerprint 复用已有 case；同一 Agent 回合重复 intent 主进程直接去重，避免 -2/-3 重复草稿。Actions run 39885272988 全绿。 |
+| AG-109 | P1 | DONE | Agent 工具结构化审计 | 每个 capability 会话由主 RPC 记录最多 200 条 agent.* 调用轨迹：方法、裁剪后的输入摘要、成功/失败、耗时与结果元数据；源码/diff 正文不重复入审计。SVN 生成结果可直接展开轨迹。Actions run 39914605156 / SHA c7c318480e1e9b6967267526c958d17f7b1db602 全绿。 |
 
 ## 环境验证项（当前不阻塞功能开发）
 
@@ -104,3 +105,4 @@
 3. Explore 的临时 element_index 永远不能进入 active DSL；固化必须转稳定 locator。
 4. 自动化探索和正式回归执行永远互斥，避免争抢桌面输入。
 5. 真机 smoke 暂不作为提交阻塞项；待 P1 功能基本收口后集中验证。
+6. Agent 工具审计以主 RPC 实际执行为准；只保存摘要元数据，禁止把源码、diff 正文或 capability token 写入审计。

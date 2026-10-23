@@ -447,16 +447,16 @@ Vision 同样把模板、稳定 key、region、diff、手势动作降为高级�
 
 ## 8. 最终自动验证
 
-最终业务代码基线：
+当前最新业务代码基线（包含后续 case readiness 集中化与 Agent 主 RPC 审计增量）：
 
 ```text
-8c5bd4f08071f4d85dacf6f0dcbd053df4ba5fa1
+c7c318480e1e9b6967267526c958d17f7b1db602
 ```
 
 GitHub Actions run：
 
 ```text
-39898403051
+39914605156
 ```
 
 结果：
@@ -466,4 +466,4 @@ GitHub Actions run：
 - 全量 Pytest：**success**；
 - Workflow 总结：**success**。
 
-本轮后续只允许文档类 `[skip ci]` 提交，不再修改业务代码。
+该流程/UI复审阶段已经收口；后续若继续修改业务代码，必须作为独立增量补测试并重新取得全绿 CI。当前后续增量已按此执行。
