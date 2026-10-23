@@ -371,12 +371,17 @@ class Executor:
         primary = step.target.primary
         fallback = step.target.fallback
         chain: list[dict] = []      # 驱动尝试链（降级统计的数据源，设计 10 章）
+        eligible = 0
 
         for driver_name in plan.attempts:
             drv = self.drivers.get(driver_name)
             if drv is None:
                 log.warning(f"驱动未装配，跳过: {driver_name}")
                 continue
+            if not self._supports_action(drv, step):
+                log.info(f"驱动 {driver_name} 不支持 {step.action}，跳过")
+                continue
+            eligible += 1
             loc = primary
             if driver_name != "uia" and fallback is not None \
                     and fallback.type in ("visual", "template"):
@@ -429,10 +434,41 @@ class Executor:
             return True
 
         res.driver_chain = chain
-        res.error = {"type": "locate_timeout",
-                     "message": f"全部驱动未定位: {step.target.key}"}
+        res.error = {
+            "type": "capability_missing" if eligible == 0 else "locate_timeout",
+            "message": (
+                f"当前驱动均不支持动作 {step.action}: {step.target.key}"
+                if eligible == 0
+                else f"全部驱动未定位: {step.target.key}"
+            ),
+        }
         res.status = FAIL
         return False
+
+    @staticmethod
+    def _supports_action(drv: Driver, step: Step) -> bool:
+        """动作前 capability gate；不支持时可安全换下一驱动。
+
+        只有真正进入动作后失败才存在副作用风险，因此不能把“能力缺失”和
+        “动作执行失败”混成同一路径。
+        """
+        capability = {
+            "ui.click": "click",
+            "ui.input": "input",
+            "ui.select": "select",
+            "ui.toggle": "toggle",
+            "ui.keypress": "keypress",
+            "ui.right_click": "right_click",
+            "ui.scroll": "scroll",
+            "ui.drag": "drag",
+            "vision.click": "click",
+        }.get(step.action)
+        caps = getattr(getattr(drv, "manifest", None), "capabilities", None)
+        if capability and caps is not None and capability not in caps:
+            return False
+        if step.action == "ui.input" and step.args.get("clear", False):
+            return callable(getattr(drv, "select_all_and_delete", None))
+        return True
 
     def _do_action(self, drv: Driver, el: LocatedElement, step: Step,
                    ctx: ExecContext) -> None:
