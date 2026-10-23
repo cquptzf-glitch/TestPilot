@@ -458,6 +458,21 @@ def test_task_create_run_and_drilldown(svc):
                             {"taskId": created["task_id"]})["name"] == "RPC任务"
 
 
+def test_task_run_rejects_invalid_execution_overrides(svc):
+    service, _, ids = svc
+    created = service.dispatch("task.create", {"name": "参数校验", "caseIds": ids})
+    task_id = created["task_id"]
+
+    with pytest.raises(RpcError) as mode_err:
+        service.dispatch("task.run", {"taskId": task_id, "mode": "turbo"})
+    assert mode_err.value.code == INVALID_PARAMS
+
+    for retry in (-1, 4):
+        with pytest.raises(RpcError) as retry_err:
+            service.dispatch("task.run", {"taskId": task_id, "caseRetry": retry})
+        assert retry_err.value.code == INVALID_PARAMS
+
+
 def test_task_run_rejects_when_explore_interaction_lock_is_busy(svc):
     service, _, ids = svc
     created = service.dispatch("task.create", {"name": "互斥", "caseIds": ids})
