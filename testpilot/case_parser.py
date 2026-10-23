@@ -62,16 +62,23 @@ class CaseService:
             out["parse"] = self.parse_many(ids)
         return out
 
-    def sync(self, product_id: int | None = None, parse: bool = False) -> dict:
-        """增量同步：按远端 ``updated_at`` 比对，只动发生变化的用例。"""
+    def sync(self, product_id: int | None = None, parse: bool = False,
+             full: bool = False) -> dict:
+        """增量同步：优先用本地已知远端时间水位缩小禅道详情请求范围。
+
+        full=True 用于人工校准/排障：忽略水位，完整扫描远端列表。默认模式仍会在
+        ingest 时逐条比较 updated_at，因此即使上游 since 只是候选过滤也不会误覆盖。
+        """
         counters = _counters()
-        raws = self.zentao.fetch_cases(product_id)
+        pid = product_id or (self.cfg.get("zentao") or {}).get("product_id")
+        since = None if full else self._sync_watermark(pid)
+        raws = self.zentao.fetch_cases(product_id, since=since)
         for raw in raws:
             self._checkpoint("sync", raw.get("case_id"))
             action = self._ingest(raw, counters)
             if action != "unchanged":
                 log.info(f"用例同步 {raw.get('case_id')}: {action}")
-        out = {**counters, "scanned": len(raws)}
+        out = {**counters, "scanned": len(raws), "since": since, "full": bool(full)}
         if parse:
             # rejected 用例按设计不再自动解析（人审已否决）：留在清单里只会
             # 每次 sync --parse 都产出注定失败的条目
@@ -80,6 +87,26 @@ class CaseService:
                          and r["status"] != "rejected"]
             out["parse"] = self.parse_many(stale_ids) if stale_ids else {}
         return out
+
+    def _sync_watermark(self, product_id: int | None) -> str | None:
+        """返回当前产品已入库用例的最大远端更新时间。
+
+        水位按 raw.product 隔离；不同产品不能共用 MAX(zentao_updated_at)，否则切换产品
+        时可能把该产品较早创建的用例全部跳过。
+        """
+        latest = ""
+        for row in repos.list_cases(self.conn):
+            raw = row.get("raw") or {}
+            if product_id is not None:
+                try:
+                    if int(raw.get("product")) != int(product_id):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+            stamp = str(row.get("zentao_updated_at") or "")
+            if stamp > latest:
+                latest = stamp
+        return latest or None
 
     def _ingest(self, raw: dict, counters: dict) -> str:
         """把一条禅道原文并入本地，返回动作名。"""
