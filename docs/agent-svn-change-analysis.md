@@ -182,6 +182,35 @@ SVN-<revision>-<signature>-NN
 
 最终仍必须经过 `dsl.accept` 人工审核才能 active。
 
+### 4.5 生成幂等与重复意图
+
+Agent 输出不能直接决定“创建多少数据库行”。主进程会为每条测试意图计算稳定
+`generation.fingerprint`，输入包括：
+
+- repository UUID / root；
+- revision 范围；
+- source files；
+- preconditions；
+- 有序测试步骤。
+
+priority / rationale 等易受模型措辞影响的元数据不进入 fingerprint。
+
+因此：
+
+1. 同一变更重复执行，若测试语义相同，直接复用已有 SVN Agent case；
+2. 已有 draft 未解析且本次勾选“解析 DSL”，会解析这个复用草稿，不再新建一条；
+3. active / rejected 等已有 case 也保持其人工状态，不被 Agent 覆盖；
+4. 同一次 Agent 输出中出现完全重复 intent 时，主进程只保留一条，并计入
+   `duplicates_dropped`。
+
+返回结果显式区分：
+
+- `created`：真正新增；
+- `reused`：跨运行复用；
+- `duplicates_dropped`：本轮 Agent 自身重复而被丢弃。
+
+这样幂等性由 TestPilot 主进程保证，而不是依赖 prompt 让模型“尽量不要重复”。
+
 ## 5. Pi 集成方式
 
 Pi 采用 RPC 子进程，而不是嵌入 Node：
@@ -301,11 +330,14 @@ Agent 流程不能直接跑在普通 RPC 单线程 IO executor。
 
 ## 9. 当前自动验证证据
 
-GitHub Actions run `39884433953`（代码基线 `4f287f7ad06538804b282c89c778702a30d2f639`）：
+GitHub Actions run `39884433953`（RPC/权限 hardening 基线 `4f287f7ad06538804b282c89c778702a30d2f639`）：
 
 - Windows Python install：success；
 - Ruff：success；
 - 全量 Pytest：success；
 - Desktop TypeScript + Vite build：success。
+
+后续幂等生成基线 `721c86f8b47029150f6c893fbddff7146e91255d` 对应
+GitHub Actions run `39885272988` 同样 Python / Ruff / Pytest / Desktop 全绿。
 
 真实公司 SVN、真实 Pi provider/model、真实大仓库级联影响质量仍属于 ENV 验证，不作为当前功能开发阻塞项。
