@@ -3,7 +3,7 @@
 > 更新时间：2026-10-23  
 > 当前策略：**先堆功能 + 单元测试/契约测试 + 前端编译门禁；暂不把真机 smoke 作为开发阻塞项。**  
 > 真机/UIA/DPI/干净机安装验证保留，但放到功能面稳定后集中执行。  
-> 最新业务代码门禁证据：GitHub Actions run 39916844147 / SHA 03b47bf4f691fcdc1d56c4eddf1377f991481b27；Desktop TypeScript/Vite 与 Python（Ruff + 全量 Pytest）两个 Job 均 success。
+> 最新业务代码门禁证据：GitHub Actions run 39919509437 / SHA e22cf2530d3d0e92a79a8d47cc542182bc06fac9 全绿（Desktop TypeScript/Vite、Ruff、全量 Pytest）。
 
 ## 状态约定
 
@@ -89,6 +89,7 @@
 | AG-109 | P1 | DONE | Agent 工具结构化审计 | 每个 capability 会话由主 RPC 记录最多 200 条 agent.* 调用轨迹：方法、裁剪后的输入摘要、成功/失败、耗时与结果元数据；源码/diff 正文不重复入审计。SVN 生成结果可直接展开轨迹。Actions run 39914605156 / SHA c7c318480e1e9b6967267526c958d17f7b1db602 全绿。 |
 | AG-110 | P0 | DONE | Agent progress 契约与失败现场保留 | 修复真实 Pi `phase=agent_tool` 经 ChangeAnalysisService 二次传参导致 `multiple values for argument 'phase'` 的 P0 缺陷；Agent 异常、无效 JSON/Schema、取消均在 token 吊销前把主 RPC audit 快照写入 Job progress，桌面页与全局后台任务面板均可展开失败/终止前轨迹。 |
 | AG-111 | P1 | DONE | Agent/SVN 参数 fail-fast | `parse/maxCases/max_chars` 不再使用宽松 `bool()/int()` 转换；拒绝 bool、分数、非法下界；空 find/grep/case search 与非字符串 diff paths 直接拒绝，svn.log limit 与工具 schema 统一到 100。Actions run 39916844147 / SHA 03b47bf4f691fcdc1d56c4eddf1377f991481b27 两个门禁 Job 均 success。 |
+| AG-112 | P1 | DONE | Agent 生成依据 fail-closed | 主 RPC 新增独立于 200 条展示 audit 的 evidence 摘要，持续记录成功/失败工具、实际 `fs.read` 路径、`case.search/detail` 见过的 case、完整/截断 SVN diff 与按路径 diff 覆盖。生成前必须成功读取 diff；`source_files` 必须被 diff/read 真实覆盖，unversioned 必须 `fs.read`；`related_case_ids` 必须真实存在且本轮 Agent 看过。所有用例统一预检后再写库，避免半提交；新建 case 将证据写入 `raw.generation.grounding`。Actions run 39919509437 / SHA e22cf2530d3d0e92a79a8d47cc542182bc06fac9 全绿。 |
 
 ## 环境验证项（当前不阻塞功能开发）
 
@@ -108,3 +109,4 @@
 4. 自动化探索和正式回归执行永远互斥，避免争抢桌面输入。
 5. 真机 smoke 暂不作为提交阻塞项；待 P1 功能基本收口后集中验证。
 6. Agent 工具审计以主 RPC 实际执行为准；只保存摘要元数据，禁止把源码、diff 正文或 capability token 写入审计。
+7. Agent 生成用例必须 fail-closed：模型文本不是证据，`source_files/related_case_ids` 必须由主 RPC evidence 证明；任何一条依据不成立时，整批在落库前拒绝。

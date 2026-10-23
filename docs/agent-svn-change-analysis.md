@@ -322,7 +322,13 @@ Agent 流程不能直接跑在普通 RPC 单线程 IO executor。
 - Pi `agent_tool` progress 的 phase 透传不会发生重复关键字冲突；
 - Agent runtime 异常、最终 JSON/Schema 无效、用户取消时，后台 Job 都保留终止前主 RPC audit；
 - `parse/maxCases/max_chars` 严格类型/边界校验，bool/分数/非法下界拒绝；
-- 空 find/grep/case search、非法 diff paths 不会退化成大范围扫描。
+- 空 find/grep/case search、非法 diff paths 不会退化成大范围扫描；
+- Agent 未成功执行 `agent.svn.diff` 时整批拒绝，不允许只靠 prompt 自称“已阅读 diff”；
+- 展示 audit 即使裁剪到最后 200 条，主 RPC evidence 仍保留关键成功计数、读取路径、已观察 case 与 diff 覆盖；
+- `source_files` 必须有真实 diff/read 依据，unversioned 文件必须 `agent.fs.read`；
+- `related_case_ids` 必须真实存在且本轮通过 `agent.case.search/detail` 观察过；
+- 所有 grounding 在任何 case 写库前统一校验，失败不会留下半批草稿；
+- 新建 SVN Agent case 会把 per-case grounding 持久化到 `raw.generation.grounding`。
 
 后续环境验证统一列入 ENV：
 
@@ -367,6 +373,7 @@ Pi tp_* tool
 7. SVN 变更生成完成后，将审计快照挂到 `result.agent.audit`，桌面端按需展开；
 8. Agent runtime 异常或最终输出无效时，在 capability token 吊销前把 audit 快照写入 `job.progress.agent_audit`；用户取消也走同样的终态写入，但终态诊断不会再次触发 abort checkpoint；
 9. 桌面 SVN 页面和全局 CaseJobsPanel 共用 `AgentAuditTrail`，成功结果默认折叠，失败/取消轨迹可直接展开。
+10. 与展示 audit 分离维护 `agent.evidence`：记录每个 `agent.*` 方法 calls/successes/failures、实际成功读取的文件、Agent 观察过的本地 case，以及 SVN diff 是完整、截断还是按路径读取；因此关键证据不会因 200 条 UI audit 裁剪而消失。
 
 这样真实 Pi/provider 联调时可以回答“Agent 实际调用了什么、主进程是否执行成功、耗时在哪里”，同时不会把大段源码再次复制到 UI 或任务结果中。
 
@@ -382,7 +389,29 @@ Pi tp_* tool
 - 最终 JSON/Schema 无效会保留 `agent_output_invalid + agent_audit`；
 - 已请求取消时仍先落 `agent_cancelled + agent_audit`，再结束任务。
 
-## 10. 当前自动验证证据
+## 10. 生成用例 grounding 门禁
+
+SVN Agent 的最终 JSON 现在只是“候选计划”，**不能直接成为落库依据**。在任何草稿写入前，`ChangeAnalysisService` 会使用主 RPC 产生的 evidence 做一次整批 preflight：
+
+1. 本轮至少有一次成功的 `agent.svn.diff`；
+2. `source_files` 至少 1 条；
+3. 对普通 SVN 变更文件：
+   - 完整且未截断的全量 diff 可以覆盖对应变更路径；
+   - 若全量 diff 被截断，则该 source 必须再被按路径 diff，或通过 `agent.fs.read` 读取；
+4. 对 `svn status` 中的 unversioned 文件：普通 SVN diff 不包含其正文，因此必须有成功的 `agent.fs.read`；
+5. 对非本次变更但用于级联分析的源码：必须有成功的 `agent.fs.read`，并且文件在校验时仍真实存在；
+6. `related_case_ids` 必须同时满足：
+   - 本地数据库真实存在；
+   - 本次 Agent 会话通过 `agent.case.search` 或 `agent.case.detail` 实际观察过；
+7. 任一 case grounding 失败，整批在持久化前拒绝，不会出现“前几条已落库、后几条才失败”的半提交状态。
+
+主 RPC evidence 与 UI audit 分离：audit 最多保留最后 200 条用于查看；evidence 用小型集合/计数保存关键事实，因此早期的 `svn.diff` 或 `case.search` 不会因为长会话裁剪而丢失。
+
+新创建的 SVN Agent 用例会持久化 `raw.generation.grounding`，其中记录 `svn_diff_verified`、每个 `source_file` 的 `agent.svn.diff/agent.fs.read` basis，以及每个 `related_case_id` 的 `agent.case.search/detail` basis。
+
+这样后续审核、问题追踪或真实 Pi/provider 调优时，不依赖后台 Job 仍在内存中，也能知道用例当时基于什么证据生成。
+
+## 11. 当前自动验证证据
 
 GitHub Actions run `39884433953`（RPC/权限 hardening 基线 `4f287f7ad06538804b282c89c778702a30d2f639`）：
 
@@ -397,5 +426,7 @@ GitHub Actions run `39885272988` 同样 Python / Ruff / Pytest / Desktop 全绿�
 结构化 Agent 审计增量基线 `c7c318480e1e9b6967267526c958d17f7b1db602` 对应 GitHub Actions run `39914605156`：Desktop TypeScript/Vite、Ruff、全量 Pytest 全部 success。
 
 Agent progress/失败诊断/参数边界增量基线 `03b47bf4f691fcdc1d56c4eddf1377f991481b27` 对应 GitHub Actions run `39916844147`：Desktop TypeScript/Vite Job 与 Python（Ruff + 全量 Pytest）Job 均 success。
+
+Agent grounding fail-closed 与持久化 provenance 基线 `e22cf2530d3d0e92a79a8d47cc542182bc06fac9` 对应 GitHub Actions run `39919509437`：Desktop TypeScript/Vite、Ruff、全量 Pytest 全部 success。
 
 真实公司 SVN、真实 Pi provider/model、真实大仓库级联影响质量仍属于 ENV 验证，不作为当前功能开发阻塞项。
