@@ -13,6 +13,7 @@ import { StepEditor } from '../components/StepEditor';
 import { Badge, Empty, Msg } from '../components/Bits';
 import { Collapsible, ConfirmBar, Segmented, Skeleton, pushToast } from '../components/Ui';
 import { msg, navigate, useAsync, useCaseJobBusy } from '../hooks';
+import { caseIsApproved } from '../caseState';
 import type { CaseDetail, CaseRow } from '../types';
 
 type View = 'steps' | 'json';
@@ -128,15 +129,21 @@ export function DslReviewPage({ caseId, queue, embedded = false, onAccepted, onB
       if (label === '保存并审核' && active) {
         if (onAccepted) {
           onAccepted(active);
-        } else if (reviewQueue.length > 0) {
-          const current = reviewQueue.indexOf(active);
-          const next = current >= 0 ? reviewQueue[current + 1] : undefined;
-          if (next) {
+        } else {
+          // 独立审核页不能用“当前是否最后一条”判断整批完成：
+          // 用户可以手动跳转。每次通过后回读最新状态，只在所有目标都已批准时进入开始测试。
+          const selection = reviewQueue.length > 0 ? reviewQueue : [active];
+          const fresh = (await call<{ cases: CaseRow[] }>('case.list')).cases;
+          const pending = selection.filter((id) => {
+            const item = fresh.find((c) => c.case_id === id);
+            return !item || !caseIsApproved(item);
+          });
+          if (pending.length > 0) {
             editedRef.current = false;
-            setActive(next);
+            setActive(pending[0]);
             setNotice({ kind: 'info', text: `已通过 ${active}，继续审核下一条。` });
           } else {
-            setNotice({ kind: 'info', text: '本批用例已全部审核完成。' });
+            navigate('home', { selection: selection.join(',') });
           }
         }
       }
@@ -147,6 +154,15 @@ export function DslReviewPage({ caseId, queue, embedded = false, onAccepted, onB
 
   const disabled = busy !== null || jobBusy || !active || detail.loading || loadedForRef.current !== active;
   const position = active ? reviewQueue.indexOf(active) : -1;
+  const pendingQueue = reviewQueue.filter((id) => {
+    const item = cases.find((c) => c.case_id === id);
+    return !item || !caseIsApproved(item);
+  });
+  const finishesSelection = !!active && (
+    reviewQueue.length === 0
+      ? !data || !caseIsApproved(data)
+      : pendingQueue.length === 1 && pendingQueue[0] === active
+  );
   const switchCase = (id: string) => {
     if (draftDirty) { setSwitchTo(id); return; }
     setActive(id); setNotice(null); setConfirmReject(false);
@@ -221,9 +237,11 @@ export function DslReviewPage({ caseId, queue, embedded = false, onAccepted, onB
                 onClick={() => act('保存并审核', () => call('dsl.accept', { caseId: active, text, format: 'json', expectedRevision: data?.revision }))}>
           {embedded
             ? '确认此用例，继续下一步 →'
-            : reviewQueue.length > 0 && position >= 0 && position < reviewQueue.length - 1
-              ? '✓ 保存并通过，下一条 →'
-              : '✓ 保存并通过'}
+            : finishesSelection
+              ? '✓ 保存并通过，开始测试 →'
+              : reviewQueue.length > 0
+                ? '✓ 保存并通过，下一条 →'
+                : '✓ 保存并通过'}
         </button>
         {(!embedded || editTools) && <button className="btn danger" disabled={disabled}
                 onClick={() => setConfirmReject(true)}>
