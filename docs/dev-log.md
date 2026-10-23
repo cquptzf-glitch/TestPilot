@@ -1620,3 +1620,38 @@ GitHub Actions run 对提交：
 4. 大截图从 JSON-RPC base64 改为临时 asset 引用；
 5. ObservationDriver / AccessibilityDriver 正式协议，下沉当前对 UIADriver 私有字段的依赖。
 
+
+
+---
+
+## 2026-10-23：SVN 变更 Agent + 禅道增量复审
+
+### 决策
+
+- 需要多轮工具调用的流程统一依赖 AgentPort，默认 Pi Agent。
+- **Agent 的所有 tool 读取/操作必须由 TestPilot 主 RPC 进程执行。**
+- Pi 禁用原生 read/bash/edit/write、MCP、skills；只加载 TestPilot RPC proxy extension。
+- Agent 使用短期 workspace-bound capability token；主 RPC Token 不进入 Agent 子进程。
+- 正常回归执行仍为确定性 DSL，不依赖 Agent。
+
+### 实现
+
+- 新增 agent/pi_runtime.py、agent/pi_rpc_tools.mjs、agent/change_service.py。
+- 新增 adapters/svn_adapter.py。
+- 主 RPC 增加内部 agent.fs.* / agent.svn.* / agent.case.* Tool Host。
+- 新增 change.svn.preview；change.svn.generate 通过 job.start 后台执行。
+- 新增桌面 SVN 变更生成页面与 Pi/SVN 设置、health。
+- SVN Agent 生成用例先落本地 draft，不能由 Agent 直接写 active DSL。
+- 禅道 sync 使用按产品 watermark，新增 source_sync_state，并增加 full 校准模式。
+
+### 文档
+
+- docs/agent-svn-change-analysis.md
+- docs/review-zentao-2026-10-23.md
+- README / handoff / defect-backlog 同步更新。
+
+### 验证
+
+- Desktop TypeScript 在第一批 Agent/SVN 后端测试提交时已通过。
+- 首轮 Python CI 命中 5 个 Ruff 问题（未使用导入/异常链），已修复。
+- 最新 Python unit+ruff / Desktop build 等待后续 CI 结果；真 SVN/Pi smoke 暂不作为当前开发阻塞项。
