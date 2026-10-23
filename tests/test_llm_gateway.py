@@ -103,11 +103,25 @@ def test_known_actions_all_accepted():
     for i, action in enumerate(sorted(KNOWN_ACTIONS), 1):
         verify = {"assert.ui": "text", "assert.state": "state",
                   "assert.vision": "vision"}.get(action, "none")
+        args = {"cmd": "reset", "scene_id": "a", "path": "/x",
+                "expect": "ready", "ms": 0}
+        value = "{ENTER}"
+        if action == "ui.toggle":
+            value = "true"
+        elif action == "ui.scroll":
+            args = {"direction": "down", "amount": 1}
+        elif action == "ui.drag":
+            args = {"dx": 10, "dy": 0, "duration_ms": 300}
+        elif action == "app.launch":
+            args = {"exe": "app.exe"}
+        elif action == "app.close":
+            args = {"mode": "graceful"}
+        elif action == "sleep":
+            args = {"ms": 0}
         steps.append({"id": f"s{i}", "action": action,
-                      "value": "true" if action == "ui.toggle" else "{ENTER}",
+                      "value": value,
                       "target": {"key": "button", "primary": {"type": "uia", "name": "OK"}},
-                      "args": {"cmd": "reset", "scene_id": "a", "path": "/x",
-                               "expect": "ready", "ms": 0},
+                      "args": args,
                       "verify": {"type": verify, "expect": "ready"}})
     gw = _gw([json.dumps({"steps": steps})])
     out = gw.parse_case({"case_id": "TC-1"})
