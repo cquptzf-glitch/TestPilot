@@ -35,8 +35,9 @@ from concurrent.futures import wait as futures_wait
 
 from testpilot.infra.jobs import CaseJobs
 
-from testpilot.core.errors import (AbortRequested, INTERNAL_ERROR, INVALID_PARAMS, PARSE_ERROR,
-                                   RpcError, TestPilotError, method_not_found)
+from testpilot.core.errors import (AbortRequested, INTERNAL_ERROR, INVALID_PARAMS,
+                                   METHOD_NOT_FOUND, PARSE_ERROR, RpcError,
+                                   TestPilotError, method_not_found)
 
 log = logging.getLogger("testpilot.rpc")
 
@@ -1168,6 +1169,15 @@ class RpcService:
 
     # ---------- 服务循环 ----------
 
+    def _agent_connection_scope(self, supplied: str) -> dict | None:
+        prefix = "Bearer "
+        if not isinstance(supplied, str) or not supplied.startswith(prefix):
+            return None
+        token = supplied[len(prefix):]
+        with self._agent_tokens_lock:
+            scope = self._agent_tokens.get(token)
+            return dict(scope) if scope is not None else None
+
     async def serve(self, host: str, port: int) -> None:
         import websockets
 
@@ -1175,7 +1185,12 @@ class RpcService:
         self._stop = asyncio.Event()
 
         async def handler(ws, path=None):     # 兼容 websockets 新旧 handler 签名
-            self._subs.add(ws)
+            request = getattr(ws, "request", None)
+            headers = getattr(request, "headers", None) or getattr(ws, "request_headers", {})
+            supplied = headers.get("Authorization", "") if headers is not None else ""
+            agent_scope = self._agent_connection_scope(supplied)
+            if agent_scope is None:
+                self._subs.add(ws)
             lock = asyncio.Lock()
             self._send_locks[ws] = lock
             # 每帧独立处理：task.run 可能执行数小时，若整条连接串行消费，
@@ -1183,7 +1198,7 @@ class RpcService:
             pending: set[asyncio.Task] = set()
 
             async def respond(raw) -> None:
-                resp = await self._handle_raw(raw)
+                resp = await self._handle_raw(raw, agent_scope=agent_scope)
                 if resp is None:              # notification：不回包
                     return
                 async with lock:
@@ -1213,7 +1228,9 @@ class RpcService:
             supplied = headers.get("Authorization", "")
             allowed = origin in (None, "tauri://localhost", "http://tauri.localhost",
                                  "https://tauri.localhost")
-            if allowed and hmac.compare_digest(supplied, f"Bearer {self.token}"):
+            main_ok = hmac.compare_digest(supplied, f"Bearer {self.token}")
+            agent_ok = self._agent_connection_scope(supplied) is not None
+            if allowed and (main_ok or agent_ok):
                 return None
             if hasattr(request, "headers"):
                 return connection.respond(403, "RPC authorization required")
@@ -1224,7 +1241,7 @@ class RpcService:
             await self._stop.wait()
         log.info("RPC 服务已停止")
 
-    async def _handle_raw(self, raw) -> dict | None:
+    async def _handle_raw(self, raw, agent_scope: dict | None = None) -> dict | None:
         req = {}
         try:
             req = json.loads(raw)
@@ -1246,6 +1263,12 @@ class RpcService:
                 return None
             return self._err(req_id, INVALID_PARAMS,
                              "params 需为对象（不支持位置参数）")
+        if agent_scope is not None:
+            if method not in _AGENT_RPC_METHODS:
+                return None if is_notification else self._err(
+                    req_id, METHOD_NOT_FOUND, "Agent RPC capability 不允许该方法")
+            params = dict(params)
+            params["_agentScope"] = agent_scope
         reserved = False
         try:
             if method in _INLINE:
@@ -1300,6 +1323,8 @@ class RpcService:
                 pass
         self._automation_sessions = {}
         self._automation_owner = None
+        with self._agent_tokens_lock:
+            self._agent_tokens.clear()
         self._executor.shutdown(wait=False)
         self._run_executor.shutdown(wait=False)
 
