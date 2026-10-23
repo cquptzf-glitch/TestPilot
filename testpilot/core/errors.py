@@ -43,6 +43,14 @@ class LlmError(TestPilotError):
     """LLM/VLM 调用失败（网关不可用、返回非 JSON、超时）。"""
 
 
+class AgentError(TestPilotError):
+    """Agent Runtime 调用失败（Pi 不可用、流程失败、输出无效、超时）。"""
+
+
+class SvnError(TestPilotError):
+    """SVN 变更读取失败（命令不可用、工作副本非法、revision 不存在）。"""
+
+
 class ZentaoError(TestPilotError):
     """禅道接口失败（认证失效、业务报错、回读校验不通过）。"""
 
