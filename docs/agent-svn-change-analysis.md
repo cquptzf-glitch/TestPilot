@@ -318,7 +318,11 @@ Agent 流程不能直接跑在普通 RPC 单线程 IO executor。
 - SVN diff Agent 上下文有独立 120k/200k 预算；
 - scoped Agent RPC 不能调用非 `agent.*` 方法；
 - Agent 不能直接写 executable DSL / active case；
-- SVN 生成结果的来源追踪入库。
+- SVN 生成结果的来源追踪入库；
+- Pi `agent_tool` progress 的 phase 透传不会发生重复关键字冲突；
+- Agent runtime 异常、最终 JSON/Schema 无效、用户取消时，后台 Job 都保留终止前主 RPC audit；
+- `parse/maxCases/max_chars` 严格类型/边界校验，bool/分数/非法下界拒绝；
+- 空 find/grep/case search、非法 diff paths 不会退化成大范围扫描。
 
 后续环境验证统一列入 ENV：
 
@@ -360,7 +364,9 @@ Pi tp_* tool
 4. `svn.diff` 不记录 diff 正文，只记录 chars / truncated / path_count；
 5. `case.detail` 不复制完整用例正文，只记录状态与 step_count；
 6. 每个 Agent 会话最多保留 200 条，结束后 capability 与内存审计一起销毁；
-7. SVN 变更生成完成后，将审计快照挂到 `result.agent.audit`，桌面端按需展开。
+7. SVN 变更生成完成后，将审计快照挂到 `result.agent.audit`，桌面端按需展开；
+8. Agent runtime 异常或最终输出无效时，在 capability token 吊销前把 audit 快照写入 `job.progress.agent_audit`；用户取消也走同样的终态写入，但终态诊断不会再次触发 abort checkpoint；
+9. 桌面 SVN 页面和全局 CaseJobsPanel 共用 `AgentAuditTrail`，成功结果默认折叠，失败/取消轨迹可直接展开。
 
 这样真实 Pi/provider 联调时可以回答“Agent 实际调用了什么、主进程是否执行成功、耗时在哪里”，同时不会把大段源码再次复制到 UI 或任务结果中。
 
@@ -370,7 +376,11 @@ Pi tp_* tool
 - 轨迹结果不包含 `content` 正文；
 - workspace 越界失败同样记录 `ok=false + error`；
 - token revoke 后审计不可继续读取；
-- ChangeAnalysisService 会把主进程审计透传到最终 Agent 结果。
+- ChangeAnalysisService 会把主进程审计透传到最终 Agent 结果；
+- 真实 `phase=agent_tool` progress 可贯穿 Pi runtime → ChangeAnalysisService → CaseJobs，不再因 `phase` 重复参数中断；
+- Agent provider/runtime 失败会在 Job progress 中保留 `agent_failed + agent_error + agent_audit`；
+- 最终 JSON/Schema 无效会保留 `agent_output_invalid + agent_audit`；
+- 已请求取消时仍先落 `agent_cancelled + agent_audit`，再结束任务。
 
 ## 10. 当前自动验证证据
 
@@ -385,5 +395,7 @@ GitHub Actions run `39884433953`（RPC/权限 hardening 基线 `4f287f7ad0653880
 GitHub Actions run `39885272988` 同样 Python / Ruff / Pytest / Desktop 全绿。
 
 结构化 Agent 审计增量基线 `c7c318480e1e9b6967267526c958d17f7b1db602` 对应 GitHub Actions run `39914605156`：Desktop TypeScript/Vite、Ruff、全量 Pytest 全部 success。
+
+Agent progress/失败诊断/参数边界增量基线 `03b47bf4f691fcdc1d56c4eddf1377f991481b27` 对应 GitHub Actions run `39916844147`：Desktop TypeScript/Vite Job 与 Python（Ruff + 全量 Pytest）Job 均 success。
 
 真实公司 SVN、真实 Pi provider/model、真实大仓库级联影响质量仍属于 ENV 验证，不作为当前功能开发阻塞项。

@@ -447,16 +447,16 @@ Vision 同样把模板、稳定 key、region、diff、手势动作降为高级�
 
 ## 8. 最终自动验证
 
-当前最新业务代码基线（包含后续 case readiness 集中化与 Agent 主 RPC 审计增量）：
+当前最新业务代码基线（包含后续 case readiness 集中化、Agent 主 RPC 审计、失败诊断与参数 hardening 增量）：
 
 ```text
-c7c318480e1e9b6967267526c958d17f7b1db602
+03b47bf4f691fcdc1d56c4eddf1377f991481b27
 ```
 
 GitHub Actions run：
 
 ```text
-39914605156
+39916844147
 ```
 
 结果：
@@ -464,6 +464,6 @@ GitHub Actions run：
 - Desktop TypeScript typecheck + Vite build：**success**；
 - Ruff：**success**（All checks passed）；
 - 全量 Pytest：**success**；
-- Workflow 总结：**success**。
+- Python 与 Desktop 两个实际门禁 Job：**success**。
 
 该流程/UI复审阶段已经收口；后续若继续修改业务代码，必须作为独立增量补测试并重新取得全绿 CI。当前后续增量已按此执行。
