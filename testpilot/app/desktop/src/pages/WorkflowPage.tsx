@@ -106,7 +106,9 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
     (c.case_id + ' ' + c.title).toLowerCase().includes(query.trim().toLowerCase())), [rows, query]);
   const runnable = chosen.length === selected.length && chosen.length > 0 && chosen.every(approved);
   const windowMissing = chosen.filter(missingWindow);
-  const fingerprint = JSON.stringify([chosen.map(c => [c.case_id, c.version]), remote, mode, caseRetry]);
+  // 任务快照只由用例版本、驱动策略和远端同步决定。
+  // caseRetry 是本次 task.run 参数，改变它不应重复创建同一个任务。
+  const fingerprint = JSON.stringify([chosen.map(c => [c.case_id, c.version]), remote, mode]);
   const reusable = task?.fingerprint === fingerprint ? task : null;
   useEffect(() => { sessionStorage.setItem('tp-flow-selection', JSON.stringify(selected)); }, [selected]);
   useEffect(() => { sessionStorage.setItem('tp-flow-task', JSON.stringify(task)); }, [task]);
@@ -223,7 +225,16 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
       }
       if (windowTitle.trim()) appTarget.title_re = '.*' + windowTitle.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '.*';
     }
-    const ids = (appTarget ? chosen : chosen.filter(needsAnalysis)).map(c => c.case_id);
+    if (windowMissing.length && !appTarget) {
+      throw new Error(
+        `${windowMissing.map(c => c.case_id).join('、')} 缺少被测窗口信息；请展开“被测软件”补充窗口标题或程序路径`,
+      );
+    }
+    // 已审核且目标完整的用例直接复用。只有本身待解析，或确实缺窗口且本次
+    // 提供了 appTarget 的用例才重新生成 DSL，避免无意义 LLM 调用与二次审核。
+    const ids = chosen
+      .filter(c => needsAnalysis(c) || (!!appTarget && missingWindow(c)))
+      .map(c => c.case_id);
     setBatch(null);
     if (ids.length) {
       const result = await caseJob<ParseBatchResult>('case.parse', { caseIds: ids, appTarget });
@@ -293,7 +304,15 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
         </label>)}
         {!visible.length && <Empty text={cases.loading ? '正在读取用例…' : '暂无用例，请先输入禅道 ID 拉取；也可到用例库导入 DSL。'} />}
       </div>
-      <details className="flow-target"><summary>设置被测软件（用例未提供窗口时填写）</summary>
+      <details className="flow-target" open={windowMissing.length > 0 || undefined}>
+        <summary>
+          被测软件
+          <span className="faint">
+            {windowMissing.length > 0
+              ? ` · ${windowMissing.length} 条用例需要补充`
+              : windowTitle || exe ? ` · ${windowTitle || presetDefaultName('', exe)}` : ' · 按需设置'}
+          </span>
+        </summary>
         <p className="muted">已打开软件可只填窗口标题；需要启动时填写程序路径。填写后会应用到本次生成的草稿，再由你确认。</p>
         <div className="flow-target-presets">
           <label>目标预设 / 最近使用
@@ -344,8 +363,15 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
           </label></div>
       </details>
       <div className="flow-footer"><span className="muted">{chosen.filter(needsAnalysis).length} 条待生成 · {chosen.filter(c => !approved(c) && !needsAnalysis(c)).length} 条待确认 · {chosen.filter(approved).length} 条可执行</span>
-        <button className="btn primary large" disabled={locked || chosen.length === 0 || cases.loading} onClick={() => void prepare()}>
-          {chosen.length > 0 && chosen.every(approved) && !windowTitle && !exe ? '下一步：执行测试 →' : '下一步：分析与确认 →'}</button></div>
+        <button className="btn primary large"
+          disabled={locked || chosen.length === 0 || cases.loading
+            || (windowMissing.length > 0 && !windowTitle.trim() && !exe.trim())}
+          onClick={() => void prepare()}>
+          {windowMissing.length > 0 && !windowTitle.trim() && !exe.trim()
+            ? '先补充被测软件'
+            : chosen.length > 0 && chosen.every(approved) && windowMissing.length === 0
+              ? '下一步：执行测试 →' : '下一步：分析与确认 →'}
+        </button></div>
     </section>}
 
     {phase === 2 && <section className="flow-review">
