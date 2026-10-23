@@ -143,7 +143,7 @@ export function DslReviewPage({ caseId, queue, embedded = false, onAccepted, onB
             setActive(pending[0]);
             setNotice({ kind: 'info', text: `已通过 ${active}，继续审核下一条。` });
           } else {
-            navigate('home', { selection: selection.join(',') });
+            navigate('home', { selection: selection.join(','), ready: 1 });
           }
         }
       }

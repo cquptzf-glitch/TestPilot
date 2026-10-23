@@ -76,11 +76,15 @@ function missingWindow(c: CaseRow): boolean {
   return firstUI >= 0 && !steps.slice(0, firstUI).some(s => s.action === 'app.launch' && (s.args?.exe || s.args?.title_re));
 }
 
-export function WorkflowPage({ selection, running }: { selection?: string; running: number | null }) {
+export function WorkflowPage({ selection, running, ready = false }: {
+  selection?: string;
+  running: number | null;
+  ready?: boolean;
+}) {
   const cases = useAsync(() => call<{ cases: CaseRow[] }>('case.list'), []);
   const rows = cases.data?.cases ?? [];
   const [selected, setSelected] = useState<string[]>(() => selection?.split(',').filter(Boolean) ?? restored('tp-flow-selection', []));
-  const [phase, setPhase] = useState(1);
+  const [phase, setPhase] = useState(ready ? 3 : 1);
   const [query, setQuery] = useState('');
   const [pullIds, setPullIds] = useState('');
   const [windowTitle, setWindowTitle] = useState(() => restored('tp-flow-window-title', ''));
@@ -122,6 +126,12 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
     if (cases.data) setSelected(ids =>
       ids.filter(id => rows.some(c => c.case_id === id && caseIsSelectable(c))));
   }, [cases.data]);
+  useEffect(() => {
+    if (!ready || !cases.data || phase !== 3) return;
+    // 深链到“执行前确认”只用于已经审核完成的 selection；如果用例状态已变化，
+    // 或仍缺少被测窗口信息，就退回选择页处理必要条件，绝不直接绕过安全门槛。
+    if (!runnable || windowMissing.length > 0) setPhase(1);
+  }, [ready, cases.data, phase, runnable, windowMissing.length]);
 
   const applyTargetPreset = (id: string) => {
     setTargetPresetId(id);
@@ -409,8 +419,9 @@ export function WorkflowPage({ selection, running }: { selection?: string; runni
         {batch?.failed.map(f => <p key={f.case_id} className="msg error">{f.case_id}：{f.error}</p>)}
       </div>
       {reviewId && <DslReviewPage key={reviewId} embedded caseId={reviewId} onAccepted={accepted} onBack={() => { cases.reload(); setPhase(1); }} />}
-      <div className="flow-footer"><span className="muted">确认当前用例后自动进入下一条。</span>
-        <button className="btn primary" disabled={locked || !runnable} onClick={() => setPhase(3)}>全部已确认，前往执行 →</button></div>
+      <div className="flow-footer">
+        <span className="muted">确认当前用例后自动进入下一条；全部确认后自动进入执行前确认。</span>
+      </div>
     </section>}
 
     {phase === 3 && <section className="panel flow-card">

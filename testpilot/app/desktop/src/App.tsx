@@ -149,7 +149,12 @@ export default function App() {
           <a className={page === 'suites' ? 'on' : ''} href="#/suites">测试方案</a>
         </div>}
         <CaseJobsPanel compact={page === 'home'} />
-        {page === 'home' && <WorkflowPage key={route.params.get('selection') ?? 'default'} selection={route.params.get('selection') ?? undefined} running={running} />}
+        {page === 'home' && <WorkflowPage
+          key={(route.params.get('selection') ?? 'default') + ':' + (route.params.get('ready') ?? '')}
+          selection={route.params.get('selection') ?? undefined}
+          ready={route.params.get('ready') === '1'}
+          running={running}
+        />}
         {page === 'automation' && <AutomationPage />}
         {page === 'overview' && <HomePage />}
 
