@@ -176,14 +176,14 @@ export function DslReviewPage({ caseId, queue, embedded = false, onAccepted, onB
         <button className="btn" disabled={busy !== null} onClick={() => {
           if (draftDirty) { setSwitchTo('@back'); return; }
           if (onBack) onBack(); else navigate('cases', { selection: reviewQueue.join(',') });
-        }}>{embedded ? '返回选择用例' : '返回用例库 / 创建任务'}</button>
+        }}>{embedded ? '返回选择用例' : '返回用例库'}</button>
         {reviewQueue.length > 0 && <>
           <span>批量审核 {position >= 0 ? position + 1 : '—'} / {reviewQueue.length}</span>
           <button className="btn" disabled={busy !== null || position <= 0}
             onClick={() => switchCase(reviewQueue[position - 1])}>上一条</button>
           <button className="btn" disabled={busy !== null || position < 0 || position >= reviewQueue.length - 1}
             onClick={() => switchCase(reviewQueue[position + 1])}>下一条</button>
-          <span className="hint">逐条核对原文和步骤，保存并通过后再审核下一条。</span>
+          <span className="hint">逐条核对原文和步骤；保存并通过后自动进入下一条。</span>
         </>}
       </div>
       {switchTo && <ConfirmBar text="当前草稿有未保存修改，切换将放弃这些修改。" confirmText="放弃修改并切换"
