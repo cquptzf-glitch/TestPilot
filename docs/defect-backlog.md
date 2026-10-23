@@ -3,7 +3,7 @@
 > 更新时间：2026-10-23  
 > 当前策略：**先堆功能 + 单元测试/契约测试 + 前端编译门禁；暂不把真机 smoke 作为开发阻塞项。**  
 > 真机/UIA/DPI/干净机安装验证保留，但放到功能面稳定后集中执行。  
-> 最新代码门禁证据：GitHub Actions run 39932264081 / SHA c1e0b57464b33e62d6e13c9d5c80e3eed34ef90c 全绿（Desktop TypeScript/Vite、Ruff、全量 Pytest）。
+> 最新代码门禁证据：GitHub Actions run 39934011635 / SHA 8f8110e70337eabb2f64a22173a1100cfc59cf9b 全绿（Desktop TypeScript/Vite、Ruff、全量 Pytest）。
 
 ## 状态约定
 
@@ -69,6 +69,7 @@
 | U-101 | P1 | DONE | 日常主路径收敛 | 日常回归统一为“开始测试 → 必要解析/审核 → 执行 → 结果”；任务/方案降为高级复用入口。 |
 | U-102 | P1 | DONE | 渐进式 UI | Cases、Workflow、SVN、Automation、Tasks、Settings 把低频/高级操作折叠；RunDetail 改 result-first 并按需加载诊断数据。 |
 | U-103 | P1 | DONE | LLM/DSL 动作表单一来源 | llm_gateway 直接复用 core.dsl.KNOWN_ACTIONS，消除 Prompt / DSL / 归一化动作集合漂移。 |
+| U-104 | P2 | DONE | 高频操作继续收敛 | Workflow 审核 chip 可直接跳转/回看；Cases 删除重复同步态下拉并补齐“清除筛选”的分组清理；后台 CaseJobs terminal 状态只保留一个“继续审核/查看生成用例”主动作，Agent 轨迹降为“查看详情”。仅 Desktop 改动，无新增 RPC/后端结构。Actions run 39934011635 / SHA 8f8110e70337eabb2f64a22173a1100cfc59cf9b 全绿。 |
 
 ## 禅道 / Agent / SVN 专项
 
