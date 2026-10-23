@@ -24,6 +24,7 @@ class SuiteService:
     def create(self, name: str, case_ids: list[str], description: str = "",
                driver_config: dict | None = None,
                preconditions: list[str] | None = None) -> dict:
+        case_ids = list(dict.fromkeys(case_ids))
         if not case_ids:
             raise TestPilotError("方案至少需要一条用例")
         if repos.get_suite_by_name(self.conn, name) is not None:
@@ -49,8 +50,10 @@ class SuiteService:
             if other is not None and other["id"] != suite_id:
                 raise TestPilotError(f"方案名已存在: {name}")
         self._validate_driver_config(driver_config)
-        if case_ids is not None and not case_ids:
-            raise TestPilotError("方案至少需要一条用例")
+        if case_ids is not None:
+            case_ids = list(dict.fromkeys(case_ids))
+            if not case_ids:
+                raise TestPilotError("方案至少需要一条用例")
         if preconditions is None and case_ids is not None:
             preconditions = self.cases.preconditions_of(case_ids)
         try:
