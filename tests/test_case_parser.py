@@ -354,6 +354,29 @@ def test_import_json_string_detects_structure_errors(svc):
         svc.import_draft('[{"not": "an object"}]', "json")
 
 
+@pytest.mark.parametrize(("text", "expected"), [
+    ('{"case_id": "TC-X", "steps": [}', "解析失败"),
+    ('{"case_id": "TC-X", "steps": [{"id": "s1"}]}', "结构校验失败"),
+])
+def test_import_reports_syntax_and_validation_errors(svc, text, expected):
+    with pytest.raises(TestPilotError, match=expected):
+        svc.import_draft(text, "json")
+
+
+def test_import_and_export_reject_unknown_format(svc):
+    with pytest.raises(TestPilotError, match="仅支持 json/yaml"):
+        svc.import_draft('{"case_id":"TC-X","steps":[]}', "xml")
+
+    svc.pull([1])
+    with pytest.raises(TestPilotError, match="仅支持 json/yaml"):
+        svc.export_case("TC-1", "xml")
+
+
+def test_import_rejects_blank_text(svc):
+    with pytest.raises(TestPilotError, match="不能为空"):
+        svc.import_draft("   ", "json")
+
+
 def test_import_creates_local_only_case(svc, db_conn):
     payload = {"case_id": "TC-777", "title": "手工用例", "steps": [
         {"id": "s1", "action": "sleep", "args": {"ms": 1}}]}
