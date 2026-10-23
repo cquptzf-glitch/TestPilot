@@ -36,6 +36,8 @@ ROOT = Path(SPECPATH).parent          # 仓库根（spec 在 packaging/ 下）
 # 而开发态永远复现不出来 —— 已验证并写成门禁 test_sidecar_spec_ships_runtime_yaml。
 _DATAS = [
     (str(ROOT / 'testpilot' / 'config' / 'default.yaml'), 'testpilot/config'),
+    # Pi 只加载 TestPilot 自定义 RPC proxy 工具；安装版若漏此文件，Agent 直接不可用。
+    (str(ROOT / 'testpilot' / 'agent' / 'pi_rpc_tools.mjs'), 'testpilot/agent'),
 ]
 
 # 权威隐式依赖清单（运行时动态导入，静态分析看不到）
