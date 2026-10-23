@@ -5,6 +5,7 @@ import json
 import pytest
 
 from testpilot.core.errors import INVALID_PARAMS, METHOD_NOT_FOUND, RpcError
+from testpilot.core.events import RunFinished
 from testpilot.infra.events import EventBus
 from testpilot.rpc import RpcService
 from tests.conftest import prepare_case
@@ -68,6 +69,20 @@ def test_case_pull_rejects_non_integer_ids(svc):
     with pytest.raises(RpcError) as e:
         service.dispatch("case.pull", {"caseIds": [1, "x"], "parse": False})
     assert e.value.code == INVALID_PARAMS
+
+
+def test_run_progress_event_phase_is_top_level():
+    start = RunFinished.of(7, {"phase": "start", "task_id": 3}).to_dict()
+    assert start == {
+        "event": "run.progress",
+        "payload": {"run_id": 7, "phase": "start", "task_id": 3},
+    }
+
+    finished = RunFinished.of(
+        7, {"phase": "finished", "stats": {"pass": 2, "total": 2}},
+    ).to_dict()
+    assert finished["payload"]["phase"] == "finished"
+    assert finished["payload"]["stats"]["pass"] == 2
 
 
 # ---------- 自动化探索 ----------
