@@ -159,7 +159,7 @@ export function CasesPage({ selection }: { selection?: string }) {
   return (
     <div className="main">
       <div className="page-head">
-        <h2>用例管理</h2>
+        <div><h2>用例维护</h2><p className="muted">同步来源、生成 DSL、审核；日常执行直接用“开始测试”。</p></div>
         <span className="hstack" style={{ gap: 'var(--sp-2)' }}>
           <button className={`chip ${syncStatus === '' ? 'on' : ''}`}
                   onClick={() => setSyncStatus('')}>
@@ -180,41 +180,46 @@ export function CasesPage({ selection }: { selection?: string }) {
         )}
       </div>
 
-      <p className="muted">1 拉取用例 → 2 分析生成 DSL → 3 逐条审核 → 4 创建并执行测试任务</p>
-      <div className="toolbar">
-        <input
-          type="text" style={{ width: 260 }} value={ids}
-          placeholder="禅道用例 ID，逗号/空格分隔（如 1024,1025）"
-          onChange={(e) => setIds(e.target.value)}
-        />
-        <button className="btn primary" disabled={locked || parseIds(ids).length === 0}
-                onClick={() => run('拉取', () => caseJob('case.pull', { caseIds: parseIds(ids), parse: parseAfter }), list.reload)}>
-          拉取
-        </button>
-        <label className="hstack muted">
-          <input type="checkbox" checked={parseAfter} onChange={(e) => setParseAfter(e.target.checked)} />
-          同时解析 DSL
-        </label>
-        <button className="btn" disabled={locked}
-                title={lastSync
-                  ? `按远端修改水位增量同步；上次同步：${fmtTime(lastSync)}`
-                  : '首次同步会扫描当前产品用例'}
-                onClick={() => run('增量同步', () => caseJob('case.sync', {
-                  parse: parseAfter, full: false,
-                }), list.reload)}>
-          增量同步
-          <span className="faint" style={{ marginLeft: 6, fontSize: 'var(--fs-xs)' }}>
-            {lastSync ? `上次 ${fmtTime(lastSync)}` : '首次'}
+      <details className="panel case-source-panel">
+        <summary>
+          <strong>添加与同步用例</strong>
+          <span className="faint">
+            {lastSync ? ` · 上次同步 ${fmtTime(lastSync)}` : ' · 首次使用请先拉取或同步'}
           </span>
-        </button>
-        <button className="btn ghost" disabled={locked}
-                title="忽略增量水位，完整扫描禅道当前产品；用于校准、迁移或怀疑漏同步时"
-                onClick={() => run('全量校准', () => caseJob('case.sync', {
-                  parse: parseAfter, full: true,
-                }), list.reload)}>
-          全量校准
-        </button>
-      </div>
+        </summary>
+        <div className="toolbar source-toolbar">
+          <input
+            type="text" style={{ width: 280 }} value={ids}
+            placeholder="禅道用例 ID，如 1024,1025"
+            onChange={(e) => setIds(e.target.value)}
+          />
+          <button className="btn primary" disabled={locked || parseIds(ids).length === 0}
+                  onClick={() => run('拉取', () => caseJob('case.pull', { caseIds: parseIds(ids), parse: parseAfter }), list.reload)}>
+            拉取指定用例
+          </button>
+          <button className="btn" disabled={locked}
+                  title={lastSync
+                    ? `按远端修改水位增量同步；上次同步：${fmtTime(lastSync)}`
+                    : '首次同步会扫描当前产品用例'}
+                  onClick={() => run('增量同步', () => caseJob('case.sync', {
+                    parse: parseAfter, full: false,
+                  }), list.reload)}>
+            增量同步
+          </button>
+          <label className="hstack muted">
+            <input type="checkbox" checked={parseAfter} onChange={(e) => setParseAfter(e.target.checked)} />
+            同步后自动生成 DSL
+          </label>
+          <span className="spacer" />
+          <button className="btn ghost" disabled={locked}
+                  title="忽略增量水位，完整扫描禅道当前产品；仅用于校准、迁移或怀疑漏同步时"
+                  onClick={() => run('全量校准', () => caseJob('case.sync', {
+                    parse: parseAfter, full: true,
+                  }), list.reload)}>
+            全量校准
+          </button>
+        </div>
+      </details>
       <div className="toolbar">
         <input
           type="search" style={{ width: 200 }} value={query}
@@ -248,21 +253,38 @@ export function CasesPage({ selection }: { selection?: string }) {
           </label>
         )}
       </div>
-      <div className="toolbar case-actions">
+      <div className="toolbar case-actions primary-actions">
         <span className="muted">当前 {rows.length} 条 · 已选 {selectedRows.length} 条</span>
         <button className="btn primary" disabled={locked || selectedRows.length === 0}
-          onClick={() => navigate('home', { selection: selectedRows.map(r => r.case_id).join(',') })}>用所选开始测试 →</button>
+          onClick={() => navigate('home', { selection: selectedRows.map(r => r.case_id).join(',') })}>
+          开始测试（{selectedRows.length}）→
+        </button>
         <button className="btn" disabled={locked || !canAnalyze}
-          onClick={() => void analyze(selectedRows.map(r => r.case_id))}>分析所选生成 DSL（{selectedRows.length}）</button>
-        <button className="btn" disabled={locked || pendingRows.length === 0}
-          onClick={() => void analyze(pendingRows.map(r => r.case_id))}>分析当前待生成 / 待更新（{pendingRows.length}）</button>
+          onClick={() => void analyze(selectedRows.map(r => r.case_id))}>
+          生成 / 更新 DSL
+        </button>
         <button className="btn" disabled={!selectedRows.some(r => r.steps?.length)}
-          onClick={() => review(selectedRows.filter(r => r.steps?.length).map(r => r.case_id))}>审核所选 DSL</button>
-        <button className="btn" disabled={locked || !canCreate}
-          onClick={() => setTaskName(`任务-${new Date().toISOString().slice(5, 10)}`)}>创建测试任务</button>
-        <button className="btn" disabled={locked || !canCreate}
-          onClick={() => setSuiteName(`方案-${new Date().toISOString().slice(5, 10)}`)}>创建测试方案</button>
-        {selectedRows.length > 0 && !canCreate && <span className="hint">先生成 DSL 并审核通过，再创建任务。已拒绝用例请先修订草稿。</span>}
+          onClick={() => review(selectedRows.filter(r => r.steps?.length).map(r => r.case_id))}>
+          审核 DSL
+        </button>
+        <details className="inline-more">
+          <summary className="btn ghost">更多操作</summary>
+          <div className="more-actions-popover">
+            <button className="btn" disabled={locked || pendingRows.length === 0}
+              onClick={() => void analyze(pendingRows.map(r => r.case_id))}>
+              生成当前全部待更新（{pendingRows.length}）
+            </button>
+            <button className="btn" disabled={locked || !canCreate}
+              onClick={() => setTaskName(`任务-${new Date().toISOString().slice(5, 10)}`)}>
+              创建独立测试任务
+            </button>
+            <button className="btn" disabled={locked || !canCreate}
+              onClick={() => setSuiteName(`方案-${new Date().toISOString().slice(5, 10)}`)}>
+              保存为测试方案
+            </button>
+          </div>
+        </details>
+        {selectedRows.length > 0 && !canCreate && <span className="hint">未审核用例可直接点“开始测试”，流程会先带你完成 DSL 审核。</span>}
       </div>
 
       <PromptModal
@@ -368,11 +390,13 @@ export function CasesPage({ selection }: { selection?: string }) {
                 )}
               </td>
               <td onClick={(e) => e.stopPropagation()}>
-                <div className="hstack">
-                  <button className="btn" disabled={locked || r.status === 'rejected'}
-                    onClick={() => void analyze([r.case_id])}>{r.steps?.length ? '重新分析' : '生成 DSL'}</button>
-                  <button className="btn" onClick={() => review([r.case_id])}>{r.steps?.length ? '审核 / 编辑' : '查看原文'}</button>
-                </div>
+                <button className="btn"
+                  disabled={locked && !r.steps?.length}
+                  onClick={() => r.steps?.length
+                    ? review([r.case_id])
+                    : void analyze([r.case_id])}>
+                  {r.steps?.length ? '审核 / 编辑' : '生成 DSL'}
+                </button>
               </td>
             </tr>
           );
@@ -441,12 +465,8 @@ export function CasesPage({ selection }: { selection?: string }) {
                 </table>
                 {(detail.data.steps as unknown[]).length === 0 && <Empty text="尚无 DSL：点行尾『生成 DSL』，或勾选用例进行批量分析" />}
                 <div style={{ marginTop: 8 }} className="hstack">
-                  <button className="btn" onClick={() => navigate('dsl', { caseId: detailId })}>去 DSL 审阅</button>
-                  <button className="btn primary" disabled={locked || detail.data.status === 'rejected'}
-                    onClick={() => void analyze([detailId])}>分析生成 DSL</button>
-                  <button className="btn danger" disabled={locked}
-                          onClick={() => run(`驳回 ${detailId}`, () => call('dsl.reject', { caseId: detailId }), () => { list.reload(); detail.reload(); })}>
-                    驳回
+                  <button className="btn primary" onClick={() => navigate('dsl', { caseId: detailId })}>
+                    {detail.data.steps.length ? '审核 / 编辑 DSL' : '查看并生成 DSL'}
                   </button>
                 </div>
               </div>
