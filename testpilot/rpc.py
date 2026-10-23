@@ -55,6 +55,7 @@ _AUTOMATION_INLINE_PNG_MAX = 128 * 1024
 _AUTOMATION_ASSET_KEEP = 6
 _AGENT_AUDIT_LIMIT = 200
 _AGENT_EVIDENCE_PATH_LIMIT = 1000
+_AGENT_EVIDENCE_CASE_LIMIT = 1000
 
 _AGENT_RPC_METHODS = frozenset({
     "agent.fs.read", "agent.fs.find", "agent.fs.grep",
@@ -1094,6 +1095,8 @@ class RpcService:
                 "failures": {},
                 "read_paths": set(),
                 "read_paths_truncated": False,
+                "case_ids": set(),
+                "case_ids_truncated": False,
             }
         return token
 
@@ -1122,6 +1125,8 @@ class RpcService:
                 "failures": dict(raw.get("failures") or {}),
                 "read_paths": sorted(raw.get("read_paths") or ()),
                 "read_paths_truncated": bool(raw.get("read_paths_truncated")),
+                "case_ids": sorted(raw.get("case_ids") or ()),
+                "case_ids_truncated": bool(raw.get("case_ids_truncated")),
             }
 
     def revoke_agent_token(self, token: str) -> None:
@@ -1204,6 +1209,24 @@ class RpcService:
                             read_paths.add(path)
                         else:
                             evidence["read_paths_truncated"] = True
+                if error is None and isinstance(result, dict):
+                    observed_case_ids = []
+                    if method == "agent.case.search":
+                        observed_case_ids = [
+                            str(item.get("case_id") or "").strip()
+                            for item in (result.get("cases") or [])
+                            if isinstance(item, dict)
+                        ]
+                    elif method == "agent.case.detail":
+                        observed_case_ids = [str(result.get("case_id") or "").strip()]
+                    case_ids = evidence["case_ids"]
+                    for case_id in observed_case_ids:
+                        if not case_id:
+                            continue
+                        if len(case_ids) < _AGENT_EVIDENCE_CASE_LIMIT or case_id in case_ids:
+                            case_ids.add(case_id)
+                        else:
+                            evidence["case_ids_truncated"] = True
 
             if audit is None:
                 return

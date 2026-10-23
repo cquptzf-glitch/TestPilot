@@ -92,19 +92,23 @@ def test_svn_adapter_rejects_revision_and_path_injection(tmp_path):
         svn.diff(tmp_path, paths=["../outside.cpp"])
 
 
-def _agent_evidence(*read_paths: str) -> dict:
+def _agent_evidence(*read_paths: str, case_ids: tuple[str, ...] = ()) -> dict:
     return {
         "calls": {
             "agent.svn.diff": 1,
             **({"agent.fs.read": len(read_paths)} if read_paths else {}),
+            **({"agent.case.search": 1} if case_ids else {}),
         },
         "successes": {
             "agent.svn.diff": 1,
             **({"agent.fs.read": len(read_paths)} if read_paths else {}),
+            **({"agent.case.search": 1} if case_ids else {}),
         },
         "failures": {},
         "read_paths": list(read_paths),
         "read_paths_truncated": False,
+        "case_ids": list(case_ids),
+        "case_ids_truncated": False,
     }
 
 
@@ -166,7 +170,8 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
                     "result": {"path": "src/RunController.cpp", "lines": 1},
                 },
             ],
-            "evidence": _agent_evidence("src/RunController.cpp"),
+            "evidence": _agent_evidence(
+                "src/RunController.cpp", case_ids=("TC-1",)),
         }
 
     service = ChangeAnalysisService(
@@ -184,6 +189,7 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     assert out["agent"]["audit"][0]["method"] == "agent.svn.diff"
     assert out["agent"]["evidence"]["successes"]["agent.svn.diff"] == 1
     assert out["agent"]["evidence"]["read_paths"] == ["src/RunController.cpp"]
+    assert out["agent"]["evidence"]["case_ids"] == ["TC-1"]
     assert any(
         event.get("phase") == "agent_tool"
         and event.get("tool") == "tp_svn_diff"
@@ -317,6 +323,31 @@ def test_change_service_preflights_all_source_and_related_evidence_before_persis
         row for row in repos.list_cases(db_conn)
         if (row.get("raw") or {}).get("source") == "svn_agent"
     ]
+
+
+def test_change_service_rejects_unobserved_related_case_even_when_it_exists(
+        tmp_path, db_conn, fake_zentao, fake_llm):
+    cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    repos.create_case(
+        db_conn, case_id="TC-EXISTS", zentao_case_id=None,
+        title="真实已有用例", raw={"steps_text": "existing"},
+        zentao_updated_at=None)
+    payload = json.loads(_agent_json())
+    payload["cases"][0]["source_files"] = ["src/a.cpp"]
+    payload["cases"][0]["related_case_ids"] = ["TC-EXISTS"]
+
+    def agent_runner(**_kwargs):
+        return {
+            "text": json.dumps(payload, ensure_ascii=False),
+            "tool_calls": 1,
+            "evidence": _agent_evidence(),
+        }
+
+    service = ChangeAnalysisService(db_conn, cases, {"svn": {}}, agent_runner)
+    service.svn = StubSvn(tmp_path)
+    with pytest.raises(AgentError, match="agent.case.search/detail") as exc:
+        service.generate({"workingCopy": str(tmp_path), "parse": False})
+    assert "TC-EXISTS" in str(exc.value)
 
 
 def test_change_service_preserves_audit_when_agent_output_is_invalid(
@@ -629,6 +660,10 @@ def test_agent_evidence_survives_display_audit_trimming(tmp_path, rpc_svc):
         scope, "agent.svn.diff", {},
         result={"chars": 10, "paths": [], "truncated": False},
         elapsed_ms=1)
+    service._record_agent_audit(
+        scope, "agent.case.search", {"query": "TC-1"},
+        result={"cases": [{"case_id": "TC-1"}], "count": 1, "truncated": False},
+        elapsed_ms=1)
     for index in range(205):
         service._record_agent_audit(
             scope, "agent.fs.read", {"path": f"src/{index}.cpp"},
@@ -638,11 +673,14 @@ def test_agent_evidence_survives_display_audit_trimming(tmp_path, rpc_svc):
     audit = service.agent_audit(token)
     evidence = service.agent_evidence(token)
     assert len(audit) == 200
-    assert all(item["method"] != "agent.svn.diff" for item in audit)
+    assert all(item["method"] not in ("agent.svn.diff", "agent.case.search")
+               for item in audit)
     assert evidence["successes"]["agent.svn.diff"] == 1
+    assert evidence["successes"]["agent.case.search"] == 1
     assert evidence["successes"]["agent.fs.read"] == 205
     assert evidence["read_paths"][0] == "src/0.cpp"
     assert "src/204.cpp" in evidence["read_paths"]
+    assert evidence["case_ids"] == ["TC-1"]
 
     service.revoke_agent_token(token)
     assert service.agent_evidence(token) == {}
@@ -669,6 +707,8 @@ def test_pi_runner_preserves_audit_in_failed_job_progress(
         "failures": {},
         "read_paths": ["src/a.cpp"],
         "read_paths_truncated": False,
+        "case_ids": [],
+        "case_ids_truncated": False,
     })
     monkeypatch.setattr(service, "revoke_agent_token", revoked.append)
 

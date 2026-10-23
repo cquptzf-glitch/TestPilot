@@ -271,6 +271,11 @@ class ChangeAnalysisService:
             for path in (evidence.get("read_paths") or [])
             if _repo_path(path)
         }
+        observed_case_ids = {
+            str(case_id or "").strip()
+            for case_id in (evidence.get("case_ids") or [])
+            if str(case_id or "").strip()
+        }
 
         problems = []
         for item in analysis.cases:
@@ -290,6 +295,10 @@ class ChangeAnalysisService:
                 if repos.get_case(self.conn, case_id) is None:
                     problems.append(
                         f"{item.title}: related_case_ids 不存在: {case_id}")
+                elif case_id not in observed_case_ids:
+                    problems.append(
+                        f"{item.title}: related_case_ids 无 agent.case.search/detail 证据: "
+                        f"{case_id}")
 
         if problems:
             detail = "；".join(problems[:8])

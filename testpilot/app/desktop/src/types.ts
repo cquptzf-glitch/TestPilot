@@ -550,6 +550,8 @@ export interface AgentToolEvidence {
   failures?: Record<string, number>;
   read_paths?: string[];
   read_paths_truncated?: boolean;
+  case_ids?: string[];
+  case_ids_truncated?: boolean;
 }
 
 export interface SvnChangeGenerateResult {
