@@ -488,11 +488,12 @@ class RpcService:
 
     def _run_list(self, p):
         from testpilot.storage.repos import list_runs
+        limit = _bounded_int(p, "limit", default=50, max_value=1000)
         if p.get("taskId") is not None:
             from testpilot.storage.repos import _loads
             rows = self._orch.conn.execute(
                 "SELECT * FROM test_run WHERE task_id=? ORDER BY id DESC LIMIT ?",
-                (_to_int(p, "taskId"), min(1000, int(p.get("limit", 50))))).fetchall()
+                (_to_int(p, "taskId"), limit)).fetchall()
             runs = []
             for row in rows:
                 out = dict(row)
@@ -500,7 +501,7 @@ class RpcService:
                 out["env"] = _loads(out.pop("env_snapshot_json", None), {})
                 runs.append(out)
             return {"runs": runs}
-        return {"runs": list_runs(self._orch.conn, int(p.get("limit", 50)))}
+        return {"runs": list_runs(self._orch.conn, limit)}
 
     def _run_detail(self, p):
         from testpilot.engine.stats import case_stability, signature_history
@@ -682,7 +683,7 @@ class RpcService:
             test_app_version=p.get("testAppVersion"),
             suite_id=p.get("suiteId"),
             case_ids=p.get("caseIds"),
-            limit=int(p.get("limit", 12) or 12))}
+            limit=_bounded_int(p, "limit", default=12, max_value=100))}
 
     # ---------- DSL 审阅 ----------
 
@@ -1024,8 +1025,8 @@ class RpcService:
         if b"\x00" in raw[:4096]:
             raise RpcError(INVALID_PARAMS, f"不允许把二进制文件送给 Agent: {path.name}")
         lines = raw.decode("utf-8", "replace").splitlines()
-        offset = max(1, int(p.get("offset") or 1))
-        limit = max(1, min(int(p.get("limit") or 300), 2000))
+        offset = _bounded_int(p, "offset", default=1, max_value=10_000_000)
+        limit = _bounded_int(p, "limit", default=300, max_value=2000)
         selected = lines[offset - 1: offset - 1 + limit]
         log.info(f"agent.fs.read {path} lines={offset}..{offset + len(selected) - 1}")
         return {
@@ -1039,7 +1040,7 @@ class RpcService:
         pattern = str(_require(p, "pattern")).strip().replace("\\", "/")
         if len(pattern) > 300 or pattern.startswith("/") or ".." in Path(pattern).parts:
             raise RpcError(INVALID_PARAMS, "Agent find pattern 非法")
-        limit = max(1, min(int(p.get("limit") or 200), 500))
+        limit = _bounded_int(p, "limit", default=200, max_value=500)
         out = []
         for path in root.glob(pattern):
             try:
@@ -1062,7 +1063,7 @@ class RpcService:
         glob = str(p.get("glob") or "**/*").replace("\\", "/")
         if glob.startswith("/") or ".." in Path(glob).parts:
             raise RpcError(INVALID_PARAMS, "Agent grep glob 非法")
-        limit = max(1, min(int(p.get("limit") or 100), 300))
+        limit = _bounded_int(p, "limit", default=100, max_value=300)
         use_regex = bool(p.get("regex"))
         try:
             pattern = re.compile(query, re.IGNORECASE) if use_regex else None
@@ -1130,13 +1131,13 @@ class RpcService:
         root = self._agent_workspace(p)
         out = SvnAdapter(self._orch.cfg.get("svn", {})).log(
             root, from_revision=p.get("from_revision"), to_revision=p.get("to_revision"),
-            limit=int(p.get("limit") or 20))
+            limit=_bounded_int(p, "limit", default=20, max_value=200))
         return {"items": out, "count": len(out)}
 
     def _agent_case_search(self, p):
         from testpilot.storage import repos
         query = str(_require(p, "query")).strip().lower()
-        limit = max(1, min(int(p.get("limit") or 20), 50))
+        limit = _bounded_int(p, "limit", default=20, max_value=50)
         out = []
         for row in repos.list_cases(self._orch.conn):
             raw = row.get("raw") or {}
@@ -1426,6 +1427,35 @@ def _to_int(params: dict, key: str) -> int:
     except (TypeError, ValueError):
         raise RpcError(INVALID_PARAMS,
                        f"参数 {key} 需为整数（得到 {value!r}）") from None
+
+
+def _bounded_int(params: dict, key: str, *, default: int,
+                 min_value: int = 1, max_value: int | None = None) -> int:
+    """Optional bounded integer RPC parameter.
+
+    Numeric strings remain accepted for compatibility. Booleans, fractional
+    floats, zero/negative values and malformed text are rejected as
+    INVALID_PARAMS instead of leaking ValueError or SQLite LIMIT=-1 semantics.
+    Values above max_value are clamped to preserve the historical query-limit
+    behavior while keeping response size bounded.
+    """
+    value = params.get(key, default)
+    if value is None or value == "":
+        value = default
+    if isinstance(value, bool) or (
+            isinstance(value, float) and not value.is_integer()):
+        raise RpcError(INVALID_PARAMS, f"参数 {key} 需为整数（得到 {value!r}）")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise RpcError(INVALID_PARAMS,
+                       f"参数 {key} 需为整数（得到 {value!r}）") from None
+    if parsed < min_value:
+        raise RpcError(INVALID_PARAMS,
+                       f"参数 {key} 需 >= {min_value}（得到 {parsed}）")
+    if max_value is not None:
+        parsed = min(parsed, max_value)
+    return parsed
 
 
 def _to_int_list(params: dict, key: str) -> list[int]:
