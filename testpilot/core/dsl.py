@@ -114,6 +114,10 @@ def execution_errors(step: Step) -> list[str]:
         errors.append("ui.toggle 的 value 必须是 true 或 false")
     if step.action == "ui.keypress" and not step.value:
         errors.append("ui.keypress 缺少 value 键序列")
+    if step.action == "ui.wait":
+        state = str(step.args.get("state", "exists")).lower()
+        if state not in ("exists", "gone"):
+            errors.append("ui.wait args.state 必须是 exists 或 gone")
     if step.action == "ui.scroll":
         direction = str(step.args.get("direction") or "").lower()
         if direction not in ("up", "down", "left", "right"):
@@ -143,8 +147,15 @@ def execution_errors(step: Step) -> list[str]:
         errors.append("device.call 缺少 args.cmd")
     if step.action == "device.scene" and not step.args.get("scene_id"):
         errors.append("device.scene 缺少 args.scene_id")
-    if step.action == "sleep" and step.args.get("ms", step.timeout_ms) < 0:
-        errors.append("等待时间不能为负数")
+    if step.action == "sleep":
+        raw_ms = step.args.get("ms", step.timeout_ms)
+        try:
+            wait_ms = int(raw_ms)
+        except (TypeError, ValueError):
+            errors.append("sleep args.ms 必须是整数毫秒")
+        else:
+            if wait_ms < 0:
+                errors.append("等待时间不能为负数")
     return errors
 
 
