@@ -379,6 +379,8 @@ export interface EngineHealth {
   db: { ok: boolean; detail: string };
   drivers: Record<string, { ok: boolean; detail: string }>;
   zentao: { configured: boolean };
+  agent?: { ok: boolean; detail: string };
+  svn?: { ok: boolean; detail: string };
   /** 待回写（sync_pending）任务数：导航"禅道"告警徽章的数据源 */
   sync_pending?: number;
   emulator: { connected: boolean };
@@ -486,6 +488,65 @@ export interface RunProgressPayload {
   stats?: RunStats;
 }
 
+
+/* ---------------------------------------------------------------- 外部来源 / SVN 变更分析 */
+
+export interface SourceSyncState {
+  source: string;
+  scope: string;
+  watermark?: string | null;
+  synced_at: string;
+  detail?: Record<string, unknown>;
+}
+
+export interface SvnChangedPath {
+  status?: string;
+  item?: string;
+  path: string;
+}
+
+export interface SvnChangePreview {
+  working_copy: string;
+  from_revision?: string | null;
+  to_revision?: string | null;
+  info?: {
+    path?: string;
+    revision?: string | null;
+    url?: string;
+    repository_root?: string;
+    repository_uuid?: string;
+  };
+  changed: SvnChangedPath[];
+  working_status?: SvnChangedPath[];
+}
+
+export interface SvnGeneratedCase {
+  case_id: string;
+  title: string;
+  priority: string;
+  category: string;
+  source_files: string[];
+  related_case_ids: string[];
+}
+
+export interface SvnChangeGenerateResult {
+  source: 'svn_agent';
+  summary: string;
+  impacted_modules: string[];
+  risks: string[];
+  snapshot: SvnChangePreview;
+  cases: SvnGeneratedCase[];
+  created: number;
+  parse?: ParseBatchLike;
+  agent?: { runtime: string; tool_calls?: number; elapsed_ms?: number };
+}
+
+export interface ParseBatchLike {
+  parsed?: number;
+  total?: number;
+  items?: { case_id: string; step_count: number; uncertain_steps?: string[] }[];
+  failed?: { case_id: string; error: string }[];
+}
 
 /* ---------------------------------------------------------------- 自动化探索 */
 
