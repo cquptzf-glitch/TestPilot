@@ -185,6 +185,30 @@ def test_change_prompt_merges_tracked_and_status_only_paths():
     assert "unversioned" in prompt
 
 
+def test_pi_runtime_websocket_env_is_version_gated(monkeypatch):
+    env = {}
+    monkeypatch.setattr(PiAgentRuntime, "_node_version", staticmethod(lambda: (20, 10)))
+    PiAgentRuntime._enable_native_websocket(env)
+    assert "--experimental-websocket" in env["NODE_OPTIONS"]
+
+    env = {}
+    monkeypatch.setattr(PiAgentRuntime, "_node_version", staticmethod(lambda: (21, 7)))
+    PiAgentRuntime._enable_native_websocket(env)
+    assert "--experimental-websocket" in env["NODE_OPTIONS"]
+
+    for version in ((20, 9), (22, 0), (24, 1)):
+        env = {}
+        monkeypatch.setattr(PiAgentRuntime, "_node_version",
+                            staticmethod(lambda v=version: v))
+        PiAgentRuntime._enable_native_websocket(env)
+        assert "NODE_OPTIONS" not in env
+
+    env = {"NODE_OPTIONS": "--no-experimental-websocket"}
+    monkeypatch.setattr(PiAgentRuntime, "_node_version", staticmethod(lambda: (20, 10)))
+    PiAgentRuntime._enable_native_websocket(env)
+    assert env["NODE_OPTIONS"] == "--no-experimental-websocket"
+
+
 def test_pi_runtime_builds_only_supported_safe_flags(tmp_path):
     extension = tmp_path / "tool.mjs"
     extension.write_text("export default () => {}", encoding="utf-8")
@@ -233,6 +257,8 @@ def test_pi_extension_has_no_native_file_or_shell_tools():
     assert 'from "ws"' not in source
     assert "globalThis.WebSocket" in source
     assert "@sinclair/typebox" in source
+    assert "return ENABLED.has(name)" in source
+    assert "ENABLED.size === 0 ||" not in source
     assert "exec(" not in source
     runtime = (Path(__file__).resolve().parents[1]
                / "testpilot" / "agent" / "pi_runtime.py").read_text(encoding="utf-8")
