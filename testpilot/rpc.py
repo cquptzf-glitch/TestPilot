@@ -149,7 +149,6 @@ class RpcService:
             "case.import": self._case_import,
             "case.parse": self._case_parse,
             "change.svn.preview": self._change_svn_preview,
-            "change.svn.generate": self._change_svn_generate,
 
             "suite.list": self._suite_list,
             "suite.detail": self._suite_detail,
@@ -231,7 +230,7 @@ class RpcService:
             "job.start", "job.status", "job.cancel",
             "health", "shutdown", "case.pull", "case.sync", "case.list",
             "case.detail", "case.export", "case.import", "case.parse",
-            "change.svn.preview", "change.svn.generate",
+            "change.svn.preview",
             "suite.list", "suite.detail", "suite.create", "suite.update",
             "suite.delete", "task.create", "task.run", "task.abort", "task.list",
             "task.detail", "task.syncPending", "task.reconcile", "run.list", "run.detail",
@@ -390,10 +389,6 @@ class RpcService:
 
     def _change_svn_preview(self, p):
         return self._change_service().preview(p)
-
-    def _change_svn_generate(self, p):
-        # 桌面端应通过 job.start 调用；保留直接 RPC 便于测试/脚本。
-        return self._change_service().generate(p)
 
     # ---------- 方案 ----------
 
