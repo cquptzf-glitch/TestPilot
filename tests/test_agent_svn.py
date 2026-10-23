@@ -13,7 +13,7 @@ from testpilot.adapters.svn_adapter import SvnAdapter, _revision_args
 from testpilot.agent.change_service import ChangeAnalysisService, _build_prompt, _parse_analysis
 from testpilot.agent.pi_runtime import PiAgentRuntime
 from testpilot.case_parser import CaseService
-from testpilot.core.errors import AgentError, SvnError
+from testpilot.core.errors import AgentError, RpcError, SvnError, TestPilotError
 from testpilot.rpc import RpcService
 from testpilot.storage import repos
 
@@ -240,6 +240,20 @@ def test_change_service_preserves_audit_when_agent_output_is_invalid(
     assert "JSON" in last["agent_error"]
 
 
+def test_change_service_rejects_loose_generation_options(tmp_path):
+    service = ChangeAnalysisService(None, None, {"svn": {}}, lambda **_kwargs: None)
+    service.svn = StubSvn(tmp_path)
+
+    with pytest.raises(TestPilotError, match="parse"):
+        service.generate({"workingCopy": str(tmp_path), "parse": "false"})
+    with pytest.raises(TestPilotError, match="maxCases"):
+        service.generate({"workingCopy": str(tmp_path), "maxCases": True})
+    with pytest.raises(TestPilotError, match="maxCases"):
+        service.generate({"workingCopy": str(tmp_path), "maxCases": 1.5})
+    with pytest.raises(TestPilotError, match=">= 1"):
+        service.generate({"workingCopy": str(tmp_path), "maxCases": 0})
+
+
 def test_change_service_rejects_invalid_agent_output():
     with pytest.raises(AgentError):
         _parse_analysis('{"summary":"x","cases":[]}', max_cases=20)
@@ -354,6 +368,39 @@ def test_pi_extension_has_no_native_file_or_shell_tools():
                / "testpilot" / "agent" / "pi_runtime.py").read_text(encoding="utf-8")
     assert '"--no-builtin-tools"' in runtime
     assert '"--no-mcp"' in runtime
+
+
+def test_agent_rpc_rejects_empty_queries_and_loose_diff_params(tmp_path, rpc_svc):
+    scope = {"workspace": str(tmp_path.resolve())}
+
+    with pytest.raises(RpcError, match="find pattern"):
+        rpc_svc.dispatch("agent.fs.find", {
+            "_agentScope": scope, "pattern": "   ",
+        })
+    with pytest.raises(RpcError, match="grep 查询不能为空"):
+        rpc_svc.dispatch("agent.fs.grep", {
+            "_agentScope": scope, "query": "   ",
+        })
+    with pytest.raises(RpcError, match="搜索关键词不能为空"):
+        rpc_svc.dispatch("agent.case.search", {
+            "_agentScope": scope, "query": "   ",
+        })
+    with pytest.raises(RpcError, match="max_chars"):
+        rpc_svc.dispatch("agent.svn.diff", {
+            "_agentScope": scope, "max_chars": True,
+        })
+    with pytest.raises(RpcError, match="max_chars"):
+        rpc_svc.dispatch("agent.svn.diff", {
+            "_agentScope": scope, "max_chars": 12_000.5,
+        })
+    with pytest.raises(RpcError, match=">= 10000"):
+        rpc_svc.dispatch("agent.svn.diff", {
+            "_agentScope": scope, "max_chars": 9_999,
+        })
+    with pytest.raises(RpcError, match="非空字符串路径"):
+        rpc_svc.dispatch("agent.svn.diff", {
+            "_agentScope": scope, "paths": [123],
+        })
 
 
 def test_agent_svn_diff_enforces_model_context_cap(tmp_path, rpc_svc, monkeypatch):

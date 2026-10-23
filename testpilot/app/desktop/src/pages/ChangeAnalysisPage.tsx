@@ -58,13 +58,14 @@ export function ChangeAnalysisPage() {
   });
 
   const runPreview = async () => {
+    setFailureAudit([]);
+    setResult(null);
     if (!workingCopy.trim()) {
       setError('请填写 SVN 工作副本目录');
       return;
     }
     setBusy('正在读取 SVN 变更…');
     setError('');
-    setFailureAudit([]);
     try {
       saveWorkingCopy(workingCopy.trim());
       const out = await call<SvnChangePreview>('change.svn.preview', params());
@@ -81,14 +82,14 @@ export function ChangeAnalysisPage() {
   };
 
   const generate = async () => {
+    setFailureAudit([]);
+    setResult(null);
     if (!workingCopy.trim()) {
       setError('请填写 SVN 工作副本目录');
       return;
     }
     setBusy('Pi Agent 正在分析变更并生成测试用例…');
     setError('');
-    setFailureAudit([]);
-    setResult(null);
     try {
       saveWorkingCopy(workingCopy.trim());
       const out = await caseJob<SvnChangeGenerateResult>('change.svn.generate', {

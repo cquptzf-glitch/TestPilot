@@ -1214,7 +1214,8 @@ class RpcService:
     def _agent_fs_find(self, p):
         root = self._agent_workspace(p)
         pattern = str(_require(p, "pattern")).strip().replace("\\", "/")
-        if len(pattern) > 300 or pattern.startswith("/") or ".." in Path(pattern).parts:
+        if (not pattern or len(pattern) > 300 or pattern.startswith("/")
+                or ".." in Path(pattern).parts):
             raise RpcError(INVALID_PARAMS, "Agent find pattern 非法")
         limit = _bounded_int(p, "limit", default=200, max_value=500)
         out = []
@@ -1234,6 +1235,8 @@ class RpcService:
     def _agent_fs_grep(self, p):
         root = self._agent_workspace(p)
         query = str(_require(p, "query"))
+        if not query.strip():
+            raise RpcError(INVALID_PARAMS, "Agent grep 查询不能为空")
         if len(query) > 500:
             raise RpcError(INVALID_PARAMS, "Agent grep 查询过长")
         glob = str(p.get("glob") or "**/*").replace("\\", "/")
@@ -1288,13 +1291,13 @@ class RpcService:
         from testpilot.adapters.svn_adapter import SvnAdapter
         root = self._agent_workspace(p)
         paths = p.get("paths")
-        if paths is not None and (not isinstance(paths, list) or len(paths) > 50):
-            raise RpcError(INVALID_PARAMS, "paths 需为最多 50 条路径")
-        try:
-            requested = int(p.get("max_chars") or 120_000)
-        except (TypeError, ValueError):
-            raise RpcError(INVALID_PARAMS, "max_chars 需为整数") from None
-        max_chars = max(10_000, min(requested, 200_000))
+        if paths is not None and (
+                not isinstance(paths, list) or len(paths) > 50
+                or any(not isinstance(path, str) or not path.strip() for path in paths)):
+            raise RpcError(INVALID_PARAMS, "paths 需为最多 50 条非空字符串路径")
+        max_chars = _bounded_int(
+            p, "max_chars", default=120_000,
+            min_value=10_000, max_value=200_000)
         out = SvnAdapter(self._orch.cfg.get("svn", {})).diff(
             root, from_revision=p.get("from_revision"), to_revision=p.get("to_revision"),
             paths=paths, max_chars=max_chars)
@@ -1307,12 +1310,14 @@ class RpcService:
         root = self._agent_workspace(p)
         out = SvnAdapter(self._orch.cfg.get("svn", {})).log(
             root, from_revision=p.get("from_revision"), to_revision=p.get("to_revision"),
-            limit=_bounded_int(p, "limit", default=20, max_value=200))
+            limit=_bounded_int(p, "limit", default=20, max_value=100))
         return {"items": out, "count": len(out)}
 
     def _agent_case_search(self, p):
         from testpilot.storage import repos
         query = str(_require(p, "query")).strip().lower()
+        if not query:
+            raise RpcError(INVALID_PARAMS, "Agent 用例搜索关键词不能为空")
         limit = _bounded_int(p, "limit", default=20, max_value=50)
         out = []
         for row in repos.list_cases(self._orch.conn):
@@ -1335,6 +1340,8 @@ class RpcService:
 
     def _agent_case_detail(self, p):
         case_id = str(_require(p, "case_id")).strip()
+        if not case_id:
+            raise RpcError(INVALID_PARAMS, "Agent case_id 不能为空")
         detail = self._orch.cases.show(case_id)
         # 控制 Agent 上下文体积；完整图片/轨迹不通过此工具暴露。
         if len(str(detail.get("source_text") or "")) > 8000:

@@ -84,8 +84,9 @@ class ChangeAnalysisService:
         workspace = self._workspace(spec)
         from_rev = spec.get("fromRevision") or spec.get("from_revision")
         to_rev = spec.get("toRevision") or spec.get("to_revision")
-        parse_dsl = bool(spec.get("parse", True))
-        max_cases = max(1, min(int(spec.get("maxCases") or 20), 50))
+        parse_dsl = _bool_option(spec, "parse", default=True)
+        max_cases = _bounded_int_option(
+            spec, "maxCases", default=20, min_value=1, max_value=50)
 
         snapshot = self.svn.summarize(
             workspace, from_revision=from_rev, to_revision=to_rev)
@@ -284,6 +285,33 @@ class ChangeAnalysisService:
             self.abort.check()
         if self.progress:
             self.progress({"phase": phase, **extra})
+
+
+def _bool_option(spec: dict, key: str, *, default: bool) -> bool:
+    value = spec.get(key, default)
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise TestPilotError(
+            f"{key} 需为布尔值 true/false（得到 {value!r}）")
+    return value
+
+
+def _bounded_int_option(spec: dict, key: str, *, default: int,
+                        min_value: int, max_value: int) -> int:
+    value = spec.get(key, default)
+    if value is None or value == "":
+        value = default
+    if isinstance(value, bool) or (
+            isinstance(value, float) and not value.is_integer()):
+        raise TestPilotError(f"{key} 需为整数（得到 {value!r}）")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise TestPilotError(f"{key} 需为整数（得到 {value!r}）") from None
+    if parsed < min_value:
+        raise TestPilotError(f"{key} 需 >= {min_value}（得到 {parsed}）")
+    return min(parsed, max_value)
 
 
 def _build_prompt(snapshot: dict, *, max_cases: int) -> str:

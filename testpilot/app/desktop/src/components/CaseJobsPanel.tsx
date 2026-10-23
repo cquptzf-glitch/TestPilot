@@ -74,7 +74,8 @@ export function CaseJobsPanel({ compact = false }: { compact?: boolean }) {
       <strong>{methods[job.method] ?? job.method} · {labels[job.status]}</strong>
       {job.progress.total !== undefined && <span>已处理 {job.progress.completed ?? 0} / {job.progress.total}</span>}
       {active && job.progress.case_id && <span>当前 {job.progress.case_id}</span>}
-      {active && job.progress.tool && <span>Agent 工具：{job.progress.tool}</span>}
+      {active && job.progress.phase === 'agent_tool' && job.progress.tool &&
+        <span>Agent 工具：{job.progress.tool}</span>}
       {active && job.progress.tool_calls !== undefined &&
         <span>工具调用 {job.progress.tool_calls} 次</span>}
       {result && <span>成功 {result.parsed ?? 0} · 失败 {failures.length} · 待处理 {Math.max(0, (result.total ?? 0) - (result.parsed ?? 0) - failures.length)}</span>}
