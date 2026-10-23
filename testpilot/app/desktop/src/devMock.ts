@@ -302,8 +302,11 @@ async function runMockJob(job: MockJob, params: Record<string, unknown>): Promis
       await new Promise(resolve => setTimeout(resolve, 350));
       const ids = ['SVN-WC-START-01', 'SVN-WC-RESULT-02'];
       const titles = ['开始检测状态机变更回归', '结果计算边界与异常传播'];
+      const existingBefore = new Set(CASES.map(c => c.case_id));
+      let created = 0;
       ids.forEach((id, index) => {
         if (CASES.some(c => c.case_id === id)) return;
+        created += 1;
         CASES.push({
           case_id: id, zentao_case_id: null, title: titles[index],
           version: 0, status: 'draft', sync_status: 'synced',
@@ -330,8 +333,9 @@ async function runMockJob(job: MockJob, params: Record<string, unknown>): Promis
           category: index === 0 ? 'regression' : 'boundary',
           source_files: index === 0 ? ['src/RunController.cpp'] : ['src/ResultCalculator.cpp'],
           related_case_ids: index === 0 ? ['TC-1024'] : [],
+          reused: existingBefore.has(id),
         })),
-        created: ids.length, parse,
+        created, reused: ids.length - created, parse,
         agent: { runtime: 'pi', tool_calls: 4, elapsed_ms: 1260 },
       };
     } else {
