@@ -63,6 +63,7 @@
 | Z-101 | P1 | DONE | 禅道真正增量同步 | CaseService 使用按产品隔离 watermark 调用 fetch_cases(since)，只对新增/变更候选补详情；保留 full=true 全量校准。 |
 | Z-102 | P1 | DONE | 来源级同步状态 | 新增 source_sync_state；0 变更同步仍记录 synced_at/watermark，UI 不再拿单条 case.last_synced_at 冒充全局同步时间。 |
 | Z-103 | P1 | DONE | 增量/全量 UI 语义 | 用例页显式提供“增量同步”和“全量校准”；CLI 增加 case sync --full。 |
+| Z-104 | P0 | DOING | 远端测试单创建崩溃幂等 | Orchestrator 上提 creation_attempted/creation_uncertain fail-closed 门禁；POST 已发生但本地未保存远端 ID 时禁止自动重建，任务页只允许人工核对远端 ID；已补崩溃窗口与安全重试回归测试，等待 CI。 |
 | AG-101 | P0 | DONE | Agent 工具统一主 RPC 执行 | Pi 禁用 built-in/MCP/skills；自定义 tp_* 工具只做 RPC proxy；主进程执行 fs/SVN/case 读取。 |
 | AG-102 | P0 | DONE | Agent capability 隔离 | 每次 Agent 会话使用短期 workspace-bound token，仅允许 agent.* 内部方法；不暴露桌面主 Token。 |
 | AG-103 | P1 | DONE | SVN 变更级联生成 | SVN snapshot → Pi 影响分析 → Pydantic 校验 → 主进程落本地 draft → 可选解析 DSL → 人审。 |
