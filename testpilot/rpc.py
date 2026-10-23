@@ -1101,6 +1101,8 @@ class RpcService:
                 "content_hashes_truncated": False,
                 "case_ids": set(),
                 "case_ids_truncated": False,
+                "case_tokens": {},
+                "case_tokens_truncated": False,
                 "diff_paths": set(),
                 "diff_paths_truncated": False,
                 "full_diff_complete": False,
@@ -1138,6 +1140,8 @@ class RpcService:
                 "content_hashes_truncated": bool(raw.get("content_hashes_truncated")),
                 "case_ids": sorted(raw.get("case_ids") or ()),
                 "case_ids_truncated": bool(raw.get("case_ids_truncated")),
+                "case_tokens": dict(raw.get("case_tokens") or {}),
+                "case_tokens_truncated": bool(raw.get("case_tokens_truncated")),
                 "diff_paths": sorted(raw.get("diff_paths") or ()),
                 "diff_paths_truncated": bool(raw.get("diff_paths_truncated")),
                 "full_diff_complete": bool(raw.get("full_diff_complete")),
@@ -1258,23 +1262,33 @@ class RpcService:
                     else:
                         evidence["full_diff_complete"] = True
                 if error is None and isinstance(result, dict):
-                    observed_case_ids = []
+                    observed_cases = []
                     if method == "agent.case.search":
-                        observed_case_ids = [
-                            str(item.get("case_id") or "").strip()
+                        observed_cases = [
+                            (
+                                str(item.get("case_id") or "").strip(),
+                                str(item.get("case_token") or "").strip(),
+                            )
                             for item in (result.get("cases") or [])
                             if isinstance(item, dict)
                         ]
                     elif method == "agent.case.detail":
-                        observed_case_ids = [str(result.get("case_id") or "").strip()]
+                        observed_cases = [(
+                            str(result.get("case_id") or "").strip(),
+                            str(result.get("case_token") or "").strip(),
+                        )]
                     case_ids = evidence["case_ids"]
-                    for case_id in observed_case_ids:
+                    case_tokens = evidence["case_tokens"]
+                    for case_id, case_token in observed_cases:
                         if not case_id:
                             continue
                         if len(case_ids) < _AGENT_EVIDENCE_CASE_LIMIT or case_id in case_ids:
                             case_ids.add(case_id)
+                            if case_token:
+                                case_tokens[case_id] = case_token
                         else:
                             evidence["case_ids_truncated"] = True
+                            evidence["case_tokens_truncated"] = True
 
             if audit is None:
                 return
@@ -1460,6 +1474,7 @@ class RpcService:
                 "title": row.get("title"), "status": row.get("status"),
                 "sync_status": row.get("sync_status"), "step_count": len(row.get("steps") or []),
                 "source_text": str(raw.get("steps_text") or "")[:1200],
+                "case_token": repos.case_semantic_token(row),
             })
             if len(out) >= limit:
                 break
@@ -1470,6 +1485,7 @@ class RpcService:
         if not case_id:
             raise RpcError(INVALID_PARAMS, "Agent case_id 不能为空")
         detail = self._orch.cases.show(case_id)
+        detail["case_token"] = str(detail.get("revision") or "")
         # 控制 Agent 上下文体积；完整图片/轨迹不通过此工具暴露。
         if len(str(detail.get("source_text") or "")) > 8000:
             detail["source_text"] = str(detail["source_text"])[:8000] + "\n...[truncated]"

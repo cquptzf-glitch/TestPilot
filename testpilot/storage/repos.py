@@ -3,6 +3,7 @@
 事务约定：写操作自行 commit（SQLite 单写者，WAL 下足够）；
 JSON 列一律在仓储层完成序列化/反序列化，调用方只处理 dict / pydantic。
 """
+import hashlib
 import json
 import sqlite3
 import time
@@ -70,10 +71,31 @@ def _case_to_dict(row: sqlite3.Row) -> dict:
     return d
 
 
+def case_semantic_token(case: dict) -> str:
+    """Stable token for content that can change Agent/test intent.
+
+    Timestamp-only refreshes are deliberately excluded: a no-op remote sync should not
+    invalidate an analysis, while raw/DSL/review/status changes must invalidate it.
+    """
+    payload = {
+        key: case.get(key)
+        for key in (
+            "case_id", "zentao_case_id", "title", "version", "steps",
+            "preconditions", "notes", "status", "sync_status", "raw",
+            "accepted_steps", "zentao_updated_at", "module_id", "module_name",
+        )
+    }
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def create_case(conn: sqlite3.Connection, *, case_id: str, zentao_case_id: int | None,
                 title: str, raw: dict | None, zentao_updated_at: str | None,
                 module_id: int | None = None,
-                module_name: str | None = None) -> None:
+                module_name: str | None = None,
+                commit: bool = True) -> None:
     """新用例入库：草稿态（version=0），DSL 待解析后写入。
 
     ``module_id/module_name`` 是禅道用例分组（模块）：分组名解析不出来时只存 id，
@@ -92,7 +114,8 @@ def create_case(conn: sqlite3.Connection, *, case_id: str, zentao_case_id: int |
         (case_id, zentao_case_id, title, json.dumps(raw, ensure_ascii=False)
          if raw is not None else None, zentao_updated_at, now, now,
          module_id, module_name))
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def touch_case_sync(conn: sqlite3.Connection, case_id: str) -> None:

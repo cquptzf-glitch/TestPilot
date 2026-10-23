@@ -106,7 +106,10 @@ def test_svn_adapter_rejects_revision_and_path_injection(tmp_path):
         svn.diff(tmp_path, paths=["../outside.cpp"])
 
 
-def _agent_evidence(*read_paths: str, case_ids: tuple[str, ...] = ()) -> dict:
+def _agent_evidence(*read_paths: str, case_ids: tuple[str, ...] = (),
+                    case_tokens: dict[str, str] | None = None) -> dict:
+    case_tokens = dict(case_tokens or {})
+    case_ids = tuple(dict.fromkeys([*case_ids, *case_tokens]))
     return {
         "calls": {
             "agent.svn.diff": 1,
@@ -126,6 +129,8 @@ def _agent_evidence(*read_paths: str, case_ids: tuple[str, ...] = ()) -> dict:
         "content_hashes_truncated": False,
         "case_ids": list(case_ids),
         "case_ids_truncated": False,
+        "case_tokens": case_tokens,
+        "case_tokens_truncated": False,
         "diff_paths": [],
         "diff_paths_truncated": False,
         "full_diff_complete": True,
@@ -164,6 +169,7 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
         db_conn, case_id="TC-1", zentao_case_id=None,
         title="已有状态机回归", raw={"steps_text": "已有覆盖"},
         zentao_updated_at=None)
+    related_token = repos.case_semantic_token(repos.get_case(db_conn, "TC-1"))
     calls = []
 
     progress_events = []
@@ -192,7 +198,8 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
                 },
             ],
             "evidence": _agent_evidence(
-                "src/RunController.cpp", case_ids=("TC-1",)),
+                "src/RunController.cpp",
+                case_tokens={"TC-1": related_token}),
         }
 
     service = ChangeAnalysisService(
@@ -239,6 +246,7 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     }]
     assert grounding["related_case_ids"] == [{
         "case_id": "TC-1", "basis": "agent.case.search/detail",
+        "case_token": related_token,
     }]
     assert generated["steps"] == []       # Agent cannot directly activate/write executable DSL.
 
@@ -578,6 +586,120 @@ def test_change_service_rejects_unobserved_related_case_even_when_it_exists(
     assert "TC-EXISTS" in str(exc.value)
 
 
+def test_change_service_rejects_related_case_changed_after_agent_observation(
+        tmp_path, db_conn, fake_zentao, fake_llm):
+    cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    repos.create_case(
+        db_conn, case_id="TC-CHANGED", zentao_case_id=None,
+        title="旧标题", raw={"steps_text": "旧步骤"}, zentao_updated_at=None)
+    old_token = repos.case_semantic_token(repos.get_case(db_conn, "TC-CHANGED"))
+    payload = json.loads(_agent_json())
+    payload["cases"][0]["source_files"] = ["src/a.cpp"]
+    payload["cases"][0]["related_case_ids"] = ["TC-CHANGED"]
+
+    def agent_runner(**_kwargs):
+        repos.update_case_raw(
+            db_conn, "TC-CHANGED", raw={"steps_text": "新步骤"},
+            title="新标题", zentao_updated_at="2026-10-23T08:00:00",
+            sync_status="conflict")
+        return {
+            "text": json.dumps(payload, ensure_ascii=False),
+            "tool_calls": 2,
+            "evidence": _agent_evidence(
+                case_tokens={"TC-CHANGED": old_token}),
+        }
+
+    service = ChangeAnalysisService(db_conn, cases, {"svn": {}}, agent_runner)
+    service.svn = StubSvn(tmp_path)
+    with pytest.raises(AgentError, match="分析期间已变化"):
+        service.generate({"workingCopy": str(tmp_path), "parse": False})
+
+    assert not [
+        row for row in repos.list_cases(db_conn)
+        if (row.get("raw") or {}).get("source") == "svn_agent"
+    ]
+
+
+def test_change_service_rechecks_related_case_token_inside_write_transaction(
+        tmp_path, db_conn, fake_zentao, fake_llm, monkeypatch):
+    cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    repos.create_case(
+        db_conn, case_id="TC-RACE", zentao_case_id=None,
+        title="原始", raw={"steps_text": "原始"}, zentao_updated_at=None)
+    token = repos.case_semantic_token(repos.get_case(db_conn, "TC-RACE"))
+    payload = json.loads(_agent_json())
+    payload["cases"][0]["source_files"] = ["src/a.cpp"]
+    payload["cases"][0]["related_case_ids"] = ["TC-RACE"]
+
+    service = ChangeAnalysisService(
+        db_conn, cases, {"svn": {}},
+        lambda **_kwargs: {
+            "text": json.dumps(payload, ensure_ascii=False),
+            "tool_calls": 2,
+            "evidence": _agent_evidence(case_tokens={"TC-RACE": token}),
+        })
+    service.svn = StubSvn(tmp_path)
+
+    original = service._validate_related_case_tokens
+    calls = {"count": 0}
+
+    def mutate_between_checks(analysis, evidence):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            repos.save_case_steps(
+                db_conn, "TC-RACE", steps=[{"id": "x", "action": "ui.click"}])
+        return original(analysis, evidence)
+
+    monkeypatch.setattr(service, "_validate_related_case_tokens", mutate_between_checks)
+    with pytest.raises(AgentError, match="已变化"):
+        service.generate({"workingCopy": str(tmp_path), "parse": False})
+
+    assert not [
+        row for row in repos.list_cases(db_conn)
+        if (row.get("raw") or {}).get("source") == "svn_agent"
+    ]
+
+
+def test_change_service_rolls_back_batch_when_final_snapshot_drifts(
+        tmp_path, db_conn, fake_zentao, fake_llm):
+    cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    payload = json.loads(_agent_json())
+    payload["cases"][0]["source_files"] = ["src/a.cpp"]
+    payload["cases"][0]["related_case_ids"] = []
+
+    class FinalDriftSvn(StubSvn):
+        def __init__(self, root):
+            super().__init__(root)
+            self.digest_calls = 0
+
+        def diff_digest(self, working_copy, *, from_revision=None, to_revision=None):
+            self.digest_calls += 1
+            raw = b"stable" if self.digest_calls < 3 else b"drifted"
+            return {
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "bytes": len(raw),
+                "from_revision": from_revision,
+                "to_revision": to_revision,
+            }
+
+    service = ChangeAnalysisService(
+        db_conn, cases, {"svn": {}},
+        lambda **_kwargs: {
+            "text": json.dumps(payload, ensure_ascii=False),
+            "tool_calls": 1,
+            "evidence": _agent_evidence(),
+        })
+    service.svn = FinalDriftSvn(tmp_path)
+
+    with pytest.raises(TestPilotError, match="已变化"):
+        service.generate({"workingCopy": str(tmp_path), "parse": False})
+
+    assert not [
+        row for row in repos.list_cases(db_conn)
+        if (row.get("raw") or {}).get("source") == "svn_agent"
+    ]
+
+
 def test_change_service_preserves_audit_when_agent_output_is_invalid(
         tmp_path, db_conn, fake_zentao, fake_llm):
     cases = CaseService(db_conn, fake_zentao, fake_llm, {})
@@ -913,7 +1035,10 @@ def test_agent_evidence_survives_display_audit_trimming(tmp_path, rpc_svc):
         elapsed_ms=1)
     service._record_agent_audit(
         scope, "agent.case.search", {"query": "TC-1"},
-        result={"cases": [{"case_id": "TC-1"}], "count": 1, "truncated": False},
+        result={
+            "cases": [{"case_id": "TC-1", "case_token": "token-1"}],
+            "count": 1, "truncated": False,
+        },
         elapsed_ms=1)
     for index in range(205):
         service._record_agent_audit(
@@ -932,6 +1057,7 @@ def test_agent_evidence_survives_display_audit_trimming(tmp_path, rpc_svc):
     assert evidence["read_paths"][0] == "src/0.cpp"
     assert "src/204.cpp" in evidence["read_paths"]
     assert evidence["case_ids"] == ["TC-1"]
+    assert evidence["case_tokens"] == {"TC-1": "token-1"}
     assert evidence["full_diff_complete"] is True
     assert evidence["full_diff_truncated"] is False
     assert evidence["diff_paths"] == []
@@ -966,6 +1092,8 @@ def test_pi_runner_preserves_audit_in_failed_job_progress(
         "content_hashes_truncated": False,
         "case_ids": [],
         "case_ids_truncated": False,
+        "case_tokens": {},
+        "case_tokens_truncated": False,
         "diff_paths": [],
         "diff_paths_truncated": False,
         "full_diff_complete": False,

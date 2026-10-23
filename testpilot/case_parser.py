@@ -15,7 +15,6 @@
 草稿/被拒/待审一律拒绝执行 —— 保证"执行记录钉住已确认版本"。
 """
 import json
-import hashlib
 import logging
 from contextlib import nullcontext
 
@@ -209,11 +208,8 @@ class CaseService:
             "zentao_updated_at": row.get("zentao_updated_at"),
             "source_text": raw.get("steps_text", ""),
             "steps": steps,
-            # 上一次人审通过的步骤（version=0 时为 None）；供三版对照
-            "revision": hashlib.sha256(
-                json.dumps({k: row.get(k) for k in
-                    ("steps", "preconditions", "status", "version", "sync_status",
-                     "notes", "zentao_updated_at")}, sort_keys=True).encode()).hexdigest(),
+            # Agent/LLM 长操作使用与仓储一致的语义 token 做乐观并发检查。
+            "revision": repos.case_semantic_token(row),
             "accepted_steps": row.get("accepted_steps"),
             "uncertain_steps": uncertain,
             "step_count": len(steps),

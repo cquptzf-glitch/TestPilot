@@ -156,75 +156,105 @@ class ChangeAnalysisService:
         reused_count = 0
         duplicates_dropped = 0
         parse_ids = []
+        persist_events = []
         seen_fingerprints = set()
         revision_label = str(to_rev or snapshot.get("info", {}).get("revision") or "WC")
-        existing_by_fingerprint = self._generated_by_fingerprint()
-        for index, item in enumerate(analysis.cases, 1):
-            fingerprint = self._case_fingerprint(snapshot, revision_label, item)
-            if fingerprint in seen_fingerprints:
-                duplicates_dropped += 1
-                self._report("dedupe", completed=index, total=len(analysis.cases))
-                continue
-            seen_fingerprints.add(fingerprint)
-            existing = existing_by_fingerprint.get(fingerprint)
-            if existing is not None:
-                case_id = existing["case_id"]
-                reused = True
-                reused_count += 1
-                if (parse_dsl and existing.get("status") != "rejected"
-                        and not existing.get("steps")):
-                    parse_ids.append(case_id)
-            else:
-                case_id = self._new_case_id(revision_label, fingerprint)
-                reused = False
-                raw_steps = [step.model_dump() for step in item.steps]
-                raw = {
-                    "source": "svn_agent",
-                    "case_id": case_id,
-                    "zentao_case_id": None,
-                    "title": item.title,
-                    "steps": raw_steps,
-                    "steps_text": steps_to_text(raw_steps),
-                    "preconditions": list(dict.fromkeys(item.preconditions)),
-                    "product": None,
-                    "module": None,
-                    "updated_at": datetime.now().isoformat(timespec="seconds"),
-                    "svn": {
-                        "working_copy": str(workspace),
-                        "from_revision": snapshot.get("from_revision"),
-                        "to_revision": snapshot.get("to_revision"),
-                        "repository_root": snapshot.get("info", {}).get("repository_root"),
-                        "repository_uuid": snapshot.get("info", {}).get("repository_uuid"),
-                        "source_files": item.source_files,
-                    },
-                    "generation": {
-                        "fingerprint": fingerprint,
-                        "priority": item.priority,
-                        "category": item.category,
-                        "rationale": item.rationale,
-                        "related_case_ids": item.related_case_ids,
-                        "analysis_summary": analysis.summary,
-                        "risks": analysis.risks,
-                        "grounding": grounding[index - 1],
-                        "snapshot_guard": snapshot_guard,
-                    },
-                }
-                repos.create_case(
-                    self.conn, case_id=case_id, zentao_case_id=None,
-                    title=item.title, raw=raw, zentao_updated_at=None)
-                created_count += 1
-                if parse_dsl:
-                    parse_ids.append(case_id)
-                existing_by_fingerprint[fingerprint] = repos.get_case(self.conn, case_id)
 
-            display_title = existing.get("title") if existing is not None else item.title
-            generated.append({
-                "case_id": case_id, "title": display_title, "priority": item.priority,
-                "category": item.category, "source_files": item.source_files,
-                "related_case_ids": item.related_case_ids, "reused": reused,
-            })
-            self._report("persist", completed=index, total=len(analysis.cases),
-                         case_id=case_id, reused=reused)
+        # Freeze DB writers while rechecking related-case tokens and persisting the
+        # whole generated batch. A final SVN/source recheck runs after INSERTs but
+        # before COMMIT, so any drift rolls the entire batch back.
+        with self.conn:
+            self.conn.execute("BEGIN IMMEDIATE")
+            self._validate_related_case_tokens(
+                analysis, result.get("evidence") or {})
+            existing_by_fingerprint = self._generated_by_fingerprint()
+            for index, item in enumerate(analysis.cases, 1):
+                if self.abort is not None:
+                    self.abort.check()
+                fingerprint = self._case_fingerprint(snapshot, revision_label, item)
+                if fingerprint in seen_fingerprints:
+                    duplicates_dropped += 1
+                    continue
+                seen_fingerprints.add(fingerprint)
+                existing = existing_by_fingerprint.get(fingerprint)
+                if existing is not None:
+                    case_id = existing["case_id"]
+                    reused = True
+                    reused_count += 1
+                    if (parse_dsl and existing.get("status") != "rejected"
+                            and not existing.get("steps")):
+                        parse_ids.append(case_id)
+                else:
+                    case_id = self._new_case_id(revision_label, fingerprint)
+                    reused = False
+                    raw_steps = [step.model_dump() for step in item.steps]
+                    raw = {
+                        "source": "svn_agent",
+                        "case_id": case_id,
+                        "zentao_case_id": None,
+                        "title": item.title,
+                        "steps": raw_steps,
+                        "steps_text": steps_to_text(raw_steps),
+                        "preconditions": list(dict.fromkeys(item.preconditions)),
+                        "product": None,
+                        "module": None,
+                        "updated_at": datetime.now().isoformat(timespec="seconds"),
+                        "svn": {
+                            "working_copy": str(workspace),
+                            "from_revision": snapshot.get("from_revision"),
+                            "to_revision": snapshot.get("to_revision"),
+                            "repository_root": snapshot.get("info", {}).get("repository_root"),
+                            "repository_uuid": snapshot.get("info", {}).get("repository_uuid"),
+                            "source_files": item.source_files,
+                        },
+                        "generation": {
+                            "fingerprint": fingerprint,
+                            "priority": item.priority,
+                            "category": item.category,
+                            "rationale": item.rationale,
+                            "related_case_ids": item.related_case_ids,
+                            "analysis_summary": analysis.summary,
+                            "risks": analysis.risks,
+                            "grounding": grounding[index - 1],
+                            "snapshot_guard": snapshot_guard,
+                        },
+                    }
+                    repos.create_case(
+                        self.conn, case_id=case_id, zentao_case_id=None,
+                        title=item.title, raw=raw, zentao_updated_at=None,
+                        commit=False)
+                    created_count += 1
+                    if parse_dsl:
+                        parse_ids.append(case_id)
+                    existing_by_fingerprint[fingerprint] = repos.get_case(
+                        self.conn, case_id)
+
+                display_title = existing.get("title") if existing is not None else item.title
+                generated.append({
+                    "case_id": case_id, "title": display_title, "priority": item.priority,
+                    "category": item.category, "source_files": item.source_files,
+                    "related_case_ids": item.related_case_ids, "reused": reused,
+                })
+                persist_events.append({
+                    "completed": index, "total": len(analysis.cases),
+                    "case_id": case_id, "reused": reused,
+                })
+
+            if self.abort is not None:
+                self.abort.check()
+            self._validate_related_case_tokens(
+                analysis, result.get("evidence") or {})
+            self._validate_snapshot_stable(
+                workspace, snapshot, snapshot_guard,
+                from_rev=from_rev, to_rev=to_rev, result=result)
+
+        for event in persist_events:
+            self._report("persist", check_abort=False, **event)
+        if duplicates_dropped:
+            self._report(
+                "dedupe", check_abort=False,
+                completed=len(analysis.cases), total=len(analysis.cases),
+                dropped=duplicates_dropped)
 
         parsed = {}
         if parse_ids:
@@ -391,6 +421,9 @@ class ChangeAnalysisService:
             for case_id in (evidence.get("case_ids") or [])
             if str(case_id or "").strip()
         }
+        observed_case_tokens = (
+            evidence.get("case_tokens")
+            if isinstance(evidence.get("case_tokens"), dict) else {})
         diff_paths = {
             _repo_path(path)
             for path in (evidence.get("diff_paths") or [])
@@ -435,17 +468,26 @@ class ChangeAnalysisService:
 
             item_related = []
             for case_id in item.related_case_ids:
-                if repos.get_case(self.conn, case_id) is None:
+                current = repos.get_case(self.conn, case_id)
+                observed_token = str(observed_case_tokens.get(case_id) or "").strip()
+                if current is None:
                     problems.append(
                         f"{item.title}: related_case_ids 不存在: {case_id}")
                 elif case_id not in observed_case_ids:
                     problems.append(
                         f"{item.title}: related_case_ids 无 agent.case.search/detail 证据: "
                         f"{case_id}")
+                elif not observed_token:
+                    problems.append(
+                        f"{item.title}: related_case_ids 缺少主 RPC case_token: {case_id}")
+                elif repos.case_semantic_token(current) != observed_token:
+                    problems.append(
+                        f"{item.title}: related_case_ids 在 Agent 分析期间已变化: {case_id}")
                 else:
                     item_related.append({
                         "case_id": case_id,
                         "basis": "agent.case.search/detail",
+                        "case_token": observed_token,
                     })
             grounding.append({
                 "svn_diff_verified": True,
@@ -459,6 +501,26 @@ class ChangeAnalysisService:
                 detail += f"；另有 {len(problems) - 8} 项"
             raise AgentError(f"Pi Agent 生成依据校验失败: {detail}")
         return grounding
+
+    def _validate_related_case_tokens(self, analysis: ChangeAnalysis,
+                                      evidence: dict) -> None:
+        tokens = evidence.get("case_tokens") if isinstance(evidence, dict) else None
+        tokens = tokens if isinstance(tokens, dict) else {}
+        problems = []
+        for item in analysis.cases:
+            for case_id in item.related_case_ids:
+                expected = str(tokens.get(case_id) or "").strip()
+                current = repos.get_case(self.conn, case_id)
+                if current is None:
+                    problems.append(f"{case_id} 已不存在")
+                elif not expected:
+                    problems.append(f"{case_id} 缺少 case_token")
+                elif repos.case_semantic_token(current) != expected:
+                    problems.append(f"{case_id} 已变化")
+        if problems:
+            detail = "；".join(dict.fromkeys(problems))
+            raise AgentError(
+                f"Agent 观察过的关联用例在分析期间已变化，请重新分析: {detail}")
 
     def _generated_by_fingerprint(self) -> dict[str, dict]:
         """Index previously generated SVN cases for idempotent regeneration."""

@@ -555,6 +555,8 @@ export interface AgentToolEvidence {
   content_hashes_truncated?: boolean;
   case_ids?: string[];
   case_ids_truncated?: boolean;
+  case_tokens?: Record<string, string>;
+  case_tokens_truncated?: boolean;
   diff_paths?: string[];
   diff_paths_truncated?: boolean;
   full_diff_complete?: boolean;
