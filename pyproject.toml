@@ -32,6 +32,7 @@ include = ["testpilot*"]
 
 [tool.setuptools.package-data]
 "testpilot.simulation" = ["*.cpp", "CMakeLists.txt"]
+"testpilot.agent" = ["*.mjs"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
