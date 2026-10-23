@@ -520,8 +520,8 @@ def test_scroll_capability_gate_blocks_unsupported_driver(env):
     result = env.executor.run_case(case, ctx, None)
 
     assert result.status == "fail"
-    assert result.steps[0].error["type"] == "action_failed"
-    assert "scroll" in result.steps[0].error["message"]
+    assert result.steps[0].error["type"] == "capability_missing"
+    assert "ui.scroll" in result.steps[0].error["message"]
 
 
 def test_capability_gate_blocks_unsupported_action(env):
@@ -534,8 +534,8 @@ def test_capability_gate_blocks_unsupported_action(env):
     result = env.executor.run_case(case, ctx, None)
     step = result.steps[0]
     assert step.status == "fail"
-    assert step.error["type"] == "action_failed"
-    assert "不支持能力" in step.error["message"]
+    assert step.error["type"] == "capability_missing"
+    assert "ui.select" in step.error["message"]
 
 
 def test_clear_input_requires_uia(env):
@@ -547,8 +547,8 @@ def test_clear_input_requires_uia(env):
                   args={"clear": True})])
     run_id, ce, ctx = _start(env, case)
     result = env.executor.run_case(case, ctx, None)
-    assert result.steps[0].error["type"] == "action_failed"
-    assert "clear" in result.steps[0].error["message"]
+    assert result.steps[0].error["type"] == "capability_missing"
+    assert "ui.input" in result.steps[0].error["message"]
 
 
 def test_input_with_clear_calls_uia_helper(env):
