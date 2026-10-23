@@ -527,6 +527,7 @@ export interface SvnGeneratedCase {
   category: string;
   source_files: string[];
   related_case_ids: string[];
+  reused?: boolean;
 }
 
 export interface SvnChangeGenerateResult {
@@ -537,6 +538,7 @@ export interface SvnChangeGenerateResult {
   snapshot: SvnChangePreview;
   cases: SvnGeneratedCase[];
   created: number;
+  reused: number;
   parse?: ParseBatchLike;
   agent?: { runtime: string; tool_calls?: number; elapsed_ms?: number };
 }
