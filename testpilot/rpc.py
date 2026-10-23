@@ -27,6 +27,7 @@ import logging
 import os
 import secrets
 import hmac
+import re
 import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -50,6 +51,12 @@ _DRAIN_TIMEOUT_S = 15.0     # shutdown 时等待执行中 task.run 收尾的上�
 _AUTOMATION_INLINE_PNG_MAX = 128 * 1024
 _AUTOMATION_ASSET_KEEP = 6
 
+_AGENT_RPC_METHODS = frozenset({
+    "agent.fs.read", "agent.fs.find", "agent.fs.grep",
+    "agent.svn.status", "agent.svn.diff", "agent.svn.log",
+    "agent.case.search", "agent.case.detail",
+})
+
 
 class RpcService:
     def __init__(self, orchestrator=None, *, token=None):
@@ -60,6 +67,8 @@ class RpcService:
         self._case_orchestrator = None
         self._automation_sessions = {}
         self._automation_owner = None
+        self._agent_tokens: dict[str, dict] = {}
+        self._agent_tokens_lock = threading.RLock()
         self._interaction_lock = threading.Lock()
         self._jobs = CaseJobs(self._dispatch_case_job)
         self._run_reserved = threading.Event()
@@ -184,6 +193,15 @@ class RpcService:
             "automation.restore": self._automation_restore,
             "automation.reset": self._automation_reset,
 
+            "agent.fs.read": self._agent_fs_read,
+            "agent.fs.find": self._agent_fs_find,
+            "agent.fs.grep": self._agent_fs_grep,
+            "agent.svn.status": self._agent_svn_status,
+            "agent.svn.diff": self._agent_svn_diff,
+            "agent.svn.log": self._agent_svn_log,
+            "agent.case.search": self._agent_case_search,
+            "agent.case.detail": self._agent_case_detail,
+
             "config.describe": self._config_describe,
             "config.apply": self._config_apply,
             "config.reset": self._config_reset,
@@ -219,6 +237,9 @@ class RpcService:
             "automation.draft", "automation.removeStep", "automation.updateStep",
             "automation.rerunStep", "automation.moveStep",
             "automation.restore", "automation.reset",
+            "agent.fs.read", "agent.fs.find", "agent.fs.grep",
+            "agent.svn.status", "agent.svn.diff", "agent.svn.log",
+            "agent.case.search", "agent.case.detail",
             "config.describe", "config.apply", "config.reset",
             "config.overrideText",
         })
