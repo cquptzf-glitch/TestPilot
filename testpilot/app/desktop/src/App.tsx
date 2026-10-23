@@ -14,7 +14,7 @@ import { CaseJobsPanel } from './components/CaseJobsPanel';
 import { Telemetry } from './components/Telemetry';
 import {
   IconCases, IconKB, IconMoon, IconRuns, IconSearch, IconSettings,
-  IconSuites, IconSun,
+  IconSun,
 } from './components/Icons';
 import { call } from './bridge';
 import { WorkflowPage } from './pages/WorkflowPage';
@@ -36,9 +36,8 @@ import { TasksPage } from './pages/TasksPage';
 const NAV = [
   { key: 'home', label: '开始测试', icon: <IconRuns /> },
   { key: 'automation', label: '自动化探索', icon: <IconCases /> },
-  { key: 'cases', label: '用例与审核', icon: <IconCases /> },
-  { key: 'suites', label: '测试方案', icon: <IconSuites /> },
-  { key: 'runs', label: '测试执行', icon: <IconRuns /> },
+  { key: 'cases', label: '用例维护', icon: <IconCases /> },
+  { key: 'runs', label: '执行与结果', icon: <IconRuns /> },
   { key: 'kb', label: '问题与知识', icon: <IconKB /> },
   { key: 'settings', label: '设置', icon: <IconSettings /> },
 ];
@@ -49,7 +48,7 @@ export default function App() {
   const page = route.page;
   const section = page === 'overview' ? 'home'
     : ['dsl', 'changes'].includes(page) ? 'cases'
-    : ['run', 'tasks'].includes(page) ? 'runs' : page;
+    : ['run', 'tasks', 'suites'].includes(page) ? 'runs' : page;
   const [running, setRunning] = useState<number | null>(null);
   const [stopping, setStopping] = useState(false);
   useEffect(() => {
@@ -84,7 +83,7 @@ export default function App() {
         setPaletteOpen((v) => !v);
         return;
       }
-      if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-7]$/.test(e.key)) {
+      if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-6]$/.test(e.key)) {
         const item = NAV[Number(e.key) - 1];
         if (item) { e.preventDefault(); navigate(item.key); }
         return;
@@ -133,7 +132,11 @@ export default function App() {
           <a className={page === 'changes' ? 'on' : ''} href="#/changes">SVN 变更生成</a>
           <a className={page === 'dsl' ? 'on' : ''} href="#/dsl">审核与编辑</a>
         </div>}
-        {section === 'runs' && page !== 'run' && <div className="section-tabs"><a className={page === 'runs' ? 'on' : ''} href="#/runs">执行记录</a><a className={page === 'tasks' ? 'on' : ''} href="#/tasks">任务管理</a></div>}
+        {section === 'runs' && page !== 'run' && <div className="section-tabs">
+          <a className={page === 'runs' ? 'on' : ''} href="#/runs">执行记录</a>
+          <a className={page === 'tasks' ? 'on' : ''} href="#/tasks">测试任务</a>
+          <a className={page === 'suites' ? 'on' : ''} href="#/suites">测试方案</a>
+        </div>}
         <CaseJobsPanel compact={page === 'home'} />
         {page === 'home' && <WorkflowPage key={route.params.get('selection') ?? 'default'} selection={route.params.get('selection') ?? undefined} running={running} />}
         {page === 'automation' && <AutomationPage />}
