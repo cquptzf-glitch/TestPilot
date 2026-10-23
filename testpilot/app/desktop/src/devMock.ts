@@ -335,7 +335,7 @@ async function runMockJob(job: MockJob, params: Record<string, unknown>): Promis
           related_case_ids: index === 0 ? ['TC-1024'] : [],
           reused: existingBefore.has(id),
         })),
-        created, reused: ids.length - created, parse,
+        created, reused: ids.length - created, duplicates_dropped: 0, parse,
         agent: { runtime: 'pi', tool_calls: 4, elapsed_ms: 1260 },
       };
     } else {
