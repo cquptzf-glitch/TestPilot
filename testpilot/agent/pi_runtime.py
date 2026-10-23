@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import shutil
 import subprocess
 import threading
@@ -75,6 +76,42 @@ class PiAgentRuntime:
             raise AgentError("当前 Pi 不支持显式 extension 加载，无法装载 TestPilot RPC 工具")
         return command
 
+    @staticmethod
+    def _node_version() -> tuple[int, int] | None:
+        """Best-effort PATH Node version; standalone/Bun Pi may not use Node at all."""
+        node = shutil.which("node")
+        if not node:
+            return None
+        try:
+            proc = subprocess.run([node, "--version"], capture_output=True,
+                                  timeout=3, check=False)
+            text = (proc.stdout or proc.stderr).decode("utf-8", "replace").strip()
+            match = re.search(r"v?(\d+)\.(\d+)", text)
+            return (int(match.group(1)), int(match.group(2))) if match else None
+        except Exception:
+            return None
+
+    @classmethod
+    def _enable_native_websocket(cls, env: dict[str, str]) -> None:
+        """Enable Node native WebSocket only where it is still flag-gated.
+
+        Node 22+ enables WebSocket by default. Node 20.10-21 need the experimental
+        flag. Older Node remains untouched so standalone/Bun Pi is not falsely blocked;
+        the extension will emit a precise error if no native WebSocket exists.
+        """
+        version = cls._node_version()
+        if version is None:
+            return
+        major, minor = version
+        needs_flag = (major == 20 and minor >= 10) or major == 21
+        if not needs_flag:
+            return
+        node_options = str(env.get("NODE_OPTIONS") or "")
+        if ("--experimental-websocket" in node_options
+                or "--no-experimental-websocket" in node_options):
+            return
+        env["NODE_OPTIONS"] = (node_options + " --experimental-websocket").strip()
+
     def health(self) -> HealthReport:
         exe = self._executable()
         if not exe:
@@ -109,9 +146,7 @@ class PiAgentRuntime:
         if not extension.is_file():
             raise AgentError(f"Pi RPC 工具扩展缺失: {extension}")
 
-        enabled = list(dict.fromkeys(tools or DEFAULT_TOOLS))
-        if not enabled:
-            raise AgentError("Agent 没有可用的 RPC 工具")
+        enabled = list(dict.fromkeys(DEFAULT_TOOLS if tools is None else tools))
 
         command = self._command(exe, extension)
         if self.provider:
@@ -120,12 +155,7 @@ class PiAgentRuntime:
             command.extend(["--model", self.model])
 
         env = dict(os.environ)
-        # Pi supports Node >=20; native WebSocket is flag-gated on Node 20.10-20.x
-        # and enabled by default on Node 22+. Standalone Pi/Bun ignores NODE_OPTIONS.
-        node_options = str(env.get("NODE_OPTIONS") or "")
-        if ("--experimental-websocket" not in node_options
-                and "--no-experimental-websocket" not in node_options):
-            env["NODE_OPTIONS"] = (node_options + " --experimental-websocket").strip()
+        self._enable_native_websocket(env)
         env.update({
             "TESTPILOT_AGENT_RPC_URL": self.rpc_url,
             "TESTPILOT_AGENT_RPC_TOKEN": self.rpc_token,
