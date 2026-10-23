@@ -15,27 +15,49 @@ export function CaseJobsPanel({ compact = false }: { compact?: boolean }) {
   const [job, setJob] = useState<CaseJob | null>(null);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(false);
+  const [dismissedId, setDismissedId] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
     let pending = false;
+    let timer: number | undefined;
+
+    const schedule = (active: boolean) => {
+      if (!alive) return;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(
+        () => void load(),
+        active ? 1000 : 5000,
+      );
+    };
     const load = async () => {
-      if (pending) return;
+      if (pending || !alive) return;
       pending = true;
+      let active = false;
       try {
         const jobs = await call<CaseJob[]>('job.status');
         if (alive) {
           const current = jobs[0] ?? null;
+          active = current?.status === 'queued' || current?.status === 'running';
           setJob(current); setError('');
           if (current) notifyCaseJob(current);
         }
-      } catch (e) { if (alive) setError(msg(e)); }
-      finally { pending = false; }
+      } catch (e) {
+        if (alive) setError(msg(e));
+      } finally {
+        pending = false;
+        schedule(active);
+      }
     };
+    const onState = () => void load();
+    window.addEventListener('testpilot:case-job-state', onState);
     void load();
-    const timer = setInterval(() => void load(), 1000);
-    return () => { alive = false; clearInterval(timer); };
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+      window.removeEventListener('testpilot:case-job-state', onState);
+    };
   }, []);
-  if (!job || (compact && job.status === 'completed')) return null;
+  if (!job || job.id === dismissedId || (compact && job.status === 'completed')) return null;
   const active = job.status === 'queued' || job.status === 'running';
   const raw = (job.result ?? job.progress.result) as
     ({ parse?: ParseBatchResult; parsed?: number } & Partial<SvnChangeGenerateResult>) | undefined;
@@ -63,6 +85,10 @@ export function CaseJobsPanel({ compact = false }: { compact?: boolean }) {
         void call<CaseJob>('job.cancel', { jobId: job.id })
           .then(setJob).catch((e: unknown) => setError(msg(e)));
       }}>取消后台任务</button>}
+      {!active && <button className="btn ghost" onClick={() => {
+        setExpanded(false);
+        setDismissedId(job.id);
+      }}>关闭</button>}
       {!!(items.length || failures.length || generated.length) && <button className="btn" onClick={() => setExpanded(!expanded)}>
         {expanded ? '收起结果' : '查看逐条结果'}
       </button>}
