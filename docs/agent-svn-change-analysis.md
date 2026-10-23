@@ -480,7 +480,76 @@ working-copy 模式除了完整 SVN diff/status 外，还对 unversioned 内容�
 - Windows CRLF 文件按真实原始字节计算 hash；
 - snapshot guard 持久化到生成用例。
 
-## 12. 当前自动验证证据
+## 12. 关联用例版本锁与原子持久化
+
+源码 snapshot 稳定后，还需要解决另一类竞态：Agent 在分析时读取了已有测试用例，但该用例可能在 Agent 返回前或草稿落库前被禅道同步、LLM 重解析或人工审核修改。
+
+### 12.1 case semantic token
+
+仓储层提供统一 `case_semantic_token(case)`，对真正影响测试语义的内容做 canonical JSON + SHA-256：
+
+- case/title/zentao id；
+- DSL version / steps / preconditions / notes；
+- status / sync_status；
+- raw 原文；
+- accepted_steps；
+- zentao_updated_at；
+- module id/name。
+
+`last_synced_at` 与本地 `updated_at` 不进入 token。这样远端没有语义变化、仅刷新同步时间时不会误判；原文、DSL、人审状态等真正变化时 token 必然变化。
+
+CaseService 原有长 LLM 解析的 `revision` 也改为复用同一 semantic token，因此 Agent 与普通 case parse 使用同一套乐观并发语义。
+
+### 12.2 主 RPC evidence
+
+`agent.case.search` 与 `agent.case.detail` 都把当前 `case_token` 返回给 Agent，并由可信主 RPC evidence 保存：
+
+```json
+{
+  "case_ids": ["TC-1"],
+  "case_tokens": {"TC-1": "<sha256>"}
+}
+```
+
+同一个 case 被多次观察时保留最后一次主 RPC 返回的 token。最终 grounding 不再只判断“ID 存在 + Agent 看过”，还要求当前数据库语义 token 与 Agent 实际观察 token 完全一致。
+
+### 12.3 两阶段 case 校验
+
+关联 case 会校验两次：
+
+1. Agent JSON 解析后的 grounding preflight：尽早发现分析期间已经变化的 case；
+2. `BEGIN IMMEDIATE` 获得 SQLite 写锁后：再次比较 token，封住 preflight → persist 之间的数据库写竞态。
+
+如果任一 related case 被删除、缺少 token 或语义 token 改变，整轮返回 fail-closed，要求重新分析。
+
+### 12.4 草稿整批事务
+
+SVN Agent 生成不再对每条 `repos.create_case()` 单独 commit。当前持久化顺序为：
+
+```text
+BEGIN IMMEDIATE
+  -> 复核 related case tokens
+  -> 在事务内重新建立 fingerprint 索引
+  -> 整批 create/reuse，新增 case 使用 commit=false
+  -> 再复核 related case tokens
+  -> INSERT 后重新校验 SVN snapshot + Agent observed source hashes
+COMMIT
+```
+
+任何一步抛错、用户取消或最终 snapshot 漂移，SQLite context 会 rollback 整批新增草稿。这样不会出现“前几条已经提交、后面才发现 case/source 变化”的部分提交状态。
+
+把最终 SVN/source 校验放到 INSERT **之后、COMMIT 之前**，也把文件系统变化的竞态窗口压缩到最后一次 hash 校验到 SQLite COMMIT 之间的极小区间；在不对用户工作副本加文件锁的前提下，这是当前最稳妥的 fail-closed 边界。
+
+自动回归覆盖：
+
+- Agent 观察后 related case 原文发生变化时拒绝；
+- grounding 完成后、写事务开始前 case 变化时，事务内二次检查拒绝；
+- 最终 SVN snapshot 在 INSERT 后发生漂移时整批 rollback；
+- semantic token 忽略纯同步/更新时间戳变化；
+- semantic token 对原文语义变化敏感；
+- 主 RPC evidence 在长会话 audit 裁剪后仍保存 case token。
+
+## 13. 当前自动验证证据
 
 GitHub Actions run `39884433953`（RPC/权限 hardening 基线 `4f287f7ad06538804b282c89c778702a30d2f639`）：
 
@@ -499,5 +568,7 @@ Agent progress/失败诊断/参数边界增量基线 `03b47bf4f691fcdc1d56c4eddf
 Agent grounding fail-closed 与持久化 provenance 基线 `e22cf2530d3d0e92a79a8d47cc542182bc06fac9` 对应 GitHub Actions run `39919509437`：Desktop TypeScript/Vite、Ruff、全量 Pytest 全部 success。
 
 SVN snapshot drift / observed-source hash / bounded unversioned guard 最终基线 `6dbd2662d5e7e658be342840dce2a8ade74f22cc` 对应 GitHub Actions run `39924766570`：Desktop TypeScript/Vite、Ruff、全量 Pytest 全部 success。中间 `2e09f3ab` 的 Windows 测试仅因 LF/CRLF 期望 hash 不一致失败，`424cc307` 改为按真实文件字节断言后全绿；生产实现始终按原始字节计算 SHA-256。
+
+关联 case semantic token + 原子持久化业务基线 `63362085a524526a14dc48d78f7abfac9303e5ac` 对应 Actions run `39926984423` 全绿；测试语义收口 `ce76e7a5cf83bdf40379013d54f919ebf398b6f2` 对应 Actions run `39927463413` 同样 Desktop TypeScript/Vite、Ruff、全量 Pytest 全部 success。
 
 真实公司 SVN、真实 Pi provider/model、真实大仓库级级联影响质量仍属于 ENV 验证，不作为当前功能开发阻塞项。

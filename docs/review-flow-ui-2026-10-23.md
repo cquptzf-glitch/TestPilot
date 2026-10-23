@@ -447,16 +447,22 @@ Vision 同样把模板、稳定 key、region、diff、手势动作降为高级�
 
 ## 8. 最终自动验证
 
-当前最新业务代码基线（包含后续 case readiness 集中化、Agent 主 RPC 审计、失败诊断、参数 hardening、grounding fail-closed 与 SVN snapshot 漂移保护增量）：
+当前最新验证基线（包含后续 case readiness 集中化、Agent 主 RPC 审计、失败诊断、参数 hardening、grounding fail-closed、SVN snapshot 漂移保护、关联 case semantic token 与原子持久化增量）：
 
 ```text
-6dbd2662d5e7e658be342840dce2a8ade74f22cc
+ce76e7a5cf83bdf40379013d54f919ebf398b6f2
+```
+
+对应业务实现提交：
+
+```text
+63362085a524526a14dc48d78f7abfac9303e5ac
 ```
 
 GitHub Actions run：
 
 ```text
-39924766570
+39927463413
 ```
 
 结果：
