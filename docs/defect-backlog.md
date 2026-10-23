@@ -3,7 +3,7 @@
 > 更新时间：2026-10-23  
 > 当前策略：**先堆功能 + 单元测试/契约测试 + 前端编译门禁；暂不把真机 smoke 作为开发阻塞项。**  
 > 真机/UIA/DPI/干净机安装验证保留，但放到功能面稳定后集中执行。  
-> 最新代码门禁证据：GitHub Actions run 39927463413 / SHA ce76e7a5cf83bdf40379013d54f919ebf398b6f2 全绿（Desktop TypeScript/Vite、Ruff、全量 Pytest）；对应业务实现提交 63362085a524526a14dc48d78f7abfac9303e5ac。
+> 最新代码门禁证据：GitHub Actions run 39932264081 / SHA c1e0b57464b33e62d6e13c9d5c80e3eed34ef90c 全绿（Desktop TypeScript/Vite、Ruff、全量 Pytest）。
 
 ## 状态约定
 
@@ -92,6 +92,7 @@
 | AG-112 | P1 | DONE | Agent 生成依据 fail-closed | 主 RPC 新增独立于 200 条展示 audit 的 evidence 摘要，持续记录成功/失败工具、实际 `fs.read` 路径、`case.search/detail` 见过的 case、完整/截断 SVN diff 与按路径 diff 覆盖。生成前必须成功读取 diff；`source_files` 必须被 diff/read 真实覆盖，unversioned 必须 `fs.read`；`related_case_ids` 必须真实存在且本轮 Agent 看过。所有用例统一预检后再写库，避免半提交；新建 case 将证据写入 `raw.generation.grounding`。Actions run 39919509437 / SHA e22cf2530d3d0e92a79a8d47cc542182bc06fac9 全绿。 |
 | AG-113 | P1 | DONE | SVN Agent 分析快照漂移保护 | Agent 启动前对完整 SVN diff、revision/repository/status 与 unversioned 内容生成稳定 snapshot guard；返回后、任何落库前再次校验。主 RPC 对 `fs.read` 与 grep 实际暴露给 Agent 的文件记录内容 SHA，固定 revision 分析也能发现本地依赖源码变化；漂移时以 `snapshot_changed` fail-closed 并要求重跑。完整 diff 通过临时文件流式 SHA-256，unversioned 快照限制 10000 项/256 MiB，并校验 workspace/junction 边界；guard 持久化到 `raw.generation.snapshot_guard`。Actions run 39924766570 / SHA 6dbd2662d5e7e658be342840dce2a8ade74f22cc 全绿。 |
 | AG-114 | P1 | DONE | 关联用例版本锁定与原子持久化 | `agent.case.search/detail` 返回并由主 RPC evidence 保存 `case_token`；token 对原文、DSL、preconditions、notes、人审/同步状态、accepted steps 等语义内容做 SHA-256，排除纯 `last_synced_at/updated_at` 刷新。grounding 与写事务开始后均复核关联用例 token。SVN Agent 草稿改为 `BEGIN IMMEDIATE` 整批写入，`create_case(commit=false)` 不再逐条提交；INSERT 后、COMMIT 前再次校验关联 case 与 SVN/source snapshot，任一步漂移整批 rollback。CaseService 长 LLM 解析也复用同一 semantic token。业务提交 63362085；最终测试收口 ce76e7a5 / Actions 39927463413 全绿。 |
+| AG-115 | P2 | DONE | 轻量生成批次追踪 | 每次 SVN Agent 分析生成一个短 `generation_run_id`；本次结果中的 case 同时返回当前 grounding。新建 case 把 run id 写入 `raw.generation.run_id`，复用旧 case 时只返回本轮 provenance，不修改旧 case 内容，也不增加历史表/新 RPC。Desktop 仅在结果底部显示批次号。Actions run 39932264081 / SHA c1e0b57464b33e62d6e13c9d5c80e3eed34ef90c 全绿。 |
 
 ## 环境验证项（当前不阻塞功能开发）
 

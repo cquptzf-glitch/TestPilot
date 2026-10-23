@@ -549,7 +549,20 @@ COMMIT
 - semantic token 对原文语义变化敏感；
 - 主 RPC evidence 在长会话 audit 裁剪后仍保存 case token。
 
-## 13. 当前自动验证证据
+## 13. 轻量生成批次追踪
+
+为区分重复执行的 SVN Agent 分析，但避免引入 generation history 表或额外 RPC，当前只保留轻量 provenance：
+
+- 每次 `change.svn.generate` 生成一个 16 字符 `generation_run_id`；
+- 返回结果和每条本轮 case 都带该 run id；
+- 每条返回 case 同时带本轮 grounding；
+- 新建 case 把 run id 写入 `raw.generation.run_id`；
+- 复用已有 case 时只在本次返回结果里带当前 run id/grounding，**不回写旧 case**；
+- Desktop 只在分析结果底部展示批次号，不新增历史页面。
+
+这样可以回答“这一屏结果属于哪次分析、这次复用基于什么证据”，同时保持现有数据库和 UI 结构不变。
+
+## 14. 当前自动验证证据
 
 GitHub Actions run `39884433953`（RPC/权限 hardening 基线 `4f287f7ad06538804b282c89c778702a30d2f639`）：
 
@@ -570,5 +583,7 @@ Agent grounding fail-closed 与持久化 provenance 基线 `e22cf2530d3d0e92a79a
 SVN snapshot drift / observed-source hash / bounded unversioned guard 最终基线 `6dbd2662d5e7e658be342840dce2a8ade74f22cc` 对应 GitHub Actions run `39924766570`：Desktop TypeScript/Vite、Ruff、全量 Pytest 全部 success。中间 `2e09f3ab` 的 Windows 测试仅因 LF/CRLF 期望 hash 不一致失败，`424cc307` 改为按真实文件字节断言后全绿；生产实现始终按原始字节计算 SHA-256。
 
 关联 case semantic token + 原子持久化业务基线 `63362085a524526a14dc48d78f7abfac9303e5ac` 对应 Actions run `39926984423` 全绿；测试语义收口 `ce76e7a5cf83bdf40379013d54f919ebf398b6f2` 对应 Actions run `39927463413` 同样 Desktop TypeScript/Vite、Ruff、全量 Pytest 全部 success。
+
+轻量 generation run provenance 基线 `c1e0b57464b33e62d6e13c9d5c80e3eed34ef90c` 对应 Actions run `39932264081`：Desktop TypeScript/Vite、Ruff、全量 Pytest 全部 success。
 
 真实公司 SVN、真实 Pi provider/model、真实大仓库级级联影响质量仍属于 ENV 验证，不作为当前功能开发阻塞项。
