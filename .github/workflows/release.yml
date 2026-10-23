@@ -1,0 +1,99 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: startsWith(github.event.head_commit.message, 'release: v')
+    runs-on: windows-latest
+    timeout-minutes: 75
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Prepare release environment
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -e ".[dev,rpc]"
+          rustup default stable
+          $version = (& .\.venv\Scripts\python.exe -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])").Trim()
+          if (-not $version) { throw "无法读取版本号" }
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TAG=v$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "NOTES=docs/releases/v$version.md" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Ruff
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -m ruff check testpilot tests
+
+      - name: Pytest
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -m pytest -q --tb=short -p no:cacheprovider
+
+      - name: Build sidecar
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts\build-sidecar.ps1 -Clean
+
+      - name: Packaging preflight
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts\preflight.ps1
+
+      - name: Build NSIS installer
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts\build-shell.ps1 -SkipSidecar
+
+      - name: Prepare checksums
+        shell: pwsh
+        run: |
+          $assets = @(Get-ChildItem "dist\bundle\nsis" -File -Filter "*.exe")
+          if ($assets.Count -eq 0) { throw "未找到 NSIS 安装包" }
+          $sum = Join-Path "dist\bundle\nsis" "SHA256SUMS.txt"
+          $lines = foreach ($asset in $assets) {
+            $hash = (Get-FileHash -Algorithm SHA256 $asset.FullName).Hash.ToLowerInvariant()
+            "$hash  $($asset.Name)"
+          }
+          Set-Content -Path $sum -Value $lines -Encoding ascii
+          Get-Content $sum
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if (-not (Test-Path $env:NOTES)) { throw "Release notes 不存在: $env:NOTES" }
+          $existing = $false
+          & gh release view $env:TAG --json tagName 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { $existing = $true }
+          if ($existing) {
+            & gh release edit $env:TAG --title "TestPilot $env:TAG" --notes-file $env:NOTES
+          } else {
+            & gh release create $env:TAG --target $env:GITHUB_SHA --title "TestPilot $env:TAG" --notes-file $env:NOTES
+          }
+          if ($LASTEXITCODE -ne 0) { throw "创建/更新 GitHub Release 失败" }
+          $assets = @(Get-ChildItem "dist\bundle\nsis" -File)
+          foreach ($asset in $assets) {
+            & gh release upload $env:TAG $asset.FullName --clobber
+            if ($LASTEXITCODE -ne 0) { throw "上传 Release 资产失败: $($asset.Name)" }
+          }
