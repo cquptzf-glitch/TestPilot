@@ -562,6 +562,64 @@ def test_task_create_run_and_drilldown(svc):
                             {"taskId": created["task_id"]})["name"] == "RPC任务"
 
 
+def test_run_evidence_drilldown_rejects_mismatched_identity(svc):
+    service, _, ids = svc
+    task = service.dispatch("task.create", {
+        "name": "取证边界", "caseIds": ids,
+    })
+    stats = service.dispatch("task.run", {"taskId": task["task_id"]})
+    detail = service.dispatch("run.detail", {"runId": stats["run_id"]})
+    case_exec_id = detail["cases"][0]["id"]
+    trace = service.dispatch(
+        "run.stepTrace", {"caseExecId": case_exec_id})["steps"]
+    ui_step = next(step for step in trace if step["action"] == "ui.click")
+
+    with pytest.raises(RpcError) as mismatch:
+        service.dispatch("run.shotDiff", {
+            "runId": stats["run_id"] + 999,
+            "caseExecId": case_exec_id,
+            "stepNo": ui_step["step_no"],
+            "traceId": ui_step["id"],
+        })
+    assert mismatch.value.code == INVALID_PARAMS
+    assert "不属于 run" in mismatch.value.message
+
+    with pytest.raises(RpcError) as wrong_trace:
+        service.dispatch("run.shotDiff", {
+            "runId": stats["run_id"],
+            "caseExecId": case_exec_id,
+            "stepNo": ui_step["step_no"],
+            "traceId": ui_step["id"] + 999,
+        })
+    assert wrong_trace.value.code == INVALID_PARAMS
+    assert "traceId" in wrong_trace.value.message
+
+
+@pytest.mark.parametrize(("method", "params"), [
+    ("run.stepTrace", {"caseExecId": 1, "attempt": -1}),
+    ("run.stepTrace", {"caseExecId": 1, "attempt": "bad"}),
+    ("run.caseDetail", {"caseExecId": 1, "runId": True}),
+    ("run.shotDiff", {
+        "runId": 1, "caseExecId": 1, "stepNo": 1, "attempt": -1,
+    }),
+    ("run.shotDiff", {
+        "runId": 1, "caseExecId": 1, "stepNo": 1, "force": "false",
+    }),
+])
+def test_run_evidence_drilldown_rejects_unsafe_params(svc, method, params):
+    service, _, _ = svc
+    with pytest.raises(RpcError) as exc:
+        service.dispatch(method, params)
+    assert exc.value.code == INVALID_PARAMS
+
+
+def test_run_step_trace_rejects_unknown_case_exec(svc):
+    service, _, _ = svc
+    with pytest.raises(RpcError) as exc:
+        service.dispatch("run.stepTrace", {"caseExecId": 999999})
+    assert exc.value.code == INVALID_PARAMS
+
+
 def test_task_run_rejects_invalid_execution_overrides(svc):
     service, _, ids = svc
     created = service.dispatch("task.create", {"name": "参数校验", "caseIds": ids})
