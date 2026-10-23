@@ -470,6 +470,44 @@ def test_scroll_and_drag_actions_reach_driver(env):
     assert ("drag", (80, -10, 250)) in calls
 
 
+def test_vision_first_skips_incapable_driver_before_locate(env):
+    env.cfg["driver"]["mode"] = "vision_first"
+    env.drivers = {
+        "vision": FakeDriver("vision", capabilities={"click", "input", "grab"}),
+        "uia": FakeDriver("uia"),
+    }
+    env.rebuild()
+    case = make_case("TC-1", steps=[
+        make_step(id="s1", action="ui.select", value="A"),
+    ])
+    _, _, ctx = _start(env, case)
+    result = env.executor.run_case(case, ctx, None)
+
+    assert result.status == "pass"
+    assert result.steps[0].driver == "uia"
+    assert env.drivers["vision"].locate_calls == 0
+    assert ("select", "A") in env.drivers["uia"].calls
+
+
+def test_clear_input_skips_driver_without_clear_capability(env):
+    env.cfg["driver"]["mode"] = "vision_first"
+    env.drivers = {
+        "vision": FakeVisionDriver(),
+        "uia": FakeDriver("uia"),
+    }
+    env.rebuild()
+    case = make_case("TC-1", steps=[
+        make_step(id="s1", action="ui.input", value="abc", args={"clear": True}),
+    ])
+    _, _, ctx = _start(env, case)
+    result = env.executor.run_case(case, ctx, None)
+
+    assert result.status == "pass"
+    assert result.steps[0].driver == "uia"
+    assert ("clear", None) in env.drivers["uia"].calls
+    assert ("input", "abc") in env.drivers["uia"].calls
+
+
 def test_scroll_capability_gate_blocks_unsupported_driver(env):
     env.cfg["driver"]["mode"] = "uia_only"
     env.drivers = {"uia": FakeDriver("uia", capabilities={"click", "grab"})}
