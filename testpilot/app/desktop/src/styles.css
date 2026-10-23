@@ -2672,3 +2672,32 @@ details.task-create { margin-bottom: 22px; }
   color: var(--c-text);
   font: 600 17px/1.2 var(--c-mono);
 }
+
+
+.flow-run-advanced {
+  margin-top: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  background: var(--c-panel-soft);
+}
+.flow-run-advanced > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.flow-run-advanced > summary::-webkit-details-marker { display: none; }
+.flow-run-advanced > summary::after {
+  content: "设置";
+  margin-left: auto;
+  color: var(--c-text-faint);
+  font-size: var(--fs-xs);
+}
+.flow-run-advanced[open] > summary::after { content: "收起"; }
+.flow-run-advanced .flow-run-options {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--c-border);
+}
