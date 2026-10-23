@@ -125,7 +125,21 @@ export function DslReviewPage({ caseId, queue, embedded = false, onAccepted, onB
       if (!keepToast) pushToast('pass', `${label}成功`);
       else setNotice({ kind: 'info', text: `${label}：${JSON.stringify(out)}` });
       if (refresh) { detail.reload(); list.reload(); }
-      if (label === '保存并审核' && active) onAccepted?.(active);
+      if (label === '保存并审核' && active) {
+        if (onAccepted) {
+          onAccepted(active);
+        } else if (reviewQueue.length > 0) {
+          const current = reviewQueue.indexOf(active);
+          const next = current >= 0 ? reviewQueue[current + 1] : undefined;
+          if (next) {
+            editedRef.current = false;
+            setActive(next);
+            setNotice({ kind: 'info', text: `已通过 ${active}，继续审核下一条。` });
+          } else {
+            setNotice({ kind: 'info', text: '本批用例已全部审核完成。' });
+          }
+        }
+      }
     } catch (e) {
       setNotice({ kind: 'error', text: `${label}失败：${msg(e)}` });
     } finally { setBusy(null); setConfirmReject(false); }
@@ -205,7 +219,11 @@ export function DslReviewPage({ caseId, queue, embedded = false, onAccepted, onB
         </button></>}
         <button className="btn primary" disabled={disabled || !data || !text || steps.length === 0 || data.sync_status !== 'synced' || (data.status === 'active' && !draftDirty)}
                 onClick={() => act('保存并审核', () => call('dsl.accept', { caseId: active, text, format: 'json', expectedRevision: data?.revision }))}>
-          {embedded ? '确认此用例，继续下一步 →' : '✓ 保存并通过'}
+          {embedded
+            ? '确认此用例，继续下一步 →'
+            : reviewQueue.length > 0 && position >= 0 && position < reviewQueue.length - 1
+              ? '✓ 保存并通过，下一条 →'
+              : '✓ 保存并通过'}
         </button>
         {(!embedded || editTools) && <button className="btn danger" disabled={disabled}
                 onClick={() => setConfirmReject(true)}>
