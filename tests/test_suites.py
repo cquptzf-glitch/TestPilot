@@ -136,6 +136,15 @@ def test_resolve_by_id_and_name(svc):
         suites.resolve("不存在")
 
 
+def test_resolve_rejects_boolean_and_invalid_numeric_refs(svc):
+    suites, _ = svc
+    suites.create("A", ["TC-1"])
+
+    for ref in (True, 1.0, 0, "0", "   "):
+        with pytest.raises(TestPilotError):
+            suites.resolve(ref)
+
+
 def test_list_and_delete(svc):
     suites, _ = svc
     a = suites.create("A", ["TC-1"])
