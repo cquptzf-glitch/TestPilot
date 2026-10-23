@@ -59,6 +59,7 @@ class TaskOrchestrator:
         self._frozen_cases = {}
         self._abort = threading.Event()          # 协作中止总开关（每次 run 前重置）
         self._in_run = threading.Event()         # 是否有 run 正在执行（abort 的反馈依据）
+        self._active_run_id: int | None = None    # begin_run 成功后的 run 级兜底句柄
         self.bus = bus if bus is not None else EventBus()
 
         # ---- 依赖装配：全部构造期注入（缺省按 cfg 构造） ----
@@ -278,7 +279,28 @@ class TaskOrchestrator:
         self._in_run.set()
         try:
             return self._run_task_inner(task, run_cfg, writeback, Reporter)
+        except Exception as e:
+            # begin_run 之后任何未预期的 run 级异常都必须把数据库从 running 收尾。
+            run_id = self._active_run_id
+            if run_id is not None:
+                fatal_stats = {
+                    "status": "error",
+                    "run_id": run_id,
+                    "task_id": task_id,
+                    "fatal_error": str(e),
+                }
+                try:
+                    row = self.conn.execute(
+                        "SELECT status FROM test_run WHERE id=?", (run_id,)).fetchone()
+                    if row is not None and row["status"] == "running":
+                        self.recorder.finish_run(run_id, fatal_stats)
+                except Exception:
+                    log.exception(f"run 兜底收尾失败: run#{run_id}")
+                self.bus.emit(RunFinished.of(
+                    run_id, {"phase": "finished", "stats": fatal_stats}))
+            raise
         finally:
+            self._active_run_id = None
             self._frozen_cases = {}
             self._in_run.clear()
             self._run_lock.release()
@@ -303,6 +325,7 @@ class TaskOrchestrator:
         env["effective_driver_config"] = {**task["driver_config"], **(run_cfg or {})}
         evidence_before = getattr(self.recorder, "evidence_errors", 0)
         run_id = self.recorder.begin_run({**env, "task_id": task_id})
+        self._active_run_id = run_id
         bind_run(run_id)
         log.info(f"run 开始: run#{run_id} task#{task_id} "
                  f"cases={len(task['case_ids'])}")
@@ -368,8 +391,22 @@ class TaskOrchestrator:
             stats["preload_errors"] = preload_errors
         # 回写结果必须在 finish_run **之前**算出来：finish_run 会把 stats 定格进库，
         # 之后再补字段只会留在内存里（报告从库里读 -> 永远看不到"禅道回写"）。
-        stats["writeback"] = self._writeback(task, run_id, stats) if writeback \
-            else "skipped"
+        if writeback:
+            try:
+                stats["writeback"] = self._writeback(task, run_id, stats)
+            except Exception as e:
+                # 远端集成属于增强链：本地测试已完成时，未知回写异常不能让 run
+                # 留在 running/error。记录错误并把任务留给补偿入口。
+                log.exception(f"禅道回写意外异常(不阻断本地 run): run#{run_id}")
+                stats["writeback"] = "error"
+                stats["writeback_error"] = str(e)
+                try:
+                    from testpilot.storage import repos
+                    repos.set_task_sync(self.conn, task["id"], "sync_pending")
+                except Exception:
+                    log.exception("写回 sync_pending 失败")
+        else:
+            stats["writeback"] = "skipped"
         self.recorder.finish_run(run_id, stats)
 
         # 报告是收尾的增强信息：生成失败（跨盘符/磁盘满等）不该把"执行成功"的
