@@ -110,6 +110,18 @@ def execution_errors(step: Step) -> list[str]:
     if step.action.startswith("ui.") or step.action == "vision.click":
         if step.target is None:
             errors.append("交互动作缺少 target")
+    if step.action == "app.launch":
+        if not step.args.get("exe") and not step.args.get("title_re"):
+            errors.append("app.launch 至少需要 args.exe 或 args.title_re")
+        launch_args = step.args.get("args")
+        if launch_args is not None and (
+                not isinstance(launch_args, list)
+                or any(not isinstance(item, str) for item in launch_args)):
+            errors.append("app.launch args.args 必须是字符串数组")
+    if step.action == "app.close":
+        mode = str(step.args.get("mode", "graceful"))
+        if mode not in ("graceful", "force", "kill"):
+            errors.append("app.close args.mode 必须是 graceful 或 force")
     if step.action == "ui.toggle" and step.value not in ("true", "false"):
         errors.append("ui.toggle 的 value 必须是 true 或 false")
     if step.action == "ui.keypress" and not step.value:
