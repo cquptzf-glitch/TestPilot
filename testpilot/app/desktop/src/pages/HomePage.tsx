@@ -2,6 +2,7 @@ import { call } from '../bridge';
 import { Badge, Msg } from '../components/Bits';
 import { navigate, useAsync, useEngineEvents } from '../hooks';
 import { fmtRelative } from '../format';
+import { caseIsApproved, caseNeedsReview } from '../caseState';
 import type { CaseRow, RunRow } from '../types';
 
 export function HomePage() {
@@ -17,11 +18,8 @@ export function HomePage() {
     if ((payload as { phase?: string }).phase === 'finished') data.reload();
   });
   const d = data.data;
-  const draft = d?.cases.filter((c) =>
-    c.status !== 'rejected' && c.status !== 'deprecated'
-    && (c.status !== 'active' || c.sync_status !== 'synced' || !c.steps?.length)) ?? [];
-  const active = d?.cases.filter((c) =>
-    c.status === 'active' && c.sync_status === 'synced' && !!c.steps?.length) ?? [];
+  const draft = d?.cases.filter(caseNeedsReview) ?? [];
+  const active = d?.cases.filter(caseIsApproved) ?? [];
   const latest = d?.runs[0];
   const actions = [
     { n: '01', title: '准备测试用例', text: '从禅道同步，核对步骤与预期结果', button: '管理用例', route: 'cases' },
