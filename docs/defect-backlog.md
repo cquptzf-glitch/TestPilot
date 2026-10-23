@@ -3,7 +3,7 @@
 > 更新时间：2026-10-23  
 > 当前策略：**先堆功能 + 单元测试/契约测试 + 前端编译门禁；暂不把真机 smoke 作为开发阻塞项。**  
 > 真机/UIA/DPI/干净机安装验证保留，但放到功能面稳定后集中执行。  
-> 最新代码门禁证据：GitHub Actions run 39941744599 / SHA 5b4cf53d5be599402d08982c27e8a6e98a1414e7 全绿（Desktop TypeScript/Vite、Ruff、全量 Pytest）。
+> 最新代码门禁证据：GitHub Actions run 39943804776 / SHA a12ae4ae593b26d6bc3bc664ef4eb4fdb6047f78 全绿（Desktop TypeScript/Vite、Ruff、全量 Pytest）。
 
 ## 状态约定
 
@@ -72,6 +72,7 @@
 | U-104 | P2 | DONE | 高频操作继续收敛 | Workflow 审核 chip 可直接跳转/回看；Cases 删除重复同步态下拉并补齐“清除筛选”的分组清理；后台 CaseJobs terminal 状态只保留一个“继续审核/查看生成用例”主动作，Agent 轨迹降为“查看详情”。仅 Desktop 改动，无新增 RPC/后端结构。Actions run 39934011635 / SHA 8f8110e70337eabb2f64a22173a1100cfc59cf9b 全绿。 |
 | U-105 | P2 | DONE | 探索 / Run 结果继续减噪 | Automation 的视觉断言只在 Vision 模式显示；清空会话复用 ConfirmBar 二次确认。Run 概览提供第一条 fail/blocked 的“查看失败/阻塞轨迹”直达按钮，并去掉概览顶部重复 PassBar（其他 Tab 仍保留）。全部复用现有前端状态/函数，无新增 RPC。Actions run 39936778196 / SHA 8c5f884c9fad5d2125c512edb064ee3d5d1ab1a0 全绿。 |
 | U-106 | P2 | DONE | 探索固化一键进入审核 | Automation 将“生成草稿 → 保存并进入审核”压成一个“固化并进入审核”主动作；每次固化都按当前历史/用例 ID/标题重新生成 DSL，避免导入过期预览草稿。草稿预览降为次操作，修改 ID/标题会清除旧预览。复用现有 RPC，无新增后端结构。Actions run 39941744599 / SHA 5b4cf53d5be599402d08982c27e8a6e98a1414e7 全绿。 |
+| U-107 | P2 | DONE | 审核完成直接进入开始测试 | 独立 DslReview 每次 accept 后基于最新 case.list + caseIsApproved 重新计算真实待审队列，修复“手动跳到最后一条即误判整批完成”；真正全部通过后携带原 selection 直接进入 Workflow，不再返回用例库重新选。最终动作文案同步显示“保存并通过，开始测试”。无新增 RPC/后端结构。Actions run 39943804776 / SHA a12ae4ae593b26d6bc3bc664ef4eb4fdb6047f78 全绿。 |
 
 ## 禅道 / Agent / SVN 专项
 
