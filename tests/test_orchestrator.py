@@ -110,6 +110,26 @@ def test_create_task_explicit_options_override_suite_defaults(orch, db_conn):
     assert task["preconditions"] == ["模拟器场景: task-override"]
 
 
+def test_create_task_rejects_malformed_collection_inputs(orch):
+    with pytest.raises(TestPilotError, match="case_ids 必须是字符串数组"):
+        orch.create_task({"name": "坏范围", "case_ids": "TC-1"})
+
+    with pytest.raises(TestPilotError, match="case_ids 必须只包含非空字符串"):
+        orch.create_task({"name": "混合范围", "case_ids": ["TC-1", 2]})
+
+    with pytest.raises(TestPilotError, match="preconditions 必须是字符串数组"):
+        orch.create_task({
+            "name": "坏前置", "case_ids": ["TC-1"],
+            "preconditions": "scene:a",
+        })
+
+    with pytest.raises(TestPilotError, match="driver_config 必须是对象"):
+        orch.create_task({
+            "name": "坏驱动配置", "case_ids": ["TC-1"],
+            "driver_config": ["auto"],
+        })
+
+
 def test_create_task_rejects_ambiguous_scope_and_dedupes_direct_cases(orch, db_conn):
     suite = orch.suites.create("范围方案", ["TC-1"])
     with pytest.raises(TestPilotError, match="只能指定一种"):
