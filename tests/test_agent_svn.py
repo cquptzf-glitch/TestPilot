@@ -92,6 +92,22 @@ def test_svn_adapter_rejects_revision_and_path_injection(tmp_path):
         svn.diff(tmp_path, paths=["../outside.cpp"])
 
 
+def _agent_evidence(*read_paths: str) -> dict:
+    return {
+        "calls": {
+            "agent.svn.diff": 1,
+            **({"agent.fs.read": len(read_paths)} if read_paths else {}),
+        },
+        "successes": {
+            "agent.svn.diff": 1,
+            **({"agent.fs.read": len(read_paths)} if read_paths else {}),
+        },
+        "failures": {},
+        "read_paths": list(read_paths),
+        "read_paths_truncated": False,
+    }
+
+
 def _agent_json():
     return json.dumps({
         "summary": "状态机修改会影响启动、完成和异常恢复。",
@@ -119,6 +135,10 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     (tmp_path / "src" / "RunController.cpp").write_text("void run(){}", encoding="utf-8")
 
     cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    repos.create_case(
+        db_conn, case_id="TC-1", zentao_case_id=None,
+        title="已有状态机回归", raw={"steps_text": "已有覆盖"},
+        zentao_updated_at=None)
     calls = []
 
     progress_events = []
@@ -133,11 +153,20 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
         })
         return {
             "text": _agent_json(), "tool_calls": 4, "elapsed_ms": 20,
-            "audit": [{
-                "seq": 1, "method": "agent.svn.diff", "params": {},
-                "ok": True, "elapsed_ms": 3,
-                "result": {"chars": 10, "truncated": False, "path_count": 1},
-            }],
+            "audit": [
+                {
+                    "seq": 1, "method": "agent.svn.diff", "params": {},
+                    "ok": True, "elapsed_ms": 3,
+                    "result": {"chars": 10, "truncated": False, "path_count": 1},
+                },
+                {
+                    "seq": 2, "method": "agent.fs.read",
+                    "params": {"path": "src/RunController.cpp"},
+                    "ok": True, "elapsed_ms": 1,
+                    "result": {"path": "src/RunController.cpp", "lines": 1},
+                },
+            ],
+            "evidence": _agent_evidence("src/RunController.cpp"),
         }
 
     service = ChangeAnalysisService(
@@ -153,6 +182,8 @@ def test_change_service_agent_only_returns_plan_main_process_persists(
     assert out["created"] == 1
     assert out["agent"]["tool_calls"] == 4
     assert out["agent"]["audit"][0]["method"] == "agent.svn.diff"
+    assert out["agent"]["evidence"]["successes"]["agent.svn.diff"] == 1
+    assert out["agent"]["evidence"]["read_paths"] == ["src/RunController.cpp"]
     assert any(
         event.get("phase") == "agent_tool"
         and event.get("tool") == "tp_svn_diff"
@@ -199,11 +230,14 @@ def test_change_service_dedupes_duplicate_intents_from_one_agent_turn(
         tmp_path, db_conn, fake_zentao, fake_llm):
     cases = CaseService(db_conn, fake_zentao, fake_llm, {})
     payload = json.loads(_agent_json())
+    payload["cases"][0]["source_files"] = ["src/a.cpp"]
+    payload["cases"][0]["related_case_ids"] = []
     payload["cases"].append(dict(payload["cases"][0]))
 
     def agent_runner(**_kwargs):
         return {"text": json.dumps(payload, ensure_ascii=False),
-                "tool_calls": 2, "elapsed_ms": 10}
+                "tool_calls": 2, "elapsed_ms": 10,
+                "evidence": _agent_evidence()}
 
     service = ChangeAnalysisService(db_conn, cases, {"svn": {}}, agent_runner)
     service.svn = StubSvn(tmp_path)
@@ -213,6 +247,76 @@ def test_change_service_dedupes_duplicate_intents_from_one_agent_turn(
     assert out["reused"] == 0
     assert out["duplicates_dropped"] == 1
     assert len(out["cases"]) == 1
+
+
+def test_change_service_requires_main_rpc_diff_evidence_before_persist(
+        tmp_path, db_conn, fake_zentao, fake_llm):
+    cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    payload = json.loads(_agent_json())
+    payload["cases"][0]["source_files"] = ["src/a.cpp"]
+    payload["cases"][0]["related_case_ids"] = []
+
+    def agent_runner(**_kwargs):
+        return {
+            "text": json.dumps(payload, ensure_ascii=False),
+            "tool_calls": 1,
+            "evidence": {
+                "calls": {"agent.svn.diff": 1},
+                "successes": {},
+                "failures": {"agent.svn.diff": 1},
+                "read_paths": [],
+            },
+        }
+
+    service = ChangeAnalysisService(db_conn, cases, {"svn": {}}, agent_runner)
+    service.svn = StubSvn(tmp_path)
+    with pytest.raises(AgentError, match="成功读取 SVN diff"):
+        service.generate({"workingCopy": str(tmp_path), "parse": False})
+
+    assert not [
+        row for row in repos.list_cases(db_conn)
+        if (row.get("raw") or {}).get("source") == "svn_agent"
+    ]
+
+
+def test_change_service_preflights_all_source_and_related_evidence_before_persist(
+        tmp_path, db_conn, fake_zentao, fake_llm):
+    cases = CaseService(db_conn, fake_zentao, fake_llm, {})
+    payload = json.loads(_agent_json())
+    payload["cases"] = [
+        {
+            **payload["cases"][0],
+            "title": "合法变更路径",
+            "source_files": ["src/a.cpp"],
+            "related_case_ids": [],
+        },
+        {
+            **payload["cases"][0],
+            "title": "幻觉来源",
+            "source_files": ["src/not-real.cpp"],
+            "related_case_ids": ["TC-NOT-FOUND"],
+        },
+    ]
+
+    def agent_runner(**_kwargs):
+        return {
+            "text": json.dumps(payload, ensure_ascii=False),
+            "tool_calls": 1,
+            "evidence": _agent_evidence(),
+        }
+
+    service = ChangeAnalysisService(db_conn, cases, {"svn": {}}, agent_runner)
+    service.svn = StubSvn(tmp_path)
+    with pytest.raises(AgentError, match="生成依据校验失败") as exc:
+        service.generate({"workingCopy": str(tmp_path), "parse": False})
+    assert "src/not-real.cpp" in str(exc.value)
+    assert "TC-NOT-FOUND" in str(exc.value)
+
+    # 所有依据在写库前一次性校验，不能留下“前一条已落库”的半提交状态。
+    assert not [
+        row for row in repos.list_cases(db_conn)
+        if (row.get("raw") or {}).get("source") == "svn_agent"
+    ]
 
 
 def test_change_service_preserves_audit_when_agent_output_is_invalid(
@@ -515,6 +619,34 @@ def test_agent_rpc_records_structured_audit_without_source_body(tmp_path, rpc_sv
     assert service.agent_audit(token) == []
 
 
+def test_agent_evidence_survives_display_audit_trimming(tmp_path, rpc_svc):
+    service = rpc_svc
+    token = service.issue_agent_token(tmp_path)
+    scope = service._agent_connection_scope("Bearer " + token)
+    assert scope is not None
+
+    service._record_agent_audit(
+        scope, "agent.svn.diff", {},
+        result={"chars": 10, "paths": [], "truncated": False},
+        elapsed_ms=1)
+    for index in range(205):
+        service._record_agent_audit(
+            scope, "agent.fs.read", {"path": f"src/{index}.cpp"},
+            result={"path": f"src/{index}.cpp", "lines": 1, "total_lines": 1},
+            elapsed_ms=1)
+
+    audit = service.agent_audit(token)
+    evidence = service.agent_evidence(token)
+    assert len(audit) == 200
+    assert all(item["method"] != "agent.svn.diff" for item in audit)
+    assert evidence["successes"]["agent.svn.diff"] == 1
+    assert evidence["successes"]["agent.fs.read"] == 205
+    assert evidence["read_paths"][0] == "src/0.cpp"
+    assert "src/204.cpp" in evidence["read_paths"]
+
+    service.revoke_agent_token(token)
+    assert service.agent_evidence(token) == {}
+
 
 def test_pi_runner_preserves_audit_in_failed_job_progress(
         tmp_path, rpc_svc, monkeypatch):
@@ -531,6 +663,13 @@ def test_pi_runner_preserves_audit_in_failed_job_progress(
         "elapsed_ms": 4,
         "result": {"path": "src/a.cpp", "lines": 20},
     }])
+    monkeypatch.setattr(service, "agent_evidence", lambda _token: {
+        "calls": {"agent.fs.read": 1},
+        "successes": {"agent.fs.read": 1},
+        "failures": {},
+        "read_paths": ["src/a.cpp"],
+        "read_paths_truncated": False,
+    })
     monkeypatch.setattr(service, "revoke_agent_token", revoked.append)
 
     def fail_run(self, *args, **kwargs):
@@ -549,4 +688,5 @@ def test_pi_runner_preserves_audit_in_failed_job_progress(
     assert events[-1]["phase"] == "agent_failed"
     assert events[-1]["agent_error"] == "provider unavailable"
     assert events[-1]["agent_audit"][0]["method"] == "agent.fs.read"
+    assert events[-1]["agent_evidence"]["read_paths"] == ["src/a.cpp"]
     assert revoked == ["agent-token"]

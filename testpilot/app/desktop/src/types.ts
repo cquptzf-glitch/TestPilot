@@ -544,6 +544,14 @@ export interface AgentToolAuditEntry {
   error?: string;
 }
 
+export interface AgentToolEvidence {
+  calls?: Record<string, number>;
+  successes?: Record<string, number>;
+  failures?: Record<string, number>;
+  read_paths?: string[];
+  read_paths_truncated?: boolean;
+}
+
 export interface SvnChangeGenerateResult {
   source: 'svn_agent';
   summary: string;
@@ -560,6 +568,7 @@ export interface SvnChangeGenerateResult {
     tool_calls?: number;
     elapsed_ms?: number;
     audit?: AgentToolAuditEntry[];
+    evidence?: AgentToolEvidence;
   };
 }
 

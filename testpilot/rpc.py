@@ -54,6 +54,7 @@ _DRAIN_TIMEOUT_S = 15.0     # shutdown 时等待执行中 task.run 收尾的上�
 _AUTOMATION_INLINE_PNG_MAX = 128 * 1024
 _AUTOMATION_ASSET_KEEP = 6
 _AGENT_AUDIT_LIMIT = 200
+_AGENT_EVIDENCE_PATH_LIMIT = 1000
 
 _AGENT_RPC_METHODS = frozenset({
     "agent.fs.read", "agent.fs.find", "agent.fs.grep",
@@ -73,6 +74,9 @@ class RpcService:
         self._automation_owner = None
         self._agent_tokens: dict[str, dict] = {}
         self._agent_audits: dict[str, list[dict]] = {}
+        # 与展示轨迹分离的会话证据摘要；audit 只保留最后 200 条，但
+        # 关键工具是否成功执行过不能因为长会话裁剪而丢失。
+        self._agent_evidence: dict[str, dict] = {}
         self._agent_tokens_lock = threading.RLock()
         self._interaction_lock = threading.Lock()
         self._jobs = CaseJobs(self._dispatch_case_job)
@@ -399,6 +403,7 @@ class RpcService:
             payload = {
                 "phase": phase,
                 "agent_audit": self.agent_audit(token),
+                "agent_evidence": self.agent_evidence(token),
             }
             if error:
                 payload["agent_error"] = str(error)[:500]
@@ -417,6 +422,7 @@ class RpcService:
             # 审计由主 RPC 进程产生，而不是信任 Agent 自报；只返回摘要，
             # 不重复携带源码正文 / diff 正文。
             result["audit"] = self.agent_audit(token)
+            result["evidence"] = self.agent_evidence(token)
             return result
         except AbortRequested:
             report_terminal("agent_cancelled")
@@ -1082,6 +1088,13 @@ class RpcService:
                 "session_id": session_id,
             }
             self._agent_audits[session_id] = []
+            self._agent_evidence[session_id] = {
+                "calls": {},
+                "successes": {},
+                "failures": {},
+                "read_paths": set(),
+                "read_paths_truncated": False,
+            }
         return token
 
     def agent_audit(self, token: str) -> list[dict]:
@@ -1093,11 +1106,31 @@ class RpcService:
             session_id = str(scope.get("session_id") or "")
             return [dict(item) for item in self._agent_audits.get(session_id, [])]
 
+    def agent_evidence(self, token: str) -> dict:
+        """返回不会因 audit 裁剪而丢失的主 RPC 工具执行证据摘要。"""
+        with self._agent_tokens_lock:
+            scope = self._agent_tokens.get(str(token))
+            if not scope:
+                return {}
+            session_id = str(scope.get("session_id") or "")
+            raw = self._agent_evidence.get(session_id)
+            if not raw:
+                return {}
+            return {
+                "calls": dict(raw.get("calls") or {}),
+                "successes": dict(raw.get("successes") or {}),
+                "failures": dict(raw.get("failures") or {}),
+                "read_paths": sorted(raw.get("read_paths") or ()),
+                "read_paths_truncated": bool(raw.get("read_paths_truncated")),
+            }
+
     def revoke_agent_token(self, token: str) -> None:
         with self._agent_tokens_lock:
             scope = self._agent_tokens.pop(str(token), None)
             if scope:
-                self._agent_audits.pop(str(scope.get("session_id") or ""), None)
+                session_id = str(scope.get("session_id") or "")
+                self._agent_audits.pop(session_id, None)
+                self._agent_evidence.pop(session_id, None)
 
     @staticmethod
     def _agent_audit_params(params: dict) -> dict:
@@ -1153,6 +1186,25 @@ class RpcService:
             return
         with self._agent_tokens_lock:
             audit = self._agent_audits.get(session_id)
+            evidence = self._agent_evidence.get(session_id)
+            if audit is None and evidence is None:
+                return
+
+            if evidence is not None:
+                calls = evidence["calls"]
+                calls[method] = int(calls.get(method, 0)) + 1
+                bucket_name = "successes" if error is None else "failures"
+                bucket = evidence[bucket_name]
+                bucket[method] = int(bucket.get(method, 0)) + 1
+                if error is None and method == "agent.fs.read" and isinstance(result, dict):
+                    path = str(result.get("path") or "").strip().replace("\\", "/")
+                    if path:
+                        read_paths = evidence["read_paths"]
+                        if len(read_paths) < _AGENT_EVIDENCE_PATH_LIMIT or path in read_paths:
+                            read_paths.add(path)
+                        else:
+                            evidence["read_paths_truncated"] = True
+
             if audit is None:
                 return
             seq = int(audit[-1]["seq"]) + 1 if audit else 1
@@ -1604,6 +1656,8 @@ class RpcService:
         self._automation_owner = None
         with self._agent_tokens_lock:
             self._agent_tokens.clear()
+            self._agent_audits.clear()
+            self._agent_evidence.clear()
         self._executor.shutdown(wait=False)
         self._run_executor.shutdown(wait=False)
 

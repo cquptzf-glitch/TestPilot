@@ -36,7 +36,7 @@ class GeneratedCase(BaseModel):
     rationale: str = Field(default="", max_length=4000)
     preconditions: list[str] = Field(default_factory=list, max_length=30)
     steps: list[GeneratedStep] = Field(min_length=1, max_length=50)
-    source_files: list[str] = Field(default_factory=list, max_length=50)
+    source_files: list[str] = Field(min_length=1, max_length=50)
     related_case_ids: list[str] = Field(default_factory=list, max_length=50)
 
     @field_validator("source_files")
@@ -44,12 +44,28 @@ class GeneratedCase(BaseModel):
     def _source_files_are_workspace_relative(cls, values: list[str]) -> list[str]:
         out = []
         for raw in values:
-            text = str(raw or "").strip().replace("\\", "/")
+            text = _repo_path(raw)
             if not text:
                 continue
             path = PurePosixPath(text)
             if text.startswith("/") or re.match(r"^[A-Za-z]:/", text) or ".." in path.parts:
                 raise ValueError(f"source_files 必须是工作副本内相对路径: {raw!r}")
+            if text not in out:
+                out.append(text)
+        if not out:
+            raise ValueError("source_files 至少需要 1 条真实代码来源")
+        return out
+
+    @field_validator("related_case_ids")
+    @classmethod
+    def _related_case_ids_are_clean(cls, values: list[str]) -> list[str]:
+        out = []
+        for raw in values:
+            text = str(raw or "").strip()
+            if not text:
+                continue
+            if len(text) > 200:
+                raise ValueError(f"related_case_ids 过长: {raw!r}")
             if text not in out:
                 out.append(text)
         return out
@@ -108,6 +124,8 @@ class ChangeAnalysisService:
         )
         try:
             analysis = _parse_analysis(result.get("text"), max_cases=max_cases)
+            self._validate_grounding(
+                workspace, snapshot, analysis, result.get("evidence") or {})
         except AgentError as exc:
             # Agent 进程已正常返回，但最终 JSON/Schema 无效时，也要把主 RPC
             # 工具审计留在后台 Job progress 中，避免失败现场随异常一起丢失。
@@ -116,6 +134,7 @@ class ChangeAnalysisService:
                 tool_calls=result.get("tool_calls", 0),
                 agent_error=str(exc)[:500],
                 agent_audit=result.get("audit") or [],
+                agent_evidence=result.get("evidence") or {},
             )
             raise
         self._report("agent_done", cases=len(analysis.cases),
@@ -215,6 +234,7 @@ class ChangeAnalysisService:
                 "tool_calls": result.get("tool_calls", 0),
                 "elapsed_ms": result.get("elapsed_ms"),
                 "audit": result.get("audit") or [],
+                "evidence": result.get("evidence") or {},
             },
         }
 
@@ -227,6 +247,55 @@ class ChangeAnalysisService:
         if not path.is_dir():
             raise TestPilotError(f"SVN 工作副本不存在: {path}")
         return path
+
+    def _validate_grounding(self, workspace: Path, snapshot: dict,
+                            analysis: ChangeAnalysis, evidence: dict) -> None:
+        """Fail closed before persistence when Agent output lacks trusted evidence."""
+        evidence = evidence if isinstance(evidence, dict) else {}
+        successes = evidence.get("successes")
+        successes = successes if isinstance(successes, dict) else {}
+        diff_success = successes.get("agent.svn.diff", 0)
+        if (isinstance(diff_success, bool) or not isinstance(diff_success, int)
+                or diff_success < 1):
+            raise AgentError(
+                "Pi Agent 未通过主 RPC 成功读取 SVN diff，拒绝生成测试用例")
+
+        changed_paths = {
+            _repo_path(item.get("path"))
+            for item in [*(snapshot.get("changed") or []),
+                         *(snapshot.get("working_status") or [])]
+            if _repo_path(item.get("path"))
+        }
+        read_paths = {
+            _repo_path(path)
+            for path in (evidence.get("read_paths") or [])
+            if _repo_path(path)
+        }
+
+        problems = []
+        for item in analysis.cases:
+            for source in item.source_files:
+                rel = _repo_path(source)
+                if rel in changed_paths:
+                    continue
+                if rel not in read_paths:
+                    problems.append(
+                        f"{item.title}: source_files 无 SVN 变更或 agent.fs.read 证据: {rel}")
+                    continue
+                candidate = workspace.joinpath(*PurePosixPath(rel).parts)
+                if not candidate.is_file():
+                    problems.append(
+                        f"{item.title}: source_files 当前工作区文件不存在: {rel}")
+            for case_id in item.related_case_ids:
+                if repos.get_case(self.conn, case_id) is None:
+                    problems.append(
+                        f"{item.title}: related_case_ids 不存在: {case_id}")
+
+        if problems:
+            detail = "；".join(problems[:8])
+            if len(problems) > 8:
+                detail += f"；另有 {len(problems) - 8} 项"
+            raise AgentError(f"Pi Agent 生成依据校验失败: {detail}")
 
     def _generated_by_fingerprint(self) -> dict[str, dict]:
         """Index previously generated SVN cases for idempotent regeneration."""
@@ -290,6 +359,13 @@ class ChangeAnalysisService:
             self.progress({"phase": phase, **extra})
 
 
+def _repo_path(value) -> str:
+    text = str(value or "").strip().replace("\\", "/")
+    while text.startswith("./"):
+        text = text[2:]
+    return PurePosixPath(text).as_posix() if text else ""
+
+
 def _bool_option(spec: dict, key: str, *, default: bool) -> bool:
     value = spec.get(key, default)
     if value is None:
@@ -338,8 +414,10 @@ def _build_prompt(snapshot: dict, *, max_cases: int) -> str:
 安全/工具规则：
 1. 你没有本地文件、shell、SVN 的直接权限；所有信息必须通过 tp_* 工具获取。
 2. 必须先阅读 SVN diff，再按需要读取相关源码；对关键行为使用 tp_case_search 检查已有回归覆盖。
-3. 不要修改任何文件、数据库或测试用例；TestPilot 主进程会验证并落库。
-4. 不要臆造未在代码/diff/已有用例中找到依据的具体 UI 控件名、协议字段或数值。
+3. 每条用例的 source_files 必须至少 1 条，只能引用本次 SVN 变更路径，或你确实通过 tp_read_file 成功读取过的工作区文件。
+4. related_case_ids 只能填写 tp_case_search/tp_case_detail 实际返回过且真实存在的本地用例 ID；没有依据就留空。
+5. 不要修改任何文件、数据库或测试用例；TestPilot 主进程会验证并落库。
+6. 不要臆造未在代码/diff/已有用例中找到依据的具体 UI 控件名、协议字段或数值。
 
 变更范围：
 - working_copy: {snapshot.get("working_copy")}
