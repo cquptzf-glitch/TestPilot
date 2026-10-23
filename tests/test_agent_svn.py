@@ -13,7 +13,14 @@ from testpilot.adapters.svn_adapter import SvnAdapter, _revision_args
 from testpilot.agent.change_service import ChangeAnalysisService, _parse_analysis
 from testpilot.case_parser import CaseService
 from testpilot.core.errors import AgentError, SvnError
+from testpilot.rpc import RpcService
 from testpilot.storage import repos
+
+
+@pytest.fixture()
+def rpc_svc(orch_factory):
+    """Minimal RpcService for Agent capability-boundary tests."""
+    return RpcService(orch_factory())
 
 
 class StubSvn(SvnAdapter):
@@ -163,8 +170,8 @@ def test_pi_extension_has_no_native_file_or_shell_tools():
     assert '"--no-mcp"' in runtime
 
 
-def test_agent_rpc_scope_allows_only_agent_methods_and_workspace(tmp_path, svc):
-    service, _, _ = svc
+def test_agent_rpc_scope_allows_only_agent_methods_and_workspace(tmp_path, rpc_svc):
+    service = rpc_svc
     inside = tmp_path / "src.txt"
     inside.write_text("hello\nworld", encoding="utf-8")
     scope = {"workspace": str(tmp_path.resolve())}
@@ -191,8 +198,8 @@ def test_agent_rpc_scope_allows_only_agent_methods_and_workspace(tmp_path, svc):
     assert reply["error"]["code"] == -32601
 
 
-def test_agent_capability_token_is_scoped_and_revocable(tmp_path, svc):
-    service, _, _ = svc
+def test_agent_capability_token_is_scoped_and_revocable(tmp_path, rpc_svc):
+    service = rpc_svc
     token = service.issue_agent_token(tmp_path)
     assert service._agent_connection_scope("Bearer " + token)["workspace"] == str(tmp_path.resolve())
     service.revoke_agent_token(token)
