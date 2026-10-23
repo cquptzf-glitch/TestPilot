@@ -41,6 +41,31 @@ def test_suite_case_ids_are_deduped_preserving_order(svc):
     assert updated["case_ids"] == ["TC-2", "TC-1"]
 
 
+def test_suite_rejects_malformed_collection_inputs(svc):
+    suites, _ = svc
+
+    with pytest.raises(TestPilotError, match="case_ids 必须是字符串数组"):
+        suites.create("字符串范围", "TC-1")
+    with pytest.raises(TestPilotError, match="case_ids 必须只包含非空字符串"):
+        suites.create("混合范围", ["TC-1", 2])
+    with pytest.raises(TestPilotError, match="preconditions 必须是字符串数组"):
+        suites.create("坏前置", ["TC-1"], preconditions="scene:a")
+    with pytest.raises(TestPilotError, match="driver_config 必须是对象"):
+        suites.create("坏配置", ["TC-1"], driver_config=["auto"])
+
+
+def test_suite_rejects_blank_name_and_malformed_updates(svc):
+    suites, _ = svc
+    with pytest.raises(TestPilotError, match="非空字符串"):
+        suites.create("   ", ["TC-1"])
+
+    suite = suites.create("正常", ["TC-1"])
+    with pytest.raises(TestPilotError, match="case_ids 必须是字符串数组"):
+        suites.update(suite["id"], case_ids="TC-2")
+    with pytest.raises(TestPilotError, match="preconditions 必须是字符串数组"):
+        suites.update(suite["id"], preconditions="scene:b")
+
+
 def test_create_rejects_duplicate_name(svc):
     suites, _ = svc
     suites.create("重名", ["TC-1"])
