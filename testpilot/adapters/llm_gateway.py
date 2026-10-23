@@ -17,6 +17,7 @@ import time
 from typing import Callable
 
 from testpilot.adapters import prompts
+from testpilot.core.dsl import KNOWN_ACTIONS
 from testpilot.core.errors import AbortRequested, LlmError
 
 log = logging.getLogger("testpilot.llm")
@@ -29,17 +30,6 @@ _VERIFY_OPS = {"contains", "equals", "regex"}
 
 #: 能力清单校验：args JSON Schema 支持的关键字（超出部分容忍忽略，见 11.2）
 _JSON_TYPES = {"object", "array", "string", "integer", "number", "boolean", "null"}
-
-# DSL 动作白名单（设计 6.1）；LLM 产出表外动作一律标 uncertain 交人审
-KNOWN_ACTIONS = frozenset({
-    "app.launch", "app.close", "app.wait_ready",
-    "ui.click", "ui.input", "ui.select", "ui.toggle", "ui.keypress", "ui.wait",
-    "vision.click",
-    "device.call", "device.scene",
-    "assert.ui", "assert.state", "assert.vision",
-    "sleep",
-})
-
 
 class LlmGateway:
     def __init__(self, cfg: dict, transport: Callable[[str, str | None], tuple] | None = None):
