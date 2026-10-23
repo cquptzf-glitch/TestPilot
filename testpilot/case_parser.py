@@ -93,9 +93,19 @@ class CaseService:
         if parse:
             # rejected 用例按设计不再自动解析（人审已否决）：留在清单里只会
             # 每次 sync --parse 都产出注定失败的条目
-            stale_ids = [r["case_id"] for r in self.list_cases()
-                         if (r["sync_status"] in ("stale", "conflict") or not r.get("steps"))
-                         and r["status"] != "rejected"]
+            stale_ids = []
+            for row in self.list_cases():
+                if row.get("zentao_case_id") is None or row["status"] == "rejected":
+                    continue
+                raw = row.get("raw") or {}
+                if pid is not None:
+                    try:
+                        if int(raw.get("product")) != int(pid):
+                            continue
+                    except (TypeError, ValueError):
+                        continue
+                if row["sync_status"] in ("stale", "conflict") or not row.get("steps"):
+                    stale_ids.append(row["case_id"])
             out["parse"] = self.parse_many(stale_ids) if stale_ids else {}
         return out
 
