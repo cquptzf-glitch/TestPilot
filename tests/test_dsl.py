@@ -3,7 +3,8 @@ import pytest
 from pydantic import ValidationError
 
 from testpilot.core.dsl import (DriverMode, Locator, LocatorType, OnFailure, Step,
-                               TargetDesc, TestCase, VerifySpec, execution_errors)
+                               TargetDesc, TestCase, VerifySpec, execution_errors,
+                               validate_execution)
 
 
 def test_step_defaults_and_source_text():
