@@ -109,54 +109,75 @@ class ChangeAnalysisService:
         self._report("agent_done", cases=len(analysis.cases),
                      tool_calls=result.get("tool_calls", 0))
 
-        created = []
+        generated = []
+        created_count = 0
+        reused_count = 0
+        parse_ids = []
         revision_label = str(to_rev or snapshot.get("info", {}).get("revision") or "WC")
+        existing_by_fingerprint = self._generated_by_fingerprint()
         for index, item in enumerate(analysis.cases, 1):
-            case_id = self._new_case_id(revision_label, item, index)
-            raw_steps = [step.model_dump() for step in item.steps]
-            raw = {
-                "source": "svn_agent",
-                "case_id": case_id,
-                "zentao_case_id": None,
-                "title": item.title,
-                "steps": raw_steps,
-                "steps_text": steps_to_text(raw_steps),
-                "preconditions": list(dict.fromkeys(item.preconditions)),
-                "product": None,
-                "module": None,
-                "updated_at": datetime.now().isoformat(timespec="seconds"),
-                "svn": {
-                    "working_copy": str(workspace),
-                    "from_revision": snapshot.get("from_revision"),
-                    "to_revision": snapshot.get("to_revision"),
-                    "repository_root": snapshot.get("info", {}).get("repository_root"),
-                    "repository_uuid": snapshot.get("info", {}).get("repository_uuid"),
-                    "source_files": item.source_files,
-                },
-                "generation": {
-                    "priority": item.priority,
-                    "category": item.category,
-                    "rationale": item.rationale,
-                    "related_case_ids": item.related_case_ids,
-                    "analysis_summary": analysis.summary,
-                    "risks": analysis.risks,
-                },
-            }
-            repos.create_case(
-                self.conn, case_id=case_id, zentao_case_id=None,
-                title=item.title, raw=raw, zentao_updated_at=None)
-            created.append({
+            fingerprint = self._case_fingerprint(snapshot, revision_label, item)
+            existing = existing_by_fingerprint.get(fingerprint)
+            if existing is not None:
+                case_id = existing["case_id"]
+                reused = True
+                reused_count += 1
+                if (parse_dsl and existing.get("status") != "rejected"
+                        and not existing.get("steps")):
+                    parse_ids.append(case_id)
+            else:
+                case_id = self._new_case_id(revision_label, fingerprint)
+                reused = False
+                raw_steps = [step.model_dump() for step in item.steps]
+                raw = {
+                    "source": "svn_agent",
+                    "case_id": case_id,
+                    "zentao_case_id": None,
+                    "title": item.title,
+                    "steps": raw_steps,
+                    "steps_text": steps_to_text(raw_steps),
+                    "preconditions": list(dict.fromkeys(item.preconditions)),
+                    "product": None,
+                    "module": None,
+                    "updated_at": datetime.now().isoformat(timespec="seconds"),
+                    "svn": {
+                        "working_copy": str(workspace),
+                        "from_revision": snapshot.get("from_revision"),
+                        "to_revision": snapshot.get("to_revision"),
+                        "repository_root": snapshot.get("info", {}).get("repository_root"),
+                        "repository_uuid": snapshot.get("info", {}).get("repository_uuid"),
+                        "source_files": item.source_files,
+                    },
+                    "generation": {
+                        "fingerprint": fingerprint,
+                        "priority": item.priority,
+                        "category": item.category,
+                        "rationale": item.rationale,
+                        "related_case_ids": item.related_case_ids,
+                        "analysis_summary": analysis.summary,
+                        "risks": analysis.risks,
+                    },
+                }
+                repos.create_case(
+                    self.conn, case_id=case_id, zentao_case_id=None,
+                    title=item.title, raw=raw, zentao_updated_at=None)
+                created_count += 1
+                if parse_dsl:
+                    parse_ids.append(case_id)
+                existing_by_fingerprint[fingerprint] = repos.get_case(self.conn, case_id)
+
+            generated.append({
                 "case_id": case_id, "title": item.title, "priority": item.priority,
                 "category": item.category, "source_files": item.source_files,
-                "related_case_ids": item.related_case_ids,
+                "related_case_ids": item.related_case_ids, "reused": reused,
             })
             self._report("persist", completed=index, total=len(analysis.cases),
-                         case_id=case_id)
+                         case_id=case_id, reused=reused)
 
         parsed = {}
-        if parse_dsl and created:
-            parsed = self.cases.parse_many(
-                [item["case_id"] for item in created], only_stale=False)
+        if parse_ids:
+            parsed = self.cases.parse_many(list(dict.fromkeys(parse_ids)),
+                                           only_stale=False)
 
         return {
             "source": "svn_agent",
@@ -164,8 +185,9 @@ class ChangeAnalysisService:
             "impacted_modules": analysis.impacted_modules,
             "risks": analysis.risks,
             "snapshot": snapshot,
-            "cases": created,
-            "created": len(created),
+            "cases": generated,
+            "created": created_count,
+            "reused": reused_count,
             "parse": parsed,
             "agent": {
                 "runtime": "pi",
@@ -184,12 +206,43 @@ class ChangeAnalysisService:
             raise TestPilotError(f"SVN 工作副本不存在: {path}")
         return path
 
-    def _new_case_id(self, revision: str, item: GeneratedCase, index: int) -> str:
+    def _generated_by_fingerprint(self) -> dict[str, dict]:
+        """Index previously generated SVN cases for idempotent regeneration."""
+        out = {}
+        for row in repos.list_cases(self.conn):
+            raw = row.get("raw") or {}
+            if raw.get("source") != "svn_agent":
+                continue
+            fingerprint = str((raw.get("generation") or {}).get("fingerprint") or "")
+            if fingerprint and fingerprint not in out:
+                out[fingerprint] = row
+        return out
+
+    @staticmethod
+    def _case_fingerprint(snapshot: dict, revision: str, item: GeneratedCase) -> str:
+        """Stable semantic fingerprint for the same SVN change + test intent.
+
+        Rationale/priority are deliberately excluded: model wording or triage changes
+        should not create duplicate executable intent. Step order remains significant.
+        """
+        payload = {
+            "repository_uuid": (snapshot.get("info") or {}).get("repository_uuid"),
+            "repository_root": (snapshot.get("info") or {}).get("repository_root"),
+            "from_revision": snapshot.get("from_revision"),
+            "to_revision": snapshot.get("to_revision"),
+            "effective_revision": revision,
+            "title": item.title.strip(),
+            "source_files": sorted(set(item.source_files)),
+            "preconditions": sorted(set(item.preconditions)),
+            "steps": [step.model_dump() for step in item.steps],
+        }
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                             separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def _new_case_id(self, revision: str, fingerprint: str) -> str:
         rev = re.sub(r"[^A-Za-z0-9._-]+", "-", revision).strip("-") or "WC"
-        signature = hashlib.sha1((
-            item.title + "\n" + "\n".join(item.source_files)
-        ).encode("utf-8")).hexdigest()[:8].upper()
-        base = f"SVN-{rev}-{signature}-{index:02d}"
+        base = f"SVN-{rev}-{fingerprint[:10].upper()}"
         candidate = base
         suffix = 2
         while repos.get_case(self.conn, candidate) is not None:
