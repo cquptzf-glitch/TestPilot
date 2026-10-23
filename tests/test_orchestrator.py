@@ -85,6 +85,15 @@ def test_create_task_from_suite_snapshot(orch, db_conn):
     assert repos.get_task(db_conn, out["task_id"])["case_ids"] == ["TC-1", "TC-2"]
 
 
+def test_create_task_rejects_invalid_driver_override(orch):
+    with pytest.raises(TestPilotError, match="非法驱动模式"):
+        orch.create_task({
+            "name": "非法驱动",
+            "case_ids": ["TC-1"],
+            "driver_config": {"mode": "turbo"},
+        })
+
+
 def test_create_task_explicit_options_override_suite_defaults(orch, db_conn):
     suite = orch.suites.create(
         "带默认配置", ["TC-1", "TC-2"],
