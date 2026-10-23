@@ -125,13 +125,13 @@ export default function testPilotRpcTools(pi) {
   register(pi, {
     name: "tp_svn_diff",
     label: "SVN diff via TestPilot RPC",
-    description: "Read bounded SVN diff through the TestPilot main process.",
+    description: "Read bounded SVN diff through the TestPilot main process. If truncated, request specific paths in smaller calls.",
     rpcMethod: "agent.svn.diff",
     parameters: Type.Object({
       from_revision: Type.Optional(Type.String()),
       to_revision: Type.Optional(Type.String()),
       paths: Type.Optional(Type.Array(Type.String(), { maxItems: 50 })),
-      max_chars: Type.Optional(Type.Integer({ minimum: 1000, maximum: 800000 })),
+      max_chars: Type.Optional(Type.Integer({ minimum: 10000, maximum: 200000 })),
     }),
   });
   register(pi, {
