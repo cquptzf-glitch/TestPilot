@@ -151,7 +151,9 @@ def test_sync_full_calibration_ignores_watermark(svc, fake_zentao):
 def test_sync_persists_source_state_even_when_no_remote_change(svc, db_conn):
     svc.pull([1, 2])
     out = svc.sync(product_id=1)
-    assert out["scanned"] == 0
+    # watermark 边界会重叠复核 TC-2，幂等 ingest 判 unchanged。
+    assert out["scanned"] == 1
+    assert out["unchanged"] == 1
     state = repos.get_sync_state(db_conn, "zentao", "1")
     assert state is not None
     assert state["watermark"] == "2026-01-02T00:00:00"
