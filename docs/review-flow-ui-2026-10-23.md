@@ -383,6 +383,17 @@ Vision 同样把模板、稳定 key、region、diff、手势动作降为高级�
 
 该增量只改 Desktop 交互，不新增 RPC、数据库字段或后端流程。
 
+### 3.12 探索与失败回看继续减噪
+
+继续复审 Automation / RunDetail 后，只做四处轻量调整：
+
+1. “视觉断言”只在 Vision 模式显示，不再混入 UIA 操作区；
+2. 清空探索会话复用统一 `ConfirmBar` 做二次确认，并在没有历史步骤时禁用清空按钮；
+3. Run 概览若存在 fail / blocked，用一个主按钮直接进入第一条问题用例的轨迹回放；
+4. Run 概览不再重复显示顶部 PassBar；切到用例明细 / 轨迹回放时仍保留顶部结果摘要。
+
+这些修改全部复用已有状态与跳转函数，没有新增 RPC、数据库字段或执行逻辑。
+
 ---
 
 ## 4. 不做的简化
@@ -457,16 +468,16 @@ Vision 同样把模板、稳定 key、region、diff、手势动作降为高级�
 
 ## 8. 最终自动验证
 
-当前最新验证基线（包含后续 Agent/SVN 安全收口与本轮 UI 高频交互简化）：
+当前最新验证基线（包含后续 Agent/SVN 安全收口与 Automation / RunDetail 体验收敛）：
 
 ```text
-8f8110e70337eabb2f64a22173a1100cfc59cf9b
+8c5f884c9fad5d2125c512edb064ee3d5d1ab1a0
 ```
 
 GitHub Actions run：
 
 ```text
-39934011635
+39936778196
 ```
 
 结果：
