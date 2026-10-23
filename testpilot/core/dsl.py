@@ -110,6 +110,8 @@ def execution_errors(step: Step) -> list[str]:
     if step.action.startswith("ui.") or step.action == "vision.click":
         if step.target is None:
             errors.append("交互动作缺少 target")
+    if step.action == "assert.ui" and step.target is None and step.verify.target is None:
+        errors.append("assert.ui 缺少 target（step.target 或 verify.target）")
     if step.action == "app.launch":
         if not step.args.get("exe") and not step.args.get("title_re"):
             errors.append("app.launch 至少需要 args.exe 或 args.title_re")
