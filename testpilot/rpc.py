@@ -1012,7 +1012,7 @@ class RpcService:
         selected = lines[offset - 1: offset - 1 + limit]
         log.info(f"agent.fs.read {path} lines={offset}..{offset + len(selected) - 1}")
         return {
-            "path": str(path.relative_to(self._agent_workspace(p))),
+            "path": path.relative_to(self._agent_workspace(p)).as_posix(),
             "offset": offset, "lines": len(selected), "total_lines": len(lines),
             "content": "\n".join(f"{offset + i}: {line}" for i, line in enumerate(selected)),
         }
@@ -1031,7 +1031,7 @@ class RpcService:
                 continue
             if any(part in (".svn", ".git", "node_modules") for part in rel.parts):
                 continue
-            out.append({"path": str(rel), "type": "dir" if path.is_dir() else "file"})
+            out.append({"path": rel.as_posix(), "type": "dir" if path.is_dir() else "file"})
             if len(out) >= limit:
                 break
         log.info(f"agent.fs.find workspace={root} pattern={pattern!r} count={len(out)}")
@@ -1076,7 +1076,7 @@ class RpcService:
             for no, line in enumerate(raw.decode("utf-8", "replace").splitlines(), 1):
                 matched = bool(pattern.search(line)) if pattern else needle in line.lower()
                 if matched:
-                    out.append({"path": str(rel), "line": no, "text": line[:500]})
+                    out.append({"path": rel.as_posix(), "line": no, "text": line[:500]})
                     if len(out) >= limit:
                         break
         log.info(f"agent.fs.grep workspace={root} query={query[:80]!r} hits={len(out)}")
@@ -1096,9 +1096,15 @@ class RpcService:
         paths = p.get("paths")
         if paths is not None and (not isinstance(paths, list) or len(paths) > 50):
             raise RpcError(INVALID_PARAMS, "paths 需为最多 50 条路径")
+        try:
+            requested = int(p.get("max_chars") or 120_000)
+        except (TypeError, ValueError):
+            raise RpcError(INVALID_PARAMS, "max_chars 需为整数") from None
+        max_chars = max(10_000, min(requested, 200_000))
         out = SvnAdapter(self._orch.cfg.get("svn", {})).diff(
             root, from_revision=p.get("from_revision"), to_revision=p.get("to_revision"),
-            paths=paths, max_chars=p.get("max_chars"))
+            paths=paths, max_chars=max_chars)
+        out["agent_limit_chars"] = max_chars
         log.info(f"agent.svn.diff workspace={root} chars={out.get('chars')}")
         return out
 
@@ -1283,7 +1289,8 @@ class RpcService:
             headers = getattr(request, "headers", request)
             origin = headers.get("Origin")
             supplied = headers.get("Authorization", "")
-            request_path = getattr(request, "path", "") or ""
+            request_path = (getattr(request, "path", "") or
+                            (connection if isinstance(connection, str) else ""))
             allowed = origin in (None, "tauri://localhost", "http://tauri.localhost",
                                  "https://tauri.localhost")
             main_ok = hmac.compare_digest(supplied, f"Bearer {self.token}")
