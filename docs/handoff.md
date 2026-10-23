@@ -6,6 +6,41 @@
 
 ---
 
+## 2026-10-23 SVN 变更 Agent 与禅道增量优化
+
+本轮新增/调整的核心约束：
+
+1. **所有 Agent 工具读取、操作都由 TestPilot 主 RPC 进程执行。**
+2. Pi 只负责推理与 Tool Call 决策，不直接获得文件、Shell、SVN、DB 工具。
+3. Pi 以 `--no-builtin-tools --no-mcp --no-skills` 等受限方式启动，只加载 `pi_rpc_tools.mjs`。
+4. 主进程为每次 Agent 流程签发短期、workspace-bound capability token，只允许内部 `agent.*` 方法；Agent 不持有桌面主 Token。
+5. SVN→用例生成必须走 `job.start(method=change.svn.generate)`，避免 Agent tool 回调与单线程 RPC IO executor 自锁。
+
+已落地：
+
+- `core.contracts.AgentPort`；
+- `agent/pi_runtime.py`：Pi RPC subprocess；
+- `agent/pi_rpc_tools.mjs`：纯 RPC proxy tools；
+- 主 RPC `agent.fs.* / agent.svn.* / agent.case.*` 工具宿主与路径/权限/体积限制；
+- `adapters/svn_adapter.py`；
+- `agent/change_service.py`：SVN 快照→Pi 级联影响分析→Pydantic 校验→主进程落本地 draft→可选 DSL parse；
+- Desktop “用例与审核 → SVN 变更生成”页面；
+- Pi/SVN 设置与 health 状态；
+- 单元测试覆盖路径逃逸、revision 注入、Agent 越权、输出结构与来源追踪。
+
+禅道复审新增两项修复：
+
+- 日常增量同步真正使用**按产品隔离的远端更新时间水位**，不再对产品所有用例补详情；
+- 新增 `source_sync_state`，即使本次 0 变更也会记录产品源的真实最后同步时间；
+- UI 显式区分“增量同步”与“全量校准”，CLI 支持 `case sync --full`。
+
+设计详见：
+
+- `docs/agent-svn-change-analysis.md`
+- `docs/review-zentao-2026-10-23.md`
+
+当前仍遵循：**功能/单测优先，真机 smoke 暂不阻塞开发。**
+
 ## 2026-10-23 Computer Use 动作面扩展
 
 在前两阶段的 observe/query/element_index/视觉/设备探索基础上，本轮继续补齐桌面交互动作，并坚持“探索动作必须能固化成确定性 DSL”：
