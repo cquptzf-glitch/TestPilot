@@ -67,7 +67,8 @@
 | AG-103 | P1 | DONE | SVN 变更级联生成 | SVN snapshot → Pi 影响分析 → Pydantic 校验 → 主进程落本地 draft → 可选解析 DSL → 人审。 |
 | AG-104 | P1 | DONE | Agent 后台 Job | change.svn.generate 只能通过 job.start 运行，支持进度/取消并避免 RPC 单线程回调死锁。 |
 | AG-105 | P1 | DONE | 桌面 SVN 变更工作流 | 新增“用例与审核 → SVN 变更生成”页：预览变更、revision 范围、最大用例数、Agent 生成、DSL 审核跳转。 |
-| AG-106 | P1 | DOING | Agent/SVN 单测与 CI | 已加入 revision/path 越权、RPC 权限、输出 schema、来源追踪等测试；当前等待最新 CI 绿灯。 |
+| AG-106 | P1 | DONE | Agent/SVN 单测与 CI | revision/path 越权、RPC capability、输出 schema、来源追踪、上下文预算、Pi CLI 兼容均有回归；Actions run 39884433953：Python unit+ruff / Desktop build 全绿。 |
+| AG-107 | P1 | DONE | Agent 最小权限与 Pi 兼容硬化 | 工具白名单 fail-closed；空列表=0 工具；Pi flags 按 --help 选择安全兼容项；Node 20.10/21 才注入原生 WebSocket 实验开关，22+不注入。 |
 
 ## 环境验证项（当前不阻塞功能开发）
 
@@ -77,6 +78,7 @@
 | E-002 | ENV | 125% / 150% / 200% / 多屏 DPI 截图与 UIA rect 对齐 |
 | E-003 | ENV | 干净 Windows 机器安装包安装/卸载/sidecar 启动 |
 | E-004 | ENV | 真设备 + 模拟器场景联合 smoke |
+| E-005 | ENV | 公司 SVN + 实际 Pi provider/model 的端到端 Agent 变更分析 smoke（当前不阻塞功能开发） |
 
 ## 执行原则
 
