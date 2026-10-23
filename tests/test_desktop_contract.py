@@ -76,6 +76,31 @@ def test_release_versions_are_consistent():
     assert re.fullmatch(r"\d+\.\d+\.\d+", py_version), f"版本号不是 SemVer: {py_version}"
 
 
+def test_tauri_js_and_rust_minor_versions_match():
+    """Tauri CLI 会拒绝 JS API 与 Rust crate 跨 minor 漂移，必须在干净机也可重现构建。"""
+    package = json.loads(_read(PACKAGE_JSON))
+    api_version = package["dependencies"]["@tauri-apps/api"].lstrip("^~")
+    cli_version = package["devDependencies"]["@tauri-apps/cli"].lstrip("^~")
+
+    lock_text = _read(CARGO_LOCK)
+    rust_match = re.search(
+        r'\[\[package\]\]\s*\nname = "tauri"\s*\nversion = "([^"]+)"',
+        lock_text,
+    )
+    assert rust_match, "Cargo.lock 未找到 tauri crate"
+    rust_version = rust_match.group(1)
+
+    def minor(v: str) -> tuple[int, int]:
+        m = re.match(r"^(\d+)\.(\d+)\.", v)
+        assert m, f"非法 Tauri 版本: {v}"
+        return int(m.group(1)), int(m.group(2))
+
+    assert minor(api_version) == minor(rust_version), (
+        f"@tauri-apps/api={api_version} 与 tauri={rust_version} minor 不一致")
+    assert minor(cli_version) == minor(rust_version), (
+        f"@tauri-apps/cli={cli_version} 与 tauri={rust_version} minor 不一致")
+
+
 def test_step_editor_supports_extended_computer_use_actions():
     source = _read(DESKTOP / "src" / "components" / "StepEditor.tsx")
     for action in ("ui.right_click", "ui.scroll", "ui.drag"):
