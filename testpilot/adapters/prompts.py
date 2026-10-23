@@ -19,7 +19,7 @@ PROMPT_VERSIONS = {
 _ACTION_ACTIONS = "\n".join(
     f"- {line}" for line in (
         "app.launch     启动被测程序；args: {exe, args, title_re}",
-        "app.close      关闭被测程序；args: {mode: graceful|kill}",
+        "app.close      关闭被测程序；args: {mode: graceful|force}",
         "app.wait_ready 等待就绪；timeout_ms",
         "ui.click       点击控件；target 必填",
         "ui.input       输入文本；target 必填，value 为文本，args: {clear: bool}",
