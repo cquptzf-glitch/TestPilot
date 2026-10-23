@@ -40,8 +40,16 @@ class CaseFinished(DomainEvent):
 
 @dataclass
 class RunFinished(DomainEvent):
+    """Run 进度事件。
+
+    phase 必须位于 payload 顶层：桌面端按 payload.phase 判断
+    start/case_done/finished。阶段附带的统计仍放在 payload.stats。
+    类名保留 RunFinished 以兼容既有导入；事件本身覆盖完整 run 生命周期。
+    """
     event: str = "run.progress"
 
     @classmethod
-    def of(cls, run_id, stats):
-        return cls(payload={"run_id": run_id, "stats": stats})
+    def of(cls, run_id, progress):
+        data = dict(progress or {})
+        data["run_id"] = run_id
+        return cls(payload=data)
