@@ -309,6 +309,11 @@ def _task_to_dict(row: sqlite3.Row) -> dict:
     d["case_ids"] = _loads(d.pop("case_ids_json", None), [])
     d["preconditions"] = _loads(d.pop("preconditions_json", None), [])
     d["driver_config"] = _loads(d.pop("driver_config_json", None), {})
+    remote = _loads(d.get("remote_spec_json"), {})
+    d["remote_state"] = {
+        "creation_attempted": bool(remote.get("creation_attempted")),
+        "creation_uncertain": bool(remote.get("creation_uncertain")),
+    }
     return d
 
 
