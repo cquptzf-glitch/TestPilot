@@ -103,6 +103,42 @@ def test_sync_scans_and_updates(svc, db_conn, fake_zentao):
     assert repos.get_case(db_conn, "TC-2")["sync_status"] == "conflict"
 
 
+def test_sync_uses_effective_configured_product_id(db_conn, fake_zentao, fake_llm):
+    seen = []
+    original = fake_zentao.fetch_cases
+
+    def fetch(product_id=None, since=None):
+        seen.append((product_id, since))
+        return original(product_id, since)
+
+    fake_zentao.fetch_cases = fetch
+    svc = CaseService(
+        db_conn, fake_zentao, fake_llm,
+        {"zentao": {"product_id": 7}},
+    )
+    out = svc.sync()
+    assert seen[0][0] == 7
+    assert out["sync_state"]["scope"] == "7"
+
+
+def test_sync_parse_empty_result_has_stable_batch_shape(
+        db_conn, fake_zentao, fake_llm):
+    svc = CaseService(
+        db_conn, fake_zentao, fake_llm,
+        {"zentao": {"product_id": 1}},
+    )
+    svc.pull([1, 2])
+    # With no remote updates and no stale/empty Zentao cases, parse result remains
+    # batch-shaped instead of changing type to {}.
+    for cid in ("TC-1", "TC-2"):
+        svc.parse(cid)
+        svc.accept(cid)
+    out = svc.sync(parse=True)
+    assert out["parse"] == {
+        "parsed": 0, "failed": [], "items": [], "total": 0,
+    }
+
+
 def test_sync_full_calibration_ignores_watermark(svc, fake_zentao):
     svc.pull([1, 2])
     out = svc.sync(product_id=1, full=True)
