@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -248,7 +247,7 @@ def _parse_analysis(text: str | None, *, max_cases: int) -> ChangeAnalysis:
     except json.JSONDecodeError:
         start, end = raw.find("{"), raw.rfind("}")
         if start < 0 or end <= start:
-            raise AgentError("Pi Agent 最终输出不含 JSON 对象")
+            raise AgentError("Pi Agent 最终输出不含 JSON 对象") from None
         try:
             data = json.loads(raw[start:end + 1])
         except json.JSONDecodeError as exc:
