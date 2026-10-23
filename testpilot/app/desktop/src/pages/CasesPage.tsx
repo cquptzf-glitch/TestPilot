@@ -7,6 +7,7 @@ import { Badge, Chips, CopyId, Empty, Msg } from '../components/Bits';
 import { PromptModal, pushToast } from '../components/Ui';
 import { fmtTime, statusLabel } from '../format';
 import { msg, navigate, useAsync, useCaseJobBusy } from '../hooks';
+import { caseCanAnalyze, caseIsApproved, caseIsSelectable, caseNeedsAnalysis } from '../caseState';
 import type { CaseDetail, CaseRow, SourceSyncState } from '../types';
 
 function parseIds(text: string): number[] {
@@ -74,14 +75,13 @@ export function CasesPage({ selection }: { selection?: string }) {
 
   // 筛选后只操作当前结果，避免对隐藏用例发起分析或创建任务。
   useEffect(() => {
-    if (list.data) setSelected(prev => prev.filter(id => rows.some(r => r.case_id === id)));
+    if (list.data) setSelected(prev =>
+      prev.filter(id => rows.some(r => r.case_id === id && caseIsSelectable(r))));
   }, [rows, list.data]);
-  const pendingRows = rows.filter(r => r.status !== 'rejected'
-    && (!r.steps?.length || r.sync_status !== 'synced'));
+  const pendingRows = rows.filter(r => caseCanAnalyze(r) && caseNeedsAnalysis(r));
   const selectedRows = rows.filter(r => selected.includes(r.case_id));
-  const canCreate = selectedRows.length > 0
-    && selectedRows.every(r => r.status === 'active' && !!r.steps?.length);
-  const canAnalyze = selectedRows.length > 0 && selectedRows.every(r => r.status !== 'rejected');
+  const canCreate = selectedRows.length > 0 && selectedRows.every(caseIsApproved);
+  const canAnalyze = selectedRows.length > 0 && selectedRows.every(caseCanAnalyze);
   const review = (caseIds: string[]) => navigate('dsl', { caseId: caseIds[0], queue: caseIds.join(',') });
   const analyze = (caseIds: string[]) => run('批量分析生成 DSL',
     () => caseJob('case.parse', { caseIds }), () => { list.reload(); detail.reload(); });
