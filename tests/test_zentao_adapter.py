@@ -111,6 +111,18 @@ def test_fetch_cases_since_filter():
     assert [c["case_id"] for c in cases] == ["TC-2"]
 
 
+def test_fetch_cases_since_includes_equal_watermark_boundary():
+    page = {"total": 3, "testcases": [
+        {"id": 1, "title": "old", "steps": "", "lastEditedDate": "2026-01-31T23:59:59"},
+        {"id": 2, "title": "edge", "steps": "", "lastEditedDate": "2026-02-01T00:00:00"},
+        {"id": 3, "title": "new", "steps": "", "lastEditedDate": "2026-02-01T00:00:01"},
+    ]}
+    http = FakeHttp([page])
+    cases = ZentaoAdapter({}, http).fetch_cases(
+        product_id=1, since="2026-02-01T00:00:00")
+    assert [c["case_id"] for c in cases] == ["TC-2", "TC-3"]
+
+
 def test_fetch_cases_requires_product():
     with pytest.raises(ZentaoError):
         ZentaoAdapter({}, FakeHttp([])).fetch_cases()
