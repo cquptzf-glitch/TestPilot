@@ -12,8 +12,7 @@ import pytest
 from testpilot.adapters.svn_adapter import SvnAdapter, _revision_args
 from testpilot.agent.change_service import ChangeAnalysisService, _parse_analysis
 from testpilot.case_parser import CaseService
-from testpilot.core.errors import AgentError, RpcError, SvnError
-from testpilot.rpc import RpcService
+from testpilot.core.errors import AgentError, SvnError
 from testpilot.storage import repos
 
 
