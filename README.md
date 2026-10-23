@@ -6,13 +6,16 @@ AI 自动化测试平台：禅道测试用例 -> LLM 解析 DSL -> 双驱动（U
 > 开发计划：[docs/dev-plan-v1.md](docs/dev-plan-v1.md)
 > **接手必读**：[docs/handoff.md](docs/handoff.md)（当前进度快照 + 环境约束 + 下一步命令）
 > 自动化会话层增强：[docs/automation-runtime-ocu-2026-10-22.md](docs/automation-runtime-ocu-2026-10-22.md)（参考 open-computer-use：观察/查询/element_index/写后回读/MCP 会话安全）
+> Agent/SVN 变更生成：[docs/agent-svn-change-analysis.md](docs/agent-svn-change-analysis.md)（Pi 只推理；所有工具通过主 RPC 执行）
+> 禅道复审：[docs/review-zentao-2026-10-23.md](docs/review-zentao-2026-10-23.md)（真实增量水位 + 全量校准）
 > 逐轮变更流水：[docs/dev-log.md](docs/dev-log.md) ｜ 打包/排障：[docs/build-and-verify.md](docs/build-and-verify.md)
 
 ## 核心能力
 
-- **用例管理**：禅道用例按 ID 拉取入库、增量同步（stale/conflict 流转）
+- **用例管理**：禅道用例按 ID 拉取入库、按产品水位真正增量同步（stale/conflict 流转）+ 全量校准
 - **测试方案**：本地持久化用例集（顺序/前置模拟器场景/方案级驱动配置），一键建任务
 - **真实 AI 联调**：默认 pumen-vllm（空密钥），支持图片归因与视觉坐标转换；[修复与实测记录](docs/fix-ai-zentao-2026-10-16.md)
+- **Agent 变更分析**：SVN revision/工作副本修改 → Pi Agent 级联影响分析 → 本地测试用例草稿 → 可选 DSL 解析 → 人审；Pi 无原生文件/Shell工具，所有工具均回到主 RPC 执行
 - **双驱动执行**：UIA 对象驱动（pywinauto 主干）+ 视觉驱动（OpenCV 模板 + 内网 VLM 兜底），路由带学习闭环
 - **Qt 专项适配**：Widgets / Quick-QML 的表格行列、页签、树、列表、复选框、弹窗、多窗口及可访问自绘控件；真实桌面端和驱动验收见 [Qt 专项记录](docs/qt-specialist-2026-10-16.md)
 - **模拟器联动**：WebSocket 带外接口直控模拟核心（hello 握手 + 能力清单 + 指令回执 + 状态快照入轨迹）
@@ -124,7 +127,8 @@ testpilot/
 ├── core/          # 领域核心：dsl / contracts(Protocol 端口 + DriverManifest) / registry / errors / events
 ├── engine/        # 执行域：executor / router / verifier / judge / orchestrator(含失败复跑) / stats(驱动降级/稳定性/对比)
 ├── drivers/       # 驱动适配：uia_driver / vision_driver / emulator_adapter（GUI 依赖惰性导入）
-├── adapters/      # 外部适配：zentao_adapter(同步门面) / llm_gateway / prompts
+├── adapters/      # 外部适配：zentao_adapter / svn_adapter / llm_gateway / prompts
+├── agent/         # AgentPort 默认实现：Pi RPC runtime + RPC-only tools + SVN 变更生成服务
 ├── knowledge/     # 知识域：signature / service（元素库/失败库/case_ctx 人审/env_compat 矩阵/路由统计）
 ├── storage/       # 持久化：db(WAL+DDL+迁移) / recorder(轨迹+驱动尝试链+每次尝试摘要) / repos / shotstore
 ├── infra/         # 横切：abort(协作取消) / logsys(结构化日志) / events(事件总线) / dpi(DPI 坐标归一) / winver
@@ -152,7 +156,8 @@ docs/              # design(设计基线) + dev-plan(开发计划) + dev-log(实
 - 注册表取代条件分支创建驱动；驱动 manifest 自描述 + **DriverConformanceTest 门禁已落地**（`tests/conformance/`，过门禁才可注册）
 - 依赖构造期注入，禁止属性后置注入；core/ 零平台依赖（只定义 Protocol）
 - GUI 依赖（pywinauto/opencv/mss/win32）一律**方法内惰性导入** —— manifest 与注册表不需要 GUI 运行时
-- LLM 只出现在解析/归因/视觉定位三处；**执行主干确定性**（不依赖 LLM，可重复回归）
+- **执行主干确定性**：正常回归不依赖 LLM/Agent；单次结构化推理走 LlmGateway，多轮代码库/影响分析统一走 AgentPort（默认 Pi）
+- **Agent 工具必须经主 RPC**：Pi 禁用 built-in/MCP/skills；文件/SVN/用例读取由短期 workspace-scoped capability token 回调 `agent.*` 主进程工具
 - LLM 输出必须过结构校验：非法步骤降级为 `uncertain` 交人审，不静默丢弃
 - 结构化 JSON 日志写 **stderr**（stdout 只留命令结果，保证 CLI 输出可解析）
 - **DPI 坐标纪律**：UIA 矩形 = 物理像素；`infra/dpi.py` 负责判定截图坐标空间并做换算，驱动不得自行硬编码 96 DPI
