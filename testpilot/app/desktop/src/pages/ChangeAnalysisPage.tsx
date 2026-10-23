@@ -90,7 +90,7 @@ export function ChangeAnalysisPage() {
       setResult(out);
       setPreview(out.snapshot);
       pushToast('pass',
-        `新增 ${out.created} 条，复用 ${out.reused ?? 0} 条测试用例${parseDsl ? '；待解析草稿已进入 DSL 审核队列' : ''}`);
+        `新增 ${out.created} 条，复用 ${out.reused ?? 0} 条，去重 ${out.duplicates_dropped ?? 0} 条${parseDsl ? '；待解析草稿已进入 DSL 审核队列' : ''}`);
       window.dispatchEvent(new Event('testpilot:cases-changed'));
     } catch (e) {
       setError(msg(e));
@@ -200,6 +200,7 @@ export function ChangeAnalysisPage() {
             <dl className="kv" style={{ marginTop: 12 }}>
               <dt>新增用例</dt><dd>{result.created}</dd>
               <dt>复用已有</dt><dd>{result.reused ?? 0}</dd>
+              <dt>本轮去重</dt><dd>{result.duplicates_dropped ?? 0}</dd>
               <dt>Agent 工具调用</dt><dd>{result.agent?.tool_calls ?? 0}</dd>
               <dt>Agent 耗时</dt><dd>{result.agent?.elapsed_ms ?? 0} ms</dd>
               <dt>DSL 解析</dt>
