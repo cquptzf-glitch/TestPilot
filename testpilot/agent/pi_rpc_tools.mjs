@@ -5,8 +5,7 @@
  * a thin JSON-RPC proxy to the main TestPilot process. The bearer token is short-lived
  * and server-scoped to agent.* methods + one canonical workspace.
  */
-import { WebSocket } from "undici";
-import { Type } from "typebox";
+import { Type } from "@sinclair/typebox";
 
 const RPC_URL = process.env.TESTPILOT_AGENT_RPC_URL || "";
 const TOKEN = process.env.TESTPILOT_AGENT_RPC_TOKEN || "";
@@ -25,9 +24,16 @@ function rpc(method, params = {}) {
   }
   return new Promise((resolve, reject) => {
     const id = "tool-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
-    const ws = new WebSocket(RPC_URL, {
-      headers: { Authorization: "Bearer " + TOKEN },
-    });
+    const WebSocketClient = globalThis.WebSocket;
+    if (typeof WebSocketClient !== "function") {
+      reject(new Error(
+        "Pi runtime has no native WebSocket; use Pi standalone/Bun or Node >=20.10"
+      ));
+      return;
+    }
+    const url = new URL(RPC_URL);
+    url.searchParams.set("agent_token", TOKEN);
+    const ws = new WebSocketClient(url.toString());
     const timer = setTimeout(() => {
       try { ws.close(); } catch {}
       reject(new Error("TestPilot RPC tool timeout"));
