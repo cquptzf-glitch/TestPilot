@@ -75,6 +75,8 @@
 | U-107 | P2 | DONE | 审核完成直接进入开始测试 | 独立 DslReview 每次 accept 后基于最新 case.list + caseIsApproved 重新计算真实待审队列，修复“手动跳到最后一条即误判整批完成”；真正全部通过后携带原 selection 直接进入 Workflow，不再返回用例库重新选。最终动作文案同步显示“保存并通过，开始测试”。无新增 RPC/后端结构。Actions run 39943804776 / SHA a12ae4ae593b26d6bc3bc664ef4eb4fdb6047f78 全绿。 |
 | U-108 | P2 | DONE | 审核后直达执行前确认 | 独立审核完成后使用 selection + ready=1 直接进入 Workflow phase 3，省掉已选用例再次点“下一步”的重复确认；真正“开始执行”仍必须人工点击。ready 必须有显式 selection，且 Workflow 会重新校验 runnable / 被测窗口，状态不满足即退回选择页。嵌入审核正常路径自动推进，重复 footer 主按钮改为仅 runnable 时的异常恢复入口。仅 Desktop 路由/状态调整，无新增 RPC。Actions run 39947666563 / SHA dc67e6c34f277a54fedd0724022b11dfe76bf907 全绿。 |
 | U-109 | P1 | DONE | 执行异常恢复避免重复运行 | Workflow 不再把 task.run RPC 失败直接等同于“未执行”。执行前记录该 task 最近 run 作为恢复基线；失败后若检测到新 run（running/completed/error/aborted 均可）则优先“查看本次运行”，不直接重试；确认无新 run 才保留 task 并“重试已有任务”。同时提供“返回修改范围”，配置/范围变化会清掉旧错误恢复状态。恢复基于 run.list(taskId) 事实，不做错误字符串匹配。仅 Desktop 调整。Actions run 39949392634 / SHA 91d8e3f49f7db37d3c91575275ba353ac1df0022 全绿。 |
+| U-110 | P2 | DONE | RunDetail 异常状态分流 | RunDetail 对 fatal_error / aborted / error / incomplete / 仅禅道 writeback 失败分别给出明确说明与主恢复动作；重新执行回 Workflow 执行前确认，不自动操作桌面；远端回写问题跳到对应 Task 走既有补偿/核对流程。仅 Desktop 展示与类型声明调整。 |
+| REL-020 | P1 | DONE | v0.2.0 自动发布链 | Python/npm/Tauri/Cargo 版本统一为 0.2.0，并新增跨语言版本一致性门禁；release: vX.Y.Z 提交触发发布 workflow，重新执行 Ruff/Pytest、sidecar 自检、preflight 与 NSIS 打包，成功后自动创建 tag/Release 并上传安装包 + SHA256SUMS。 |
 
 ## 禅道 / Agent / SVN 专项
 

@@ -493,6 +493,24 @@ RPC / 启动异常
 
 这次仍只改 Desktop Workflow，没有新增 RPC、数据库字段或后端错误分类表；恢复依据来自已有 `run.list(taskId)` 的事实状态，而不是脆弱的字符串匹配。
 
+### 3.17 RunDetail 按异常类型给出恢复动作
+
+进入异常 run 后不再只显示统一统计：
+
+- `fatal_error`：明确标为“运行级异常”，展示致命错误，主动作返回执行前确认；
+- `aborted`：说明已完成用例/步骤证据仍保留，主动作重新执行原用例范围；
+- `error` 且没有 fatal_error：提示先查看技术诊断，再决定是否重新执行；
+- `incomplete`：说明证据采集不完整，不建议作为完整回归结论；
+- 本地 run 已 `completed`、但 `writeback=error/sync_pending`：明确说明“测试已完成，仅禅道回写未完成”，跳到对应 Task 使用既有补偿/远端 ID 核对流程。
+
+重新执行统一复用 run 的 `env.case_ids` 回到 Workflow 执行前确认，不自动开始真实 UI 操作。该增量只扩展 Desktop 展示与已有类型声明，无新增 RPC / DB。
+
+### 3.18 v0.2.0 发布基线
+
+首个 GitHub Release 统一版本为 `0.2.0`。Python package、Desktop package、Tauri、Cargo.toml 与 Cargo.lock 由自动测试约束必须一致。
+
+发布提交通过独立 GitHub Actions release workflow 执行：Ruff → 全量 Pytest → PyInstaller sidecar → packaging preflight → Tauri NSIS。全部成功后才创建 `v0.2.0` tag / Release，并上传安装包与 SHA256SUMS。
+
 ---
 
 ## 4. 不做的简化
