@@ -35,11 +35,45 @@ class PiAgentRuntime:
         self.provider = str(self.cfg.get("provider") or "").strip()
         self.model = str(self.cfg.get("model") or "").strip()
         self.timeout_s = max(10, int(self.cfg.get("timeout_s") or 300))
+        self._help_cache: str | None = None
 
     def _executable(self) -> str | None:
         raw = os.path.expandvars(os.path.expanduser(self.executable))
         path = Path(raw)
         return str(path.resolve()) if path.is_file() else shutil.which(raw)
+
+    def _help_text(self, exe: str) -> str:
+        if self._help_cache is not None:
+            return self._help_cache
+        try:
+            proc = subprocess.run([exe, "--help"], capture_output=True,
+                                  timeout=5, check=False)
+            self._help_cache = (proc.stdout + proc.stderr).decode("utf-8", "replace")
+        except Exception:
+            self._help_cache = ""
+        return self._help_cache
+
+    def _command(self, exe: str, extension: Path) -> list[str]:
+        help_text = self._help_text(exe)
+        command = [exe, "--mode", "rpc", "--no-session"]
+        # Pi renamed/expanded its tool filtering flags across releases. Always choose
+        # the strongest flag actually advertised by this executable instead of passing
+        # unknown options that make otherwise-compatible Pi versions exit at startup.
+        if "--no-builtin-tools" in help_text:
+            command.append("--no-builtin-tools")
+        elif "--no-tools" in help_text:
+            command.append("--no-tools")
+        else:
+            raise AgentError("当前 Pi 不支持禁用内置工具，拒绝以不安全模式启动 Agent")
+        for flag in ("--no-mcp", "--no-skills", "--no-context-files",
+                     "--no-prompt-templates", "--no-themes", "--no-extensions"):
+            if flag in help_text:
+                command.append(flag)
+        if "-e" in help_text or "--extension" in help_text:
+            command.extend(["-e", str(extension)])
+        else:
+            raise AgentError("当前 Pi 不支持显式 extension 加载，无法装载 TestPilot RPC 工具")
+        return command
 
     def health(self) -> HealthReport:
         exe = self._executable()
@@ -79,12 +113,7 @@ class PiAgentRuntime:
         if not enabled:
             raise AgentError("Agent 没有可用的 RPC 工具")
 
-        command = [
-            exe, "--mode", "rpc", "--no-session",
-            "--no-builtin-tools", "--no-mcp",
-            "--no-skills", "--no-context-files", "--no-prompt-templates",
-            "--no-extensions", "-e", str(extension),
-        ]
+        command = self._command(exe, extension)
         if self.provider:
             command.extend(["--provider", self.provider])
         if self.model:
