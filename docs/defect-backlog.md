@@ -1,6 +1,6 @@
 # TestPilot 缺陷与改进台账
 
-> 更新时间：2026-10-22  
+> 更新时间：2026-10-23  
 > 当前策略：**先堆功能 + 单元测试/契约测试 + 前端编译门禁；暂不把真机 smoke 作为开发阻塞项。**  
 > 真机/UIA/DPI/干净机安装验证保留，但放到功能面稳定后集中执行。
 
@@ -54,6 +54,20 @@
 | A-204 | DONE | UIA 元素树筛选与折叠 | 支持父节点折叠、只看可操作元素、按 action/control type 过滤，并保留层级缩进。 |
 | A-205 | DONE | 截图缩放/平移/反查元素 | 预览支持 50%~250% 缩放、Alt+拖拽平移；UIA 模式点击截图反查最深层元素，Vision 模式拖拽框选区域。 |
 | A-206 | DONE | 被测软件目标预设 | Workflow 可保存最多 12 个常用目标（名称/窗口标题/EXE），支持套用、更新、删除并通过 localStorage 跨重启复用。 |
+
+## 禅道 / Agent / SVN 专项
+
+| ID | 优先级 | 状态 | 项目 | 说明 |
+|---|---:|---|---|---|
+| Z-101 | P1 | DONE | 禅道真正增量同步 | CaseService 使用按产品隔离 watermark 调用 fetch_cases(since)，只对新增/变更候选补详情；保留 full=true 全量校准。 |
+| Z-102 | P1 | DONE | 来源级同步状态 | 新增 source_sync_state；0 变更同步仍记录 synced_at/watermark，UI 不再拿单条 case.last_synced_at 冒充全局同步时间。 |
+| Z-103 | P1 | DONE | 增量/全量 UI 语义 | 用例页显式提供“增量同步”和“全量校准”；CLI 增加 case sync --full。 |
+| AG-101 | P0 | DONE | Agent 工具统一主 RPC 执行 | Pi 禁用 built-in/MCP/skills；自定义 tp_* 工具只做 RPC proxy；主进程执行 fs/SVN/case 读取。 |
+| AG-102 | P0 | DONE | Agent capability 隔离 | 每次 Agent 会话使用短期 workspace-bound token，仅允许 agent.* 内部方法；不暴露桌面主 Token。 |
+| AG-103 | P1 | DONE | SVN 变更级联生成 | SVN snapshot → Pi 影响分析 → Pydantic 校验 → 主进程落本地 draft → 可选解析 DSL → 人审。 |
+| AG-104 | P1 | DONE | Agent 后台 Job | change.svn.generate 只能通过 job.start 运行，支持进度/取消并避免 RPC 单线程回调死锁。 |
+| AG-105 | P1 | DONE | 桌面 SVN 变更工作流 | 新增“用例与审核 → SVN 变更生成”页：预览变更、revision 范围、最大用例数、Agent 生成、DSL 审核跳转。 |
+| AG-106 | P1 | DOING | Agent/SVN 单测与 CI | 已加入 revision/path 越权、RPC 权限、输出 schema、来源追踪等测试；当前等待最新 CI 绿灯。 |
 
 ## 环境验证项（当前不阻塞功能开发）
 
