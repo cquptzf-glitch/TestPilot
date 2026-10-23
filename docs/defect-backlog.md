@@ -3,7 +3,7 @@
 > 更新时间：2026-10-23  
 > 当前策略：**先堆功能 + 单元测试/契约测试 + 前端编译门禁；暂不把真机 smoke 作为开发阻塞项。**  
 > 真机/UIA/DPI/干净机安装验证保留，但放到功能面稳定后集中执行。  
-> 最新门禁证据：GitHub Actions run 39889342866 / SHA 48450e0d5ed07db575f734f16ba0356587323155 全绿。
+> 最新业务代码门禁证据：GitHub Actions run 39898403051 / SHA 8c5bd4f08071f4d85dacf6f0dcbd053df4ba5fa1 全绿。
 
 ## 状态约定
 
@@ -49,13 +49,26 @@
 
 | ID | 状态 | 缺口 | 下一步 |
 |---|---|---|---|
-| R-101 | DOING | RPC 数值分页参数缺少统一边界 | run.list 等查询的 limit 直接 int()，非法值会变 INTERNAL_ERROR，负数在 SQLite 可退化为无限 LIMIT；统一为受限整数解析并补回归。 |
+| R-101 | DONE | RPC 数值分页参数统一边界 | _bounded_int / _optional_positive_int / _parse_int_value 统一处理 limit/offset/attempt 等参数；非法字符串、bool、小数、0/负数映射 INVALID_PARAMS；数字字符串兼容，大值受限；run.list 与相关 RPC 已补回归。 |
 | A-201 | DONE | 大截图资产化传输 | 128KB 以下继续 inline；大图写入 screenshot_root/_explore/<sessionId> 并返回 asset_path，Desktop 走壳白名单读取；会话 reset/close 自动清理。 |
 | A-202 | DONE | ObservationDriver 公共协议 | core 定义可选 ObservationDriver；UIADriver 提供 observation_root/observation_rect，Explore 不再读取 _top/_rect_of 私有字段。 |
 | A-203 | DONE | keypress 常用键预设 | Explore UI 提供 Enter、Tab、Esc、Ctrl+A/C/V/S、F5 快捷填充，并保留高级原文输入。 |
 | A-204 | DONE | UIA 元素树筛选与折叠 | 支持父节点折叠、只看可操作元素、按 action/control type 过滤，并保留层级缩进。 |
 | A-205 | DONE | 截图缩放/平移/反查元素 | 预览支持 50%~250% 缩放、Alt+拖拽平移；UIA 模式点击截图反查最深层元素，Vision 模式拖拽框选区域。 |
 | A-206 | DONE | 被测软件目标预设 | Workflow 可保存最多 12 个常用目标（名称/窗口标题/EXE），支持套用、更新、删除并通过 localStorage 跨重启复用。 |
+
+## 流程 / UI / 执行链专项
+
+| ID | 优先级 | 状态 | 项目 | 说明 |
+|---|---:|---|---|---|
+| F-101 | P0 | DONE | Run progress 事件契约 | phase 从 stats 内层修正为 payload 顶层，Desktop 执行条、Runs、Tasks、RunDetail 恢复真正事件驱动，不再依赖轮询兜底。 |
+| F-102 | P0 | DONE | Driver capability-aware fallback | 动作前先按 capability 筛驱动；能力缺失安全跳到后续驱动；真正动作失败后仍保持副作用保护。ui.wait gone 同步修复。 |
+| F-103 | P1 | DONE | Router 学习样本去重 | “定位成功 + 动作失败”一次尝试只写 1 条 fail，不再同时 success+fail；定位耗时口径保持一致。 |
+| F-104 | P1 | DONE | Task 配置优先级与范围 | global < suite < explicit task；suite/caseIds 互斥并有序去重；显式 driver/remote 与 UI 所见一致。 |
+| F-105 | P1 | DONE | Workflow 重解析与审核队列 | 只重解析真正需要的用例；批量 DSL 审核通过后自动下一条，并基于最新 case.list 推进，消除旧快照回跳竞争。 |
+| U-101 | P1 | DONE | 日常主路径收敛 | 日常回归统一为“开始测试 → 必要解析/审核 → 执行 → 结果”；任务/方案降为高级复用入口。 |
+| U-102 | P1 | DONE | 渐进式 UI | Cases、Workflow、SVN、Automation、Tasks、Settings 把低频/高级操作折叠；RunDetail 改 result-first 并按需加载诊断数据。 |
+| U-103 | P1 | DONE | LLM/DSL 动作表单一来源 | llm_gateway 直接复用 core.dsl.KNOWN_ACTIONS，消除 Prompt / DSL / 归一化动作集合漂移。 |
 
 ## 禅道 / Agent / SVN 专项
 
