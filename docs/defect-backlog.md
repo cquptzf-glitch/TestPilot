@@ -2,7 +2,8 @@
 
 > 更新时间：2026-10-23  
 > 当前策略：**先堆功能 + 单元测试/契约测试 + 前端编译门禁；暂不把真机 smoke 作为开发阻塞项。**  
-> 真机/UIA/DPI/干净机安装验证保留，但放到功能面稳定后集中执行。
+> 真机/UIA/DPI/干净机安装验证保留，但放到功能面稳定后集中执行。  
+> 最新门禁证据：GitHub Actions run 39889342866 / SHA 48450e0d5ed07db575f734f16ba0356587323155 全绿。
 
 ## 状态约定
 
@@ -31,8 +32,8 @@
 | A-014 | P1 | DONE | 探索步骤编辑与排序 | history 支持参数编辑、上移/下移、删除；固化顺序实时跟随历史。 |
 | A-015 | P1 | DONE | Locator 稳定度与父级链 | observation 给 selector 打分；重复元素自动加入 ancestors 父级作用域链，同父级仍重复时退到局部 index。 |
 | A-016 | P1 | DONE | 探索历史压缩 | observe/query/screenshot 的历史只保存摘要，不把 PNG base64 与整棵 UI 树长期塞进会话。 |
-| A-017 | P1 | DOING | 滚动与拖拽完整链路 | 新增 ui.scroll / ui.drag：UIA+Vision Driver、Explore、正式 DSL、Executor、Desktop、AI Prompt、StepEditor 与单测均已接入；等待本批 CI 最终绿灯。 |
-| A-018 | P1 | DOING | 右键上下文动作 | 新增 ui.right_click：UIA+Vision Driver、Explore、正式 DSL、Executor、Desktop、AI Prompt、StepEditor 与单测均已接入；等待本批 CI 最终绿灯。 |
+| A-017 | P1 | DONE | 滚动与拖拽完整链路 | ui.scroll / ui.drag 已覆盖 UIA+Vision Driver、Explore、正式 DSL、Executor、Desktop、AI Prompt、StepEditor 与单测；当前 main CI 已全绿。 |
+| A-018 | P1 | DONE | 右键上下文动作 | ui.right_click 已覆盖 UIA+Vision Driver、Explore、正式 DSL、Executor、Desktop、AI Prompt、StepEditor 与单测；当前 main CI 已全绿。 |
 
 ## 当前开放缺陷 / 不足
 
