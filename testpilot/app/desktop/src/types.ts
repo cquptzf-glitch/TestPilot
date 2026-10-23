@@ -55,6 +55,10 @@ export interface TaskRow {
   preconditions: string[];
   driver_config: Record<string, unknown>;
   sync_status: 'local' | 'synced' | 'sync_pending';
+  remote_state?: {
+    creation_attempted?: boolean;
+    creation_uncertain?: boolean;
+  };
   created_at: string;
   runs?: RunRow[];
 }
