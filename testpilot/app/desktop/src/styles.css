@@ -2765,3 +2765,41 @@ details.task-create { margin-bottom: 22px; }
   gap: var(--sp-2);
   flex-wrap: wrap;
 }
+
+
+/* Run detail: result first, diagnostics on demand */
+.run-result-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+}
+.run-result-summary .passbar .track { width: min(360px, 42vw); }
+.run-attention { flex-wrap: wrap; min-height: 20px; }
+.run-diagnostics > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 32px;
+}
+.run-diagnostics > summary::-webkit-details-marker { display: none; }
+.run-diagnostics > summary::after {
+  content: "展开";
+  margin-left: auto;
+  color: var(--c-text-faint);
+  font-size: var(--fs-xs);
+}
+.run-diagnostics[open] > summary::after { content: "收起"; }
+.run-diagnostics-body {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--c-border);
+}
+.run-diagnostics-body .panel {
+  box-shadow: none;
+}
+@media (max-width: 900px) {
+  .run-result-summary { align-items: flex-start; flex-wrap: wrap; }
+  .run-result-summary .passbar .track { width: 220px; }
+}
