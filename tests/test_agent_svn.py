@@ -163,6 +163,10 @@ def test_pi_extension_has_no_native_file_or_shell_tools():
     assert "agent.svn.diff" in source
     assert "node:fs" not in source
     assert "node:child_process" not in source
+    assert "undici" not in source
+    assert 'from "ws"' not in source
+    assert "globalThis.WebSocket" in source
+    assert "@sinclair/typebox" in source
     assert "exec(" not in source
     runtime = (Path(__file__).resolve().parents[1]
                / "testpilot" / "agent" / "pi_runtime.py").read_text(encoding="utf-8")
@@ -201,6 +205,9 @@ def test_agent_rpc_scope_allows_only_agent_methods_and_workspace(tmp_path, rpc_s
 def test_agent_capability_token_is_scoped_and_revocable(tmp_path, rpc_svc):
     service = rpc_svc
     token = service.issue_agent_token(tmp_path)
-    assert service._agent_connection_scope("Bearer " + token)["workspace"] == str(tmp_path.resolve())
+    expected = str(tmp_path.resolve())
+    assert service._agent_connection_scope("Bearer " + token)["workspace"] == expected
+    assert service._agent_connection_scope("", "/?agent_token=" + token)["workspace"] == expected
     service.revoke_agent_token(token)
     assert service._agent_connection_scope("Bearer " + token) is None
+    assert service._agent_connection_scope("", "/?agent_token=" + token) is None
