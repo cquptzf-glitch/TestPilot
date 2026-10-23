@@ -11,7 +11,7 @@ import type { CaseRow, SuiteRow } from '../types';
 const MODES = ['auto', 'uia_first', 'vision_first', 'uia_only', 'vision_only'];
 
 /** 对话框状态：非 null 即打开（分别对应新建方案 / 建任务）。 */
-type Dialog = null | { kind: 'create' | 'task' | 'taskrun' };
+type Dialog = null | { kind: 'create' | 'task' };
 
 export function SuitesPage() {
   const list = useAsync(() => call<{ suites: SuiteRow[] }>('suite.list'), []);
@@ -74,7 +74,13 @@ export function SuitesPage() {
   };
 
   const createSuite = async (name: string) => {
-    const caseIds = caseInput.split(/[,，\s]+/).filter(Boolean);
+    const caseIds = Array.from(new Set(
+      caseInput.split(/[,，\s]+/).filter(Boolean),
+    ));
+    if (caseIds.length === 0) {
+      setNotice({ kind: 'warn', text: '测试方案至少需要 1 条用例' });
+      return;
+    }
     setDialog(null);
     setBusy(true); setNotice(null);
     try {
@@ -159,8 +165,10 @@ export function SuitesPage() {
       <div className="toolbar">
         <input type="text" style={{ width: 300 }} value={caseInput} placeholder="用例 ID，逗号分隔"
                onChange={(e) => setCaseInput(e.target.value)} />
-        <button className="btn primary" disabled={busy} onClick={() => setDialog({ kind: 'create' })}>
-          新建方案
+        <button className="btn primary"
+                disabled={busy || caseInput.split(/[,，\s]+/).filter(Boolean).length === 0}
+                onClick={() => setDialog({ kind: 'create' })}>
+          保存为方案
         </button>
         <span className="spacer" />
         <button className="btn" onClick={refresh}>刷新</button>
@@ -182,7 +190,7 @@ export function SuitesPage() {
               ))}
             </tbody>
           </table>
-          {suites.length === 0 && <Empty text="还没有方案：填用例 ID 后点『新建方案』" />}
+          {suites.length === 0 && <Empty text="还没有测试方案。日常测试不需要先建方案；需要长期复用固定用例集时再保存。" />}
         </div>
 
         <div className="right">
@@ -284,31 +292,14 @@ export function SuitesPage() {
 
       <PromptModal
         open={dialog?.kind === 'create'}
-        title="新建测试方案"
+        title="保存测试方案"
         label="方案名称"
         placeholder="例：冒烟回归"
-        hint={caseInput.trim()
-          ? `将纳入用例：${caseInput.trim()}`
-          : '未填用例也可先建空方案，稍后在详情页添加'}
+        hint={caseInput.trim() ? `将纳入用例：${caseInput.trim()}` : undefined}
         confirmText="创建"
         busy={busy}
         onCancel={() => setDialog(null)}
         onSubmit={(name) => void createSuite(name)}
-      />
-
-      <PromptModal
-        open={dialog?.kind === 'taskrun'}
-        title="建任务并执行"
-        label="任务名称"
-        defaultValue={current ? `${current.name}-${new Date().toISOString().slice(0, 10)}` : ''}
-        hint={current
-          ? `以方案「${current.name}」（${current.case_ids.length} 条用例）建任务并立即执行；`
-            + '执行为阻塞调用，期间本页按钮互斥'
-          : undefined}
-        confirmText="创建并执行"
-        busy={busy}
-        onCancel={() => setDialog(null)}
-        onSubmit={(name) => void createTaskAndRun(name)}
       />
 
       <PromptModal
