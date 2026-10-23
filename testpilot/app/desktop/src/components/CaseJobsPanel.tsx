@@ -54,7 +54,9 @@ export function CaseJobsPanel({ compact = false }: { compact?: boolean }) {
       {active && job.progress.tool_calls !== undefined &&
         <span>工具调用 {job.progress.tool_calls} 次</span>}
       {result && <span>成功 {result.parsed ?? 0} · 失败 {failures.length} · 待处理 {Math.max(0, (result.total ?? 0) - (result.parsed ?? 0) - failures.length)}</span>}
-      {changeResult && <span>生成 {generated.length} 条 · Pi 工具 {changeResult.agent?.tool_calls ?? 0} 次</span>}
+      {changeResult && <span>
+        新增 {changeResult.created} · 复用 {changeResult.reused ?? 0} · Pi 工具 {changeResult.agent?.tool_calls ?? 0} 次
+      </span>}
       {job.error && <span>{job.error}</span>}
       <span className="spacer" />
       {active && <button className="btn" onClick={() => {
@@ -87,7 +89,9 @@ export function CaseJobsPanel({ compact = false }: { compact?: boolean }) {
       {!!changeResult.risks?.length && <p className="muted">风险：{changeResult.risks.join('；')}</p>}
       <table className="grid"><thead><tr><th>用例</th><th>优先级 / 类型</th><th>来源文件</th><th>下一步</th></tr></thead>
         <tbody>{generated.map(i => <tr key={i.case_id}>
-          <td>{i.case_id}<div className="faint">{i.title}</div></td>
+          <td>{i.case_id}{i.reused && <span className="badge synced" style={{ marginLeft: 6 }}>复用</span>}
+            <div className="faint">{i.title}</div>
+          </td>
           <td>{i.priority} · {i.category}</td>
           <td className="pre-wrap">{i.source_files.join('\n') || '—'}</td>
           <td><button className="btn" onClick={() => navigate('dsl', { caseId: i.case_id })}>
