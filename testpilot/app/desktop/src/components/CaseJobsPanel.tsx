@@ -55,7 +55,7 @@ export function CaseJobsPanel({ compact = false }: { compact?: boolean }) {
         <span>工具调用 {job.progress.tool_calls} 次</span>}
       {result && <span>成功 {result.parsed ?? 0} · 失败 {failures.length} · 待处理 {Math.max(0, (result.total ?? 0) - (result.parsed ?? 0) - failures.length)}</span>}
       {changeResult && <span>
-        新增 {changeResult.created} · 复用 {changeResult.reused ?? 0} · Pi 工具 {changeResult.agent?.tool_calls ?? 0} 次
+        新增 {changeResult.created} · 复用 {changeResult.reused ?? 0} · 去重 {changeResult.duplicates_dropped ?? 0} · Pi 工具 {changeResult.agent?.tool_calls ?? 0} 次
       </span>}
       {job.error && <span>{job.error}</span>}
       <span className="spacer" />
