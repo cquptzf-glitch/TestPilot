@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 
 import { call, readAssetDataUrl } from '../bridge';
 import { Msg } from '../components/Bits';
+import { ConfirmBar } from '../components/Ui';
 import { msg, navigate } from '../hooks';
 import type {
   AutomationDraft, AutomationHistory, AutomationHistoryStep, AutomationObservation,
@@ -90,6 +91,7 @@ export function AutomationPage() {
   const [caseTitle, setCaseTitle] = useState('自动化探索路径');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [confirmReset, setConfirmReset] = useState(false);
   const [lastResult, setLastResult] = useState<Record<string, unknown> | null>(null);
   const [toolNames, setToolNames] = useState<Set<string>>(new Set());
   const [previewZoom, setPreviewZoom] = useState(100);
@@ -262,6 +264,7 @@ export function AutomationPage() {
         sessionId: target,
       });
       setSessionId(target);
+      setConfirmReset(false);
       clearLiveAutomationState();
       applyHistory(out.session, target);
       setToolNames(new Set(tools.tools.map((item) => item.name)));
@@ -752,16 +755,20 @@ export function AutomationPage() {
       : <div className="automation-preview-empty">
           {queryResult ? '查询模式不展示旧截图' : '暂无截图'}
         </div>}
-    <div className="automation-vision-assert">
-      <input value={visionExpect} onChange={(e) => setVisionExpect(e.target.value)}
-             placeholder="视觉期望，例如：页面显示“检测完成”弹窗" />
-      <button className="btn"
-              disabled={!!busy || !visionExpect.trim() || !toolNames.has('assert.vision')}
-              onClick={() => void visualAssert()}>
-        视觉断言并记录
-      </button>
-    </div>
-    {visionResult && <pre className="automation-vision-result">{JSON.stringify(visionResult, null, 2)}</pre>}
+    {exploreMode === 'vision' && <>
+      <div className="automation-vision-assert">
+        <input value={visionExpect} onChange={(e) => setVisionExpect(e.target.value)}
+               placeholder="视觉期望，例如：页面显示“检测完成”弹窗" />
+        <button className="btn"
+                disabled={!!busy || !visionExpect.trim() || !toolNames.has('assert.vision')}
+                onClick={() => void visualAssert()}>
+          视觉断言并记录
+        </button>
+      </div>
+      {visionResult && <pre className="automation-vision-result">
+        {JSON.stringify(visionResult, null, 2)}
+      </pre>}
+    </>}
   </div>;
 
   return <div className="main automation-page">
@@ -795,8 +802,21 @@ export function AutomationPage() {
           <button className="btn"
                   disabled={!!busy || sessionId === DEFAULT_AUTOMATION_SESSION_ID}
                   onClick={() => void closeAutomationSession()}>关闭当前会话</button>
-          <button className="btn danger" disabled={!!busy}
-                  onClick={() => void reset()}>清空当前会话</button>
+          {confirmReset
+            ? <ConfirmBar
+                text={historyCount > 0
+                  ? `确认清空当前会话的 ${historyCount} 步探索记录？`
+                  : '确认清空当前探索会话？'}
+                confirmText="确认清空"
+                busy={!!busy}
+                onConfirm={() => {
+                  setConfirmReset(false);
+                  void reset();
+                }}
+                onCancel={() => setConfirmReset(false)}
+              />
+            : <button className="btn danger" disabled={!!busy || historyCount === 0}
+                      onClick={() => setConfirmReset(true)}>清空当前会话</button>}
         </div>
       </details>
     </div>

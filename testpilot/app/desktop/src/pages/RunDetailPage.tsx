@@ -102,6 +102,9 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
     () => Object.entries(run?.stability ?? {})
       .filter(([, s]) => s.level === 'flaky').map(([cid]) => cid),
     [run?.stability]);
+  const attentionCase = cases.find((c) => c.status === 'fail')
+    ?? cases.find((c) => c.status === 'blocked')
+    ?? null;
 
   // 回归对比：默认取**同一任务的上一次 run** —— 回归收尾最常问的就是"比上次退步了吗"
   const runList = useAsync(() => call<{ runs: RunRow[] }>('run.list', { limit: 100, taskId: run?.task_id }),
@@ -237,7 +240,9 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
           <strong>run #{run.id}</strong>
           <span>{run.env.task_name ?? `任务#${run.task_id}`}</span>
           <Badge status={run.status} />
-          <PassBar pass={pr.pass} fail={pr.fail} blocked={pr.blocked} skip={pr.skip} total={pr.total} />
+          {tab !== 'overview' &&
+            <PassBar pass={pr.pass} fail={pr.fail} blocked={pr.blocked}
+                     skip={pr.skip} total={pr.total} />}
           <span className="spacer" />
           <span className="muted mono" title={run.started_at}>
             {fmtTime(run.started_at)} ~ {fmtTime(run.finished_at)}
@@ -290,6 +295,10 @@ export function RunDetailPage({ runId, engine, initialCaseExec, initialStepNo }:
                   <span className="chip">复跑 {run.stats.retry_cases} 条</span>}
                 {(run.stats.kb_hit_cases ?? 0) > 0 &&
                   <span className="chip">知识库命中 {run.stats.kb_hit_cases} 条</span>}
+                {attentionCase && <button className="btn primary"
+                  onClick={() => openCase(attentionCase)}>
+                  {attentionCase.status === 'fail' ? '查看失败轨迹' : '查看阻塞轨迹'} →
+                </button>}
               </div>
             </div>
           </div>
