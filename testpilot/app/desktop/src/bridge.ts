@@ -25,6 +25,7 @@ export const RPC_METHODS = [
   'case.export',
   'case.import',
   'case.parse',
+  'change.svn.preview',
   'suite.list',
   'suite.detail',
   'suite.create',
@@ -187,7 +188,12 @@ export function shotRel(
 export interface CaseJob {
   id: string; method: string;
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
-  progress: { phase?: string; case_id?: string | number; total?: number; completed?: number; result?: ParseBatchResult };
+  progress: {
+    phase?: string; case_id?: string | number; total?: number; completed?: number;
+    result?: ParseBatchResult;
+    tool?: string; tool_calls?: number; events?: number;
+    changed?: number; working?: number; cases?: number;
+  };
   error?: string; result?: unknown;
 }
 
@@ -214,7 +220,7 @@ export function notifyCaseJob(job: CaseJob): void {
 }
 
 export async function caseJob<T = unknown>(
-  method: 'case.pull' | 'case.sync' | 'case.parse',
+  method: 'case.pull' | 'case.sync' | 'case.parse' | 'change.svn.generate',
   params: Record<string, unknown>,
   changed?: (job: CaseJob) => void,
 ): Promise<T> {
