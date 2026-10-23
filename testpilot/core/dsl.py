@@ -116,10 +116,12 @@ def execution_errors(step: Step) -> list[str]:
         if not step.args.get("exe") and not step.args.get("title_re"):
             errors.append("app.launch 至少需要 args.exe 或 args.title_re")
         launch_args = step.args.get("args")
-        if launch_args is not None and (
-                not isinstance(launch_args, list)
-                or any(not isinstance(item, str) for item in launch_args)):
-            errors.append("app.launch args.args 必须是字符串数组")
+        if launch_args is not None:
+            valid_text = isinstance(launch_args, str) and bool(launch_args.strip())
+            valid_list = (isinstance(launch_args, list)
+                          and all(isinstance(item, str) for item in launch_args))
+            if not (valid_text or valid_list):
+                errors.append("app.launch args.args 必须是非空命令行字符串或字符串数组")
     if step.action == "app.close":
         mode = str(step.args.get("mode", "graceful"))
         if mode not in ("graceful", "force", "kill"):
