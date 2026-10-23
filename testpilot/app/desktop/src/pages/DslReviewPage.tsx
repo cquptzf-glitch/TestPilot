@@ -155,13 +155,13 @@ export function DslReviewPage({ caseId, queue, embedded = false, onAccepted, onB
   const disabled = busy !== null || jobBusy || !active || detail.loading || loadedForRef.current !== active;
   const position = active ? reviewQueue.indexOf(active) : -1;
   const pendingQueue = reviewQueue.filter((id) => {
+    if (id === active && draftDirty) return true;
     const item = cases.find((c) => c.case_id === id);
     return !item || !caseIsApproved(item);
   });
   const finishesSelection = !!active && (
     reviewQueue.length === 0
-      ? !data || !caseIsApproved(data)
-      : pendingQueue.length === 1 && pendingQueue[0] === active
+      || (pendingQueue.length === 1 && pendingQueue[0] === active)
   );
   const switchCase = (id: string) => {
     if (draftDirty) { setSwitchTo(id); return; }
