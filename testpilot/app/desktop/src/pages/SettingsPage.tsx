@@ -32,8 +32,8 @@ const CONFIG_TABS = [
     desc: '被测程序、驱动路由与 UIA/视觉参数' },
   { key: 'llm', title: '模型服务', groups: ['对话模型'],
     desc: '对话模型（用例解析与失败归因）' },
-  { key: 'integration', title: '集成', groups: ['禅道', '设备模拟器'],
-    desc: '禅道（地址与账号密码）、设备模拟器' },
+  { key: 'integration', title: '集成', groups: ['禅道', 'Agent Runtime', 'SVN 变更分析', '设备模拟器'],
+    desc: '禅道、Pi Agent、SVN 与设备模拟器' },
   { key: 'knowledge', title: '知识库与日志', groups: ['知识库', '日志'],
     desc: '知识库阈值与日志输出' },
 ] as const;
@@ -260,6 +260,18 @@ function RuntimePanel({ engine }: { engine: EngineContextValue }) {
                   <td><Badge status={health.zentao.configured ? 'synced' : 'skip'}
                              text={health.zentao.configured ? '已配置' : '未配置'} /></td>
                   <td className="muted">未配置时任务仅落本地（sync_status=local）</td>
+                </tr>
+                <tr>
+                  <td>Pi Agent</td>
+                  <td><Badge status={health.agent?.ok ? 'pass' : 'skip'}
+                             text={health.agent?.ok ? '可用' : '未就绪'} /></td>
+                  <td className="mono muted">{health.agent?.detail ?? '未检测'}</td>
+                </tr>
+                <tr>
+                  <td>SVN CLI</td>
+                  <td><Badge status={health.svn?.ok ? 'pass' : 'skip'}
+                             text={health.svn?.ok ? '可用' : '未就绪'} /></td>
+                  <td className="mono muted">{health.svn?.detail ?? '未检测'}</td>
                 </tr>
                 <tr>
                   <td>设备模拟器</td>
