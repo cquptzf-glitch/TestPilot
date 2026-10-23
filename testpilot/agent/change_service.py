@@ -112,11 +112,18 @@ class ChangeAnalysisService:
         generated = []
         created_count = 0
         reused_count = 0
+        duplicates_dropped = 0
         parse_ids = []
+        seen_fingerprints = set()
         revision_label = str(to_rev or snapshot.get("info", {}).get("revision") or "WC")
         existing_by_fingerprint = self._generated_by_fingerprint()
         for index, item in enumerate(analysis.cases, 1):
             fingerprint = self._case_fingerprint(snapshot, revision_label, item)
+            if fingerprint in seen_fingerprints:
+                duplicates_dropped += 1
+                self._report("dedupe", completed=index, total=len(analysis.cases))
+                continue
+            seen_fingerprints.add(fingerprint)
             existing = existing_by_fingerprint.get(fingerprint)
             if existing is not None:
                 case_id = existing["case_id"]
@@ -166,8 +173,9 @@ class ChangeAnalysisService:
                     parse_ids.append(case_id)
                 existing_by_fingerprint[fingerprint] = repos.get_case(self.conn, case_id)
 
+            display_title = existing.get("title") if existing is not None else item.title
             generated.append({
-                "case_id": case_id, "title": item.title, "priority": item.priority,
+                "case_id": case_id, "title": display_title, "priority": item.priority,
                 "category": item.category, "source_files": item.source_files,
                 "related_case_ids": item.related_case_ids, "reused": reused,
             })
@@ -188,6 +196,7 @@ class ChangeAnalysisService:
             "cases": generated,
             "created": created_count,
             "reused": reused_count,
+            "duplicates_dropped": duplicates_dropped,
             "parse": parsed,
             "agent": {
                 "runtime": "pi",
