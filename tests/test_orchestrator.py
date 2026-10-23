@@ -404,6 +404,17 @@ def test_sync_pending_can_target_single_task(cfg, registry, db_conn, tmp_path):
     assert repos.get_task(db_conn, b["task_id"])["sync_status"] == "sync_pending"
 
 
+def test_remote_sync_and_reconcile_are_blocked_during_run(orch):
+    assert orch._run_lock.acquire(blocking=False)
+    try:
+        with pytest.raises(TestPilotError, match="执行中"):
+            orch.sync_pending_tasks()
+        with pytest.raises(TestPilotError, match="执行中"):
+            orch.reconcile_remote_task(1, 9001)
+    finally:
+        orch._run_lock.release()
+
+
 def test_sync_pending_unknown_task_returns_empty(cfg, registry, db_conn, tmp_path):
     """指定不存在的任务时不报错也不误伤他人（返回空结果，调用方自行提示）。"""
     o = _orch(cfg, registry, db_conn, tmp_path)
