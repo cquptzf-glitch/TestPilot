@@ -252,8 +252,11 @@ export function TasksPage({ taskId }: { taskId?: number }) {
       </table>
       {rows.length === 0 && !tasks.loading && (
         <Empty
-          text="还没有任务：先在测试方案页把用例集固化成方案，再一键建任务"
-          action={<button className="btn primary" onClick={() => navigate('suites')}>去测试方案</button>}
+          text="还没有独立任务。日常回归直接用“开始测试”；只有需要长期复用固定范围或高级参数时才在这里建任务。"
+          action={<span className="hstack">
+            <button className="btn primary" onClick={() => navigate('home')}>开始测试</button>
+            <button className="btn" onClick={() => navigate('suites')}>管理测试方案</button>
+          </span>}
         />
       )}
       {reconcileTask !== null && <PromptModal open title="核对已有禅道测试单" label="测试单 ID"
